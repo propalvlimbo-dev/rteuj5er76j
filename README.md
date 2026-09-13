@@ -95,6 +95,8 @@ opencode/opencode.json         конфиг терминального аген�
 vscode/continue-config.yaml    конфиг Continue для VS Code
 windows/install.ps1            установщик для Windows
 windows/START-*.bat            запуск в один клик
+windows/START-SMARTAPI.bat     один клик для купленного баланса: спросит ключ, поднимет
+                               роутер с дневным лимитом и соберёт сайт вместе с агентом
 tools/check_api_key.py         проверяльщик чужих ключей: подмена модели, лимиты, вранье в токенах
                                (умеет и формат OpenAI, и формат Anthropic /v1/messages)
 tools/inspect_npm_package.py   разбор чужого npm-пакета ДО установки: автоскрипты, кража

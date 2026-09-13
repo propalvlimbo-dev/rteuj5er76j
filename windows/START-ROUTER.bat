@@ -21,10 +21,13 @@ if errorlevel 1 (
 set "CFG=router\providers.json"
 if not "%~1"=="" set "CFG=%~1"
 
+REM SmartAPI: если запущено без аргументов, а ключ SMARTAPI_KEY уже есть -
+REM берём готовый конфиг с дневным лимитом и бесплатным резервом.
+if "%~1"=="" if not exist "router\providers.json" if defined SMARTAPI_KEY if exist "router\providers.smartapi.json" set "CFG=router\providers.smartapi.json"
+
 if not exist "%CFG%" (
   echo [i] Config "%CFG%" not found - copying the example.
   copy /y "router\providers.example.json" "router\providers.json" >nul
-  set "CFG=router\providers.json"
   echo [i] Open router\providers.json and paste your API keys, then restart.
 )
 
