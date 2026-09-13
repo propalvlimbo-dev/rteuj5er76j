@@ -1,0 +1,29 @@
+# Секреты и локальное состояние — никогда не коммитим
+router/providers.json
+router/state.json
+router/state.json.tmp
+*.log
+.env
+.env.*
+
+# Рабочие файлы агента
+.freecoder/
+**/.freecoder/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+package-lock.json
+
+# Системное
+.DS_Store
+Thumbs.db
+desktop.ini

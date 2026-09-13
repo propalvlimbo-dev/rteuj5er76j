@@ -1,0 +1,53 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  "_комментарий": [
+    "Куда положить этот файл:",
+    "  Windows: %USERPROFILE%\\.config\\opencode\\opencode.json",
+    "  macOS/Linux: ~/.config/opencode/opencode.json",
+    "Либо просто скопируйте его в корень своего проекта — тогда настройка будет только для проекта.",
+    "",
+    "Провайдер 'freecoder' — это ваш локальный роутер. Агент думает, что говорит с одной моделью,",
+    "а роутер сам подставляет то Gemini Flash, то Groq, то Mistral, то локальную Ollama.",
+    "Отдельно подключать провайдеров в opencode не нужно — все ключи живут в router/providers.json."
+  ],
+
+  "provider": {
+    "freecoder": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "FreeCoder (бесплатные модели через роутер)",
+      "options": {
+        "baseURL": "http://127.0.0.1:8788/v1",
+        "apiKey": "freecoder"
+      },
+      "models": {
+        "auto": {
+          "name": "auto — лучшая доступная бесплатная модель",
+          "limit": { "context": 128000, "output": 8192 }
+        },
+        "smart": {
+          "name": "smart — максимум качества (Gemini Flash / North Mini Code / Laguna)",
+          "limit": { "context": 128000, "output": 8192 }
+        },
+        "fast": {
+          "name": "fast — быстро и дёшево (Groq gpt-oss-20b)",
+          "limit": { "context": 64000, "output": 8192 }
+        },
+        "local": {
+          "name": "local — только Ollama, без интернета и лимитов",
+          "limit": { "context": 32000, "output": 8192 }
+        }
+      }
+    }
+  },
+
+  "model": "freecoder/smart",
+  "small_model": "freecoder/fast",
+
+  "_полезные_настройки": {
+    "autoupdate": false,
+    "share": "disabled"
+  },
+  "autoupdate": false,
+  "share": "disabled"
+}

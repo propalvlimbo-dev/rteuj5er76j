@@ -1,0 +1,65 @@
+# Continue (расширение VS Code / JetBrains) — конфиг под FreeCoder Router.
+# Куда положить: ~/.continue/config.yaml  (Windows: C:\Users\<вы>\.continue\config.yaml)
+#
+# После этого в Continue появится модель "FreeCoder auto", которая автоматически
+# переключается между бесплатными провайдерами (Gemini, Groq, Mistral, OpenRouter,
+# NVIDIA, GLM) и локальной Ollama. Отдельные ключи для каждого сервиса не нужны —
+# они лежат в router/providers.json.
+#
+# Важно: перед работой запустите роутер (windows\START-ROUTER.bat).
+
+name: FreeCoder
+version: 1.0.0
+schema: v1
+
+models:
+  - name: FreeCoder smart
+    provider: openai
+    model: smart
+    apiBase: http://127.0.0.1:8788/v1
+    apiKey: freecoder
+    roles:
+      - chat
+      - edit
+      - apply
+
+  - name: FreeCoder auto
+    provider: openai
+    model: auto
+    apiBase: http://127.0.0.1:8788/v1
+    apiKey: freecoder
+    defaultCompletionOptions:
+      contextLength: 128000
+      maxTokens: 8192
+    roles:
+      - chat
+      - edit
+      - apply
+
+  - name: FreeCoder fast (быстрые правки и автодополнение)
+    provider: openai
+    model: fast
+    apiBase: http://127.0.0.1:8788/v1
+    apiKey: freecoder
+    roles:
+      - autocomplete
+
+  - name: FreeCoder local (офлайн, без лимитов)
+    provider: openai
+    model: local
+    apiBase: http://127.0.0.1:8788/v1
+    apiKey: freecoder
+    roles:
+      - chat
+
+context:
+  - provider: file
+  - provider: code
+  - provider: diff
+  - provider: terminal
+  - provider: problems
+
+rules:
+  - "Отвечай по-русски."
+  - "Перед правкой прочитай файл целиком, не выдумывай содержимое."
+  - "Для больших файлов делай точечные замены, а не перезапись целиком."
