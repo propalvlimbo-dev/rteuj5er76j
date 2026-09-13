@@ -308,5 +308,90 @@ class TestEconomics(CheckerTestBase):
         self.assertTrue(all(r["status"] == "OK" for r in results), results)
 
 
+class FakeAnthropicGateway(BaseHTTPRequestHandler):
+    """Шлюз только в формате Anthropic: /v1/messages, блоки content, usage по-своему."""
+
+    protocol_version = "HTTP/1.1"
+    calls = []
+
+    def log_message(self, *a):
+        pass
+
+    def do_GET(self):
+        return self._json(404, {"error": {"message": "no models endpoint"}})
+
+    def _json(self, code, obj):
+        body = json.dumps(obj, ensure_ascii=False).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        body = json.loads(self.rfile.read(n) or b"{}")
+        FakeAnthropicGateway.calls.append({"path": self.path, "body": body,
+                                           "headers": dict(self.headers)})
+        if not self.path.endswith("/messages"):
+            return self._json(404, {"error": {"message": "use /v1/messages"}})
+        text = "".join(b.get("text", "") for m in (body.get("messages") or [])
+                       for b in (m.get("content") or []) if isinstance(b, dict))
+        content = [{"type": "text", "text": "OK"}]
+        if cak.NEEDLE in text:
+            content = [{"type": "text", "text": "МАЯК-7F3A2B-КВАРЦ"}]
+        if body.get("tools") and not any(m.get("role") == "user" and isinstance(m.get("content"), list)
+                                         and m["content"] and m["content"][0].get("type") == "tool_result"
+                                         for m in body["messages"]):
+            content = [{"type": "tool_use", "id": "toolu_9", "name": "read_file",
+                        "input": {"path": "main.py"}}]
+            stop = "tool_use"
+        else:
+            stop = "end_turn"
+        return self._json(200, {
+            "id": "msg_x", "type": "message", "role": "assistant", "model": body.get("model"),
+            "content": content, "stop_reason": stop,
+            "usage": {"input_tokens": 100, "output_tokens": 30},
+        })
+
+
+class TestAnthropicFormat(CheckerTestBase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        ThreadingHTTPServer.allow_reuse_address = True
+        cls.anth = ThreadingHTTPServer(("127.0.0.1", 18310), FakeAnthropicGateway)
+        cls.anth.daemon_threads = True
+        threading.Thread(target=cls.anth.serve_forever, daemon=True).start()
+        cls.anth_port = 18310
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.anth.shutdown()
+        cls.anth.server_close()
+        super().tearDownClass()
+
+    def test_anthropic_gateway_checked_end_to_end(self):
+        FakeAnthropicGateway.calls = []
+        report = cak.run_check(f"http://127.0.0.1:{self.anth_port}", "sk-smart-test",
+                               "sonnet-4.6", None, None, parallel=2, skip_heavy=True,
+                               api_format="anthropic")
+        statuses = {r["name"]: r["status"] for r in report["results"]}
+        self.assertEqual(statuses.get("Базовый запрос"), "OK", report["results"])
+        self.assertEqual(statuses.get("Tool calling (нужен агентам)"), "OK")
+        self.assertIn("Протокол role=tool", statuses)
+        call = FakeAnthropicGateway.calls[0]
+        self.assertTrue(call["path"].endswith("/v1/messages"), call["path"])
+        lower = {k.lower(): v for k, v in call["headers"].items()}
+        self.assertEqual(lower.get("x-api-key"), "sk-smart-test")
+
+    def test_anthropic_needle_found(self):
+        report = cak.run_check(f"http://127.0.0.1:{self.anth_port}", "k", "sonnet-4.6",
+                               None, None, parallel=2, skip_heavy=False, api_format="anthropic")
+        ctx = [r for r in report["results"] if "Контекст" in r["name"]]
+        self.assertTrue(ctx)
+        self.assertTrue(all(r["status"] == "OK" for r in ctx), ctx)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

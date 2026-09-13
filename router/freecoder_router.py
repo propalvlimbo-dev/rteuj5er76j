@@ -99,6 +99,7 @@ class Provider:
     enabled: bool = True
     headers: Dict[str, str] = field(default_factory=dict)
     limits: Dict[str, int] = field(default_factory=dict)  # rpm, rpd, tpm, tpd, max_ctx
+    cost_multiplier: float = 1.0            # множитель расхода (коэффициент модели у шлюзов)
     cooldown_on_error: int = 60             # сек. блокировки провайдера после 5xx/сети
     cooldown_on_429: int = 900              # сек. блокировки ключа при исчерпании квоты
     timeout: int = 180                      # сек. на чтение ответа (стриминг длинный!)
@@ -191,6 +192,7 @@ class Router:
                 enabled=True,
                 headers=dict(raw.get("headers", {})),
                 limits=dict(raw.get("limits", {})),
+                cost_multiplier=float(raw.get("cost_multiplier", 1.0)),
                 cooldown_on_error=int(raw.get("cooldown_on_error", 60)),
                 cooldown_on_429=int(raw.get("cooldown_on_429", 900)),
                 timeout=int(raw.get("timeout", 180)),
@@ -362,7 +364,10 @@ class Router:
             st.roll()
             st.requests_min.append(now_ts())
             st.requests_day += 1
-            st.tokens_day += tokens_in + tokens_out
+            # у шлюзов с коэффициентами списывается не 1:1, а с множителем:
+            # считаем расход в тех же единицах, что и баланс провайдера
+            mult = max(1.0, float(getattr(p, "cost_multiplier", 1.0) or 1.0))
+            st.tokens_day += int((tokens_in + tokens_out) * mult)
             st.last_used = now_ts()
             st.last_error = error
             s = self.stats.setdefault(p.name, {"ok": 0, "fail": 0, "tokens_in": 0, "tokens_out": 0, "requests": 0})
@@ -413,6 +418,28 @@ class Router:
         if p.kind == "mock":
             return MockResponse(payload), {}
 
+        if p.kind == "anthropic":
+            body = oai_to_anthropic({**payload, "model": model})
+            headers = {
+                "Content-Type": "application/json",
+                "x-api-key": key,
+                "anthropic-version": os.environ.get("ANTHROPIC_VERSION", "2023-06-01"),
+                "User-Agent": f"FreeCoderRouter/{VERSION}",
+            }
+            headers.update(p.headers or {})
+            if p.base_url.rstrip("/").endswith("/v1"):
+                url = p.base_url.rstrip("/") + "/messages"
+            else:
+                url = p.base_url.rstrip("/") + "/v1/messages"
+            data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+            req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+            ctx = None
+            if url.startswith("https://") and os.environ.get("FREECODER_NO_VERIFY") == "1":
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+            return urllib.request.urlopen(req, timeout=p.timeout, context=ctx), {}
+
         body = dict(payload)
         body["model"] = model
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")
@@ -425,6 +452,147 @@ class Router:
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
         return urllib.request.urlopen(req, timeout=p.timeout, context=ctx), {}
+
+
+
+# ----------------------------------------------------------------------------
+# Слой совместимости: клиенты говорят на языке OpenAI, а шлюз может требовать
+# формат Anthropic (/v1/messages). Здесь мы переводим запросы и ответы.
+# ----------------------------------------------------------------------------
+
+
+def oai_to_anthropic(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """OpenAI chat/completions -> Anthropic messages."""
+    messages = payload.get("messages") or []
+    system_parts: List[str] = []
+    out_messages: List[Dict[str, Any]] = []
+
+    for m in messages:
+        role = m.get("role")
+        content = m.get("content")
+        if role == "system":
+            if isinstance(content, str) and content.strip():
+                system_parts.append(content)
+            continue
+        if role == "tool":
+            block = {
+                "type": "tool_result",
+                "tool_use_id": m.get("tool_call_id") or "call_0",
+                "content": content if isinstance(content, str) else json.dumps(content, ensure_ascii=False),
+            }
+            if out_messages and out_messages[-1]["role"] == "user" and isinstance(out_messages[-1]["content"], list):
+                out_messages[-1]["content"].append(block)
+            else:
+                out_messages.append({"role": "user", "content": [block]})
+            continue
+
+        blocks: List[Dict[str, Any]] = []
+        if isinstance(content, str) and content:
+            blocks.append({"type": "text", "text": content})
+        elif isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    blocks.append({"type": "text", "text": part.get("text", "")})
+        for call in (m.get("tool_calls") or []):
+            fn = call.get("function") or {}
+            try:
+                args = json.loads(fn.get("arguments") or "{}")
+            except Exception:
+                args = {}
+            blocks.append({"type": "tool_use", "id": call.get("id") or "call_0",
+                           "name": fn.get("name") or "tool", "input": args})
+        if not blocks:
+            blocks = [{"type": "text", "text": ""}]
+        out_messages.append({"role": "assistant" if role == "assistant" else "user",
+                             "content": blocks})
+
+    body: Dict[str, Any] = {
+        "model": payload.get("model"),
+        "messages": out_messages,
+        "max_tokens": int(payload.get("max_tokens") or payload.get("max_completion_tokens") or 8192),
+    }
+    if system_parts:
+        body["system"] = "\n\n".join(system_parts)
+    if payload.get("temperature") is not None:
+        body["temperature"] = payload["temperature"]
+    if payload.get("stop") is not None:
+        stop = payload["stop"]
+        body["stop_sequences"] = [stop] if isinstance(stop, str) else list(stop)
+
+    tools = payload.get("tools")
+    if tools:
+        converted = []
+        for t in tools:
+            fn = t.get("function") or t
+            params = fn.get("parameters") or {"type": "object", "properties": {}}
+            converted.append({"name": fn.get("name"), "description": fn.get("description", ""),
+                              "input_schema": params})
+        body["tools"] = converted
+        choice = payload.get("tool_choice")
+        if choice in (None, "auto"):
+            body["tool_choice"] = {"type": "auto"}
+        elif choice == "required":
+            body["tool_choice"] = {"type": "any"}
+        elif isinstance(choice, dict) and choice.get("function", {}).get("name"):
+            body["tool_choice"] = {"type": "tool", "name": choice["function"]["name"]}
+    return body
+
+
+def anthropic_to_oai(data: Dict[str, Any], model: Optional[str]) -> Dict[str, Any]:
+    """Anthropic messages -> OpenAI chat/completions."""
+    text_parts: List[str] = []
+    tool_calls: List[Dict[str, Any]] = []
+    for block in (data.get("content") or []):
+        btype = block.get("type")
+        if btype == "text":
+            text_parts.append(block.get("text") or "")
+        elif btype == "tool_use":
+            tool_calls.append({
+                "id": block.get("id") or "call_0",
+                "type": "function",
+                "function": {"name": block.get("name") or "tool",
+                             "arguments": json.dumps(block.get("input") or {}, ensure_ascii=False)},
+            })
+    stop = data.get("stop_reason")
+    finish = {"end_turn": "stop", "stop_sequence": "stop", "max_tokens": "length",
+              "tool_use": "tool_calls"}.get(stop, "stop")
+    message: Dict[str, Any] = {"role": "assistant", "content": "".join(text_parts) or None}
+    if tool_calls:
+        message["tool_calls"] = tool_calls
+    usage = data.get("usage") or {}
+    return {
+        "id": data.get("id") or "chatcmpl-anthropic",
+        "object": "chat.completion",
+        "created": int(now_ts()),
+        "model": model or data.get("model") or "unknown",
+        "choices": [{"index": 0, "message": message, "finish_reason": finish}],
+        "usage": {
+            "prompt_tokens": int(usage.get("input_tokens") or 0),
+            "completion_tokens": int(usage.get("output_tokens") or 0),
+            "total_tokens": int((usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)),
+        },
+    }
+
+
+def oai_sse_from_message(obj: Dict[str, Any]) -> bytes:
+    """Собирает корректный SSE-поток из готового ответа (для клиентов, ждущих stream)."""
+    choice = (obj.get("choices") or [{}])[0]
+    msg = choice.get("message") or {}
+    chunks = []
+    if msg.get("content"):
+        chunks.append({"choices": [{"index": 0, "delta": {"role": "assistant",
+                                                          "content": msg["content"]}}]})
+    for call in (msg.get("tool_calls") or []):
+        chunks.append({"choices": [{"index": 0, "delta": {"tool_calls": [call]}}]})
+    chunks.append({"choices": [{"index": 0, "delta": {}, "finish_reason": choice.get("finish_reason", "stop")}],
+                   "usage": obj.get("usage")})
+    out = b""
+    for c in chunks:
+        c["model"] = obj.get("model")
+        data = json.dumps(c, ensure_ascii=False)
+        out += ("data: " + data + "\n\n").encode("utf-8")
+    out += b"data: [DONE]\n\n"
+    return out
 
 
 class MockResponse:
@@ -595,6 +763,30 @@ class Handler(BaseHTTPRequestHandler):
             tried.append(f"{p.name}/{model}")
             try:
                 resp, _ = r.call_provider_once(p, key_idx, key, model, payload, stream)
+
+                if p.kind == "anthropic":
+                    raw = json.loads(resp.read().decode("utf-8", "replace"))
+                    if raw.get("error"):
+                        raise urllib.error.HTTPError(
+                            p.url("/messages"), 400, "anthropic error", {}, None)
+                    out = anthropic_to_oai(raw, requested_model)
+                    usage = out.get("usage") or {}
+                    r.account_request(p, key_idx,
+                                      tokens_in=int(usage.get("prompt_tokens") or prompt_tokens),
+                                      tokens_out=int(usage.get("completion_tokens") or 0), ok=True)
+                    out["x_freecoder_provider"] = p.name
+                    if stream:
+                        body = oai_sse_from_message(out)
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                        self.send_header("Cache-Control", "no-cache")
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.send_header("Content-Length", str(len(body)))
+                        self.end_headers()
+                        self.wfile.write(body)
+                        return
+                    return self._send_json(out)
+
                 if p.kind == "mock" or not stream:
                     data = resp.read()
                     out = json.loads(data.decode("utf-8"))
@@ -754,6 +946,7 @@ def status_payload(r: Router) -> Dict[str, Any]:
             "priority": p.priority,
             "models": p.models,
             "limits": p.limits,
+            "cost_multiplier": p.cost_multiplier,
             "notes": p.notes,
             "keys": keys,
             "stats": r.stats.get(p.name, {}),
@@ -789,6 +982,10 @@ def dashboard_html(r: Router) -> str:
     for p in s["providers"]:
         lim = p["limits"] or {}
         lim_txt = " · ".join(f"{k.upper()}={v}" for k, v in lim.items()) or "—"
+        mult = p.get("cost_multiplier") or 1
+        if mult != 1:
+            lim_txt += f" · коэффициент расхода ×{mult}"
+            lim_txt += " (токены в панели уже умножены на коэффициент)"
         key_cells = []
         for k in p["keys"]:
             status = "⏸ остывает %ss" % k["blocked_for"] if k["blocked_for"] else "✓ готов"
@@ -798,7 +995,7 @@ def dashboard_html(r: Router) -> str:
             if lim.get("rpd"):
                 used = f" · запросов сегодня: {k['requests_day']}/{lim['rpd']}"
             if lim.get("tpd"):
-                used += f" · токенов: {k['tokens_day']:,}/{lim['tpd']:,}"
+                used += f" · израсходовано: {k['tokens_day']:,}/{lim['tpd']:,}"
             key_cells.append(f"<div class='key'>ключ #{k['index']}: {status}{used}</div>")
         st = p["stats"]
         rows.append(f"""

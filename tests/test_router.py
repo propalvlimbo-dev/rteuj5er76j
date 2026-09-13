@@ -330,5 +330,182 @@ class TestProtocol(RouterTestBase):
         self.assertEqual(r2.states["a|0"].tokens_day, 15)
 
 
+
+
+# --------------------------------------------------------------------------
+# Адаптер Anthropic: клиент говорит на OpenAI, шлюз требует /v1/messages
+# --------------------------------------------------------------------------
+
+
+class FakeAnthropic(BaseHTTPRequestHandler):
+    """Фальшивый шлюз в формате Anthropic: принимает /v1/messages, отвечает своими блоками."""
+
+    protocol_version = "HTTP/1.1"
+    requests = []
+    mode = "text"          # text | tool
+
+    def log_message(self, *a):
+        pass
+
+    def do_POST(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        body = json.loads(self.rfile.read(n) or b"{}")
+        FakeAnthropic.requests.append({"path": self.path, "body": body,
+                                       "headers": dict(self.headers)})
+        if not self.path.endswith("/messages"):
+            payload = json.dumps({"error": {"message": "use /v1/messages"}}).encode()
+            self.send_response(404)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+
+        content = [{"type": "text", "text": "Готово: файл прочитан"}]
+        stop = "end_turn"
+        if FakeAnthropic.mode == "tool":
+            content = [{"type": "tool_use", "id": "toolu_1", "name": "read_file",
+                        "input": {"path": "main.py"}}]
+            stop = "tool_use"
+        payload = json.dumps({
+            "id": "msg_1", "type": "message", "role": "assistant", "model": body.get("model"),
+            "content": content, "stop_reason": stop,
+            "usage": {"input_tokens": 120, "output_tokens": 35},
+        }, ensure_ascii=False).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+
+class TestAnthropicAdapter(RouterTestBase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        ThreadingHTTPServer.allow_reuse_address = True
+        cls.anthropic = ThreadingHTTPServer(("127.0.0.1", 18150), FakeAnthropic)
+        cls.anthropic.daemon_threads = True
+        threading.Thread(target=cls.anthropic.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.anthropic.shutdown()
+        cls.anthropic.server_close()
+        super().tearDownClass()
+
+    def setUp(self):
+        FakeAnthropic.requests = []
+        FakeAnthropic.mode = "text"
+
+    def make_anthropic_router(self, **extra):
+        return self.make_router([{
+            "name": "smartapi", "kind": "anthropic",
+            "base_url": "http://127.0.0.1:18150",
+            "keys": ["sk-smart-test"], "models": ["opus-4.8"],
+            "priority": 1, "limits": {"tpd": 1000}, **extra,
+        }], aliases={"smart": ["smartapi/opus-4.8"]})
+
+    def test_request_translated_to_anthropic(self):
+        _, port = self.make_anthropic_router()
+        code, out = self.post(port, {
+            "model": "smart", "messages": [
+                {"role": "system", "content": "Ты помощник"},
+                {"role": "user", "content": "прочитай main.py"},
+            ], "max_tokens": 100})
+        self.assertEqual(code, 200, out)
+        req = FakeAnthropic.requests[0]
+        self.assertTrue(req["path"].endswith("/v1/messages"), req["path"])
+        self.assertEqual(req["body"]["system"], "Ты помощник")
+        self.assertEqual(req["body"]["messages"][0]["role"], "user")
+        self.assertEqual(req["body"]["max_tokens"], 100)
+        lower_headers = {k.lower(): v for k, v in req["headers"].items()}
+        self.assertEqual(lower_headers.get("x-api-key"), "sk-smart-test")
+        self.assertIn("anthropic-version", lower_headers)
+
+    def test_response_translated_to_openai(self):
+        _, port = self.make_anthropic_router()
+        code, out = self.post(port, {"model": "smart",
+                                     "messages": [{"role": "user", "content": "привет"}]})
+        self.assertEqual(code, 200)
+        self.assertEqual(out["choices"][0]["message"]["content"], "Готово: файл прочитан")
+        self.assertEqual(out["usage"]["prompt_tokens"], 120)
+        self.assertEqual(out["usage"]["completion_tokens"], 35)
+        self.assertEqual(out["model"], "smart")
+
+    def test_tool_use_converted(self):
+        FakeAnthropic.mode = "tool"
+        _, port = self.make_anthropic_router()
+        code, out = self.post(port, {
+            "model": "smart", "messages": [{"role": "user", "content": "файл"}],
+            "tools": [{"type": "function", "function": {
+                "name": "read_file", "description": "читать",
+                "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}}],
+        })
+        self.assertEqual(code, 200, out)
+        sent = FakeAnthropic.requests[0]["body"]
+        self.assertEqual(sent["tools"][0]["name"], "read_file")
+        self.assertIn("input_schema", sent["tools"][0])
+        calls = out["choices"][0]["message"]["tool_calls"]
+        self.assertEqual(calls[0]["function"]["name"], "read_file")
+        self.assertEqual(json.loads(calls[0]["function"]["arguments"]), {"path": "main.py"})
+        self.assertEqual(out["choices"][0]["finish_reason"], "tool_calls")
+
+    def test_tool_result_roundtrip(self):
+        FakeAnthropic.mode = "tool"
+        _, port = self.make_anthropic_router()
+        self.post(port, {"model": "smart", "messages": [{"role": "user", "content": "файл"}],
+                         "tools": [{"type": "function", "function": {"name": "read_file",
+                                                                     "parameters": {}}}]})
+        FakeAnthropic.requests = []
+        self.post(port, {
+            "model": "smart",
+            "messages": [
+                {"role": "user", "content": "файл"},
+                {"role": "assistant", "content": None, "tool_calls": [
+                    {"id": "toolu_1", "type": "function",
+                     "function": {"name": "read_file", "arguments": "{\"path\": \"main.py\"}"}}]},
+                {"role": "tool", "tool_call_id": "toolu_1", "content": "print('hello')"},
+            ],
+            "tools": [{"type": "function", "function": {"name": "read_file", "parameters": {}}}],
+        })
+        body = FakeAnthropic.requests[0]["body"]
+        assistant = [m for m in body["messages"] if m["role"] == "assistant"][0]
+        self.assertEqual(assistant["content"][0]["type"], "tool_use")
+        tool_msg = body["messages"][-1]
+        self.assertEqual(tool_msg["role"], "user")
+        self.assertEqual(tool_msg["content"][0]["type"], "tool_result")
+        self.assertEqual(tool_msg["content"][0]["tool_use_id"], "toolu_1")
+
+    def test_streaming_client_gets_valid_sse(self):
+        _, port = self.make_anthropic_router()
+        code, body = self.post(port, {"model": "smart", "stream": True,
+                                      "messages": [{"role": "user", "content": "привет"}]}, raw=True)
+        self.assertEqual(code, 200)
+        self.assertIn("data:", body)
+        self.assertIn("Готово", body)
+        self.assertIn("[DONE]", body)
+
+    def test_cost_multiplier_counts_credits(self):
+        r, port = self.make_anthropic_router(cost_multiplier=4)
+        self.post(port, {"model": "smart", "messages": [{"role": "user", "content": "x"}]})
+        # 120 входных + 35 выходных = 155 токенов, коэффициент 4 → 620 зачётных
+        self.assertEqual(r.states["smartapi|0"].tokens_day, 620)
+
+    def test_budget_blocks_provider_then_falls_back(self):
+        """Дневной лимит зачётных токенов: после исчерпания шлюз больше не используется."""
+        r, port = self.make_router([
+            {"name": "smartapi", "kind": "anthropic", "base_url": "http://127.0.0.1:18150",
+             "keys": ["k"], "models": ["opus-4.8"], "priority": 1, "cost_multiplier": 4,
+             "limits": {"tpd": 200}},
+            {"name": "zen-free", "kind": "openai", "base_url": "http://127.0.0.1:18102/v1",
+             "keys": ["z"], "models": ["big-pickle"], "priority": 20},
+        ], aliases={"smart": ["smartapi/opus-4.8", "zen-free/big-pickle"]})
+        code, out = self.post(port, {"model": "smart", "messages": [{"role": "user", "content": "1"}]})
+        self.assertEqual(out.get("x_freecoder_provider"), "smartapi")
+        code, out = self.post(port, {"model": "smart", "messages": [{"role": "user", "content": "2"}]})
+        self.assertEqual(out.get("x_freecoder_provider"), "zen-free",
+                         "после исчерпания дневного лимита запрос должен уйти на бесплатный резерв")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -39,7 +39,17 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
+
+# Адаптер форматов берём из роутера, чтобы не дублировать логику перевода.
+_ROUTER_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "router")
+if _ROUTER_DIR not in sys.path:
+    sys.path.insert(0, _ROUTER_DIR)
+try:
+    import freecoder_router as _fcr
+    _HAS_ADAPTER = True
+except Exception:  # noqa: BLE001
+    _HAS_ADAPTER = False
 
 # ---------------------------------------------------------------------------
 # Отпечатки: по ним видно, чей каталог моделей перепродают
@@ -97,10 +107,11 @@ class Result:
 
 
 class Gateway:
-    def __init__(self, base_url: str, key: str, timeout: int = 120):
+    def __init__(self, base_url: str, key: str, timeout: int = 120, api_format: str = "openai"):
         self.base_url = base_url.rstrip("/")
         self.key = key
         self.timeout = timeout
+        self.api_format = api_format  # openai | anthropic
 
     def _headers(self) -> Dict[str, str]:
         return {
@@ -122,6 +133,33 @@ class Gateway:
 
     def chat(self, payload: Dict[str, Any], stream: bool = False,
              timeout: Optional[int] = None) -> Dict[str, Any]:
+        if self.api_format == "anthropic" and _HAS_ADAPTER:
+            url = (self.base_url + "/messages" if self.base_url.endswith("/v1")
+                   else self.base_url + "/v1/messages")
+            converted = _fcr.oai_to_anthropic(payload)
+            converted["stream"] = False
+            body = json.dumps(converted, ensure_ascii=False).encode("utf-8")
+            headers = {
+                "Content-Type": "application/json",
+                "x-api-key": self.key,
+                "anthropic-version": "2023-06-01",
+                "User-Agent": f"check-api-key/{VERSION}",
+            }
+            req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+            t0 = time.time()
+            try:
+                with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                    raw = json.loads(r.read().decode("utf-8", "replace"))
+                oai = _fcr.anthropic_to_oai(raw, payload.get("model"))
+                return {"status": 200, "json": oai, "text": json.dumps(oai, ensure_ascii=False),
+                        "elapsed": time.time() - t0}
+            except urllib.error.HTTPError as e:
+                return {"status": e.code, "text": e.read().decode("utf-8", "replace"),
+                        "elapsed": time.time() - t0, "error": True}
+            except Exception as e:  # noqa: BLE001
+                return {"status": 0, "text": f"{type(e).__name__}: {e}",
+                        "elapsed": time.time() - t0, "error": True}
+
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(self.base_url + "/chat/completions", data=body,
                                      headers=self._headers(), method="POST")
@@ -463,8 +501,8 @@ def economics(model: str, claimed_tokens: Optional[int], price_rub: Optional[flo
 
 def run_check(base_url: str, key: str, model: str, claimed_tokens: Optional[int],
               price_rub: Optional[float], parallel: int = 5,
-              skip_heavy: bool = False) -> Dict[str, Any]:
-    g = Gateway(base_url, key)
+              skip_heavy: bool = False, api_format: str = "openai") -> Dict[str, Any]:
+    g = Gateway(base_url, key, api_format=api_format)
     results: List[Result] = []
     models: List[str] = []
 
@@ -546,12 +584,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--price-rub", type=float, default=None, help="сколько вы заплатили, ₽")
     ap.add_argument("--parallel", type=int, default=5, help="число параллельных запросов (по умолчанию 5)")
     ap.add_argument("--quick", action="store_true", help="без тяжёлых тестов (контекст и нагрузка)")
+    ap.add_argument("--format", choices=["openai", "anthropic"], default="openai",
+                    help="формат шлюза: openai (обычный, /v1/chat/completions) "
+                         "или anthropic (/v1/messages)")
     ap.add_argument("--report", default=None, help="куда сохранить JSON-отчёт")
     ap.add_argument("--version", action="version", version=f"check_api_key {VERSION}")
     args = ap.parse_args(argv)
 
     report = run_check(args.base_url, args.key, args.model, args.claimed_tokens,
-                       args.price_rub, args.parallel, args.quick)
+                       args.price_rub, args.parallel, args.quick, args.format)
     if args.report:
         with open(args.report, "w", encoding="utf-8") as f:
             json.dump(report, f, ensure_ascii=False, indent=2)

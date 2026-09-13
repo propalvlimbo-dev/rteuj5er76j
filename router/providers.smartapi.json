@@ -1,0 +1,138 @@
+{
+  "_readme": [
+    "SmartAPI (smartapi.shop) + бесплатные модели в резерве.",
+    "",
+    "АДРЕС: по официальной инструкции SmartAPI это https://api.smartapi.shop в формате",
+    "ANTHROPIC (/v1/messages). Наш роутер умеет этот формат сам — поэтому agent, opencode,",
+    "Cline и Kilo Code работают как обычно и НИЧЕГО дополнительно настраивать не нужно.",
+    "",
+    "ЭКОНОМИКА ВАШИХ 8 000 000 — прочитайте, это главное:",
+    "  8 млн — это зачётные токены, а не токены работы. Расход умножается на коэффициент модели:",
+    "      Sonnet 4.6 (×2)     → 4 000 000 токенов работы",
+    "      Sonnet 5   (×2,5)   → 3 200 000",
+    "      Opus 4.8/4.7/4.6 (×4) → 2 000 000",
+    "      Opus 5     (×5)     → 1 600 000",
+    "      GPT 6 Astra (×8)    → 1 000 000",
+    "      Fable 5/5.1 (×10)   → 800 000",
+    "  Одна активная сессия агента = 100-300 тыс. токенов. Считайте так:",
+    "      на Sonnet 4.6 — примерно 15-30 сессий,",
+    "      на Opus 4.8   — примерно 8-15 сессий,",
+    "      на Fable 5.1  — 3-5 сессий (самая дорогая, включайте только по необходимости).",
+    "",
+    "  Поэтому здесь по умолчанию: Sonnet 4.6 для повседневной работы, Opus 4.8 — только",
+    "  командой /model smart для сложного, и дневной лимит tpd=400000 зачётных токенов,",
+    "  чтобы баланс растянулся примерно на 20 дней, а не сгорел за один.",
+    "",
+    "Запуск:",
+    "    python router/freecoder_router.py --config router/providers.smartapi.json",
+    "    (или: windows\\START-ROUTER.bat router\\providers.smartapi.json)",
+    "",
+    "Ключ (sk-smart-…) лучше держать в переменной окружения:",
+    "    setx SMARTAPI_KEY \"sk-smart-...\"    (Windows, затем НОВОЕ окно терминала)"
+  ],
+
+  "default_alias": "auto",
+  "prefer_local_when_quota_out": true,
+  "default_max_tokens": 16384,
+  "log_requests": true,
+
+  "aliases": {
+    "auto": [
+      "smartapi/sonnet-4.6",
+      "zen-free/big-pickle",
+      "zen-free/deepseek-v4-flash-free",
+      "google/gemini-3.5-flash",
+      "ollama/qwen2.5-coder:7b"
+    ],
+    "smart": [
+      "smartapi/opus-4.8",
+      "smartapi/sonnet-4.6",
+      "zen-free/nemotron-3-ultra-free",
+      "ollama/qwen2.5-coder:7b"
+    ],
+    "cheap": [
+      "smartapi/sonnet-4.6",
+      "zen-free/deepseek-v4-flash-free",
+      "ollama/qwen2.5-coder:7b"
+    ],
+    "free": [
+      "zen-free/big-pickle",
+      "zen-free/deepseek-v4-flash-free",
+      "zen-free/mimo-v2.5-free",
+      "google/gemini-3.5-flash",
+      "ollama/qwen2.5-coder:7b"
+    ],
+    "local": ["ollama/qwen2.5-coder:7b"]
+  },
+
+  "providers": [
+    {
+      "name": "smartapi",
+      "kind": "anthropic",
+      "base_url": "https://api.smartapi.shop",
+      "key_env": "SMARTAPI_KEY",
+      "keys": [],
+      "priority": 1,
+      "cost_multiplier": 4,
+      "models": [
+        "sonnet-4.6",
+        "opus-4.8",
+        "opus-4.7",
+        "opus-4.6",
+        "haiku-4.5"
+      ],
+      "limits": { "tpd": 400000 },
+      "cooldown_on_429": 300,
+      "timeout": 300,
+      "notes": "Основной платный канал, формат Anthropic (роутер переводит сам). cost_multiplier=4 — коэффициент моделей из списка: на Sonnet 4.6 (×2) реальный расход вдвое меньше расчётного, на Opus 4.8 (×4) — совпадает. tpd=400000 — дневной лимит зачётных токенов: как только он выбран, роутер до конца суток сам уходит на бесплатные модели, а баланс не сгорает. Меняйте под себя: больше — быстрее тратите, меньше — дольше хватит. ID моделей должны совпадать с каталогом на странице «Модели»."
+    },
+    {
+      "name": "smartapi-oai",
+      "kind": "openai",
+      "base_url": "https://api.smartapi.shop/v1",
+      "key_env": "SMARTAPI_KEY",
+      "keys": [],
+      "priority": 2,
+      "enabled": false,
+      "cost_multiplier": 4,
+      "models": ["sonnet-4.6", "opus-4.8"],
+      "limits": { "tpd": 400000 },
+      "notes": "Тот же шлюз в формате OpenAI (адрес с /v1). Включайте (enabled: true), только если провайдер выше вдруг откажет: у некоторых шлюзов доступен лишь один из двух форматов. Одновременно оба держать включёнными не нужно — иначе запросы будут дублироваться."
+    },
+    {
+      "name": "zen-free",
+      "kind": "openai",
+      "base_url": "https://opencode.ai/zen/v1",
+      "key_env": "OPENCODE_API_KEY",
+      "keys": [],
+      "priority": 20,
+      "models": ["big-pickle", "deepseek-v4-flash-free", "mimo-v2.5-free", "nemotron-3-ultra-free"],
+      "limits": {},
+      "cooldown_on_429": 3600,
+      "timeout": 300,
+      "notes": "Бесплатный резерв на случай, когда дневной лимит SmartAPI выбран или шлюз недоступен. Аккаунт бесплатный, карта не нужна: https://opencode.ai/auth . Необязателен."
+    },
+    {
+      "name": "google",
+      "kind": "openai",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "key_env": "GEMINI_API_KEY",
+      "keys": [],
+      "priority": 30,
+      "models": ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite"],
+      "limits": { "rpm": 10, "rpd": 250 },
+      "notes": "Второй бесплатный источник. Не обязателен."
+    },
+    {
+      "name": "ollama",
+      "kind": "ollama",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "keys": ["local"],
+      "priority": 900,
+      "models": ["qwen2.5-coder:7b"],
+      "limits": {},
+      "timeout": 900,
+      "notes": "Последний рубеж: без интернета, без лимитов, без дополнительных трат. Нужна команда: ollama pull qwen2.5-coder:7b"
+    }
+  ]
+}
