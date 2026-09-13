@@ -18,11 +18,16 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if not exist "router\providers.json" (
-  echo [i] router\providers.json not found - copying the example.
+set "CFG=router\providers.json"
+if not "%~1"=="" set "CFG=%~1"
+
+if not exist "%CFG%" (
+  echo [i] Config "%CFG%" not found - copying the example.
   copy /y "router\providers.example.json" "router\providers.json" >nul
-  echo [i] Open router\providers.json and paste your free API keys, then restart.
+  set "CFG=router\providers.json"
+  echo [i] Open router\providers.json and paste your API keys, then restart.
 )
 
-python "router\freecoder_router.py" --port 8788
+echo  Config: %CFG%
+python "router\freecoder_router.py" --config "%CFG%" --port 8788
 pause
