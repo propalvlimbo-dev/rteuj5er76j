@@ -1,0 +1,115 @@
+{
+  "_readme": [
+    "OpenCode Zen — официальный шлюз моделей от команды opencode (та же, чей агент у вас установлен).",
+    "",
+    "Зачем этот файл: ровно те же модели, что продают в лотах на маркетплейсах",
+    "('GPT 6 Astra', 'Claude Opus 5', 'Claude Fable 5', 'GPT 5.6 Sol/Terra/Luna' —",
+    "это каталог OpenCode Zen, слово в слово), только НАПРЯМУЮ и без посредника.",
+    "",
+    "У Zen есть бесплатные модели: нужен только бесплатный аккаунт, карта не требуется.",
+    "Регистрация: https://opencode.ai/auth → скопировать API-ключ.",
+    "",
+    "Запуск:",
+    "    python router/freecoder_router.py --config router/providers.zen.json",
+    "    (или: windows\\START-ROUTER.bat router\\providers.zen.json)",
+    "",
+    "ВАЖНО про протокол: бесплатные модели ниже отдают ответ через обычный",
+    "/v1/chat/completions, поэтому работают с нашим роутером. А вот GPT/Claude/Gemini",
+    "на Zen общаются по своим протоколам (/v1/responses, /messages, /models/...),",
+    "поэтому их правильнее использовать напрямую в самом opencode (/connect → OpenCode Zen),",
+    "а не через роутер. Для платного доступа достаточно /connect в opencode."
+  ],
+
+  "default_alias": "auto",
+  "prefer_local_when_quota_out": true,
+  "default_max_tokens": 16384,
+  "log_requests": true,
+
+  "aliases": {
+    "auto": [
+      "zen-free/big-pickle",
+      "zen-free/deepseek-v4-flash-free",
+      "zen-free/mimo-v2.5-free",
+      "zen-free/nemotron-3-ultra-free",
+      "google/gemini-3.5-flash",
+      "ollama/qwen2.5-coder:7b"
+    ],
+    "smart": [
+      "zen-free/nemotron-3-ultra-free",
+      "zen-free/big-pickle",
+      "google/gemini-3.8-flash",
+      "zen-free/deepseek-v4-flash-free"
+    ],
+    "fast": [
+      "zen-free/deepseek-v4-flash-free",
+      "zen-free/nemotron-3.5-lightning-free",
+      "zen-free/ling-3.0-flash-fin-free"
+    ],
+    "local": ["ollama/qwen2.5-coder:7b"]
+  },
+
+  "providers": [
+    {
+      "name": "zen-free",
+      "kind": "openai",
+      "base_url": "https://opencode.ai/zen/v1",
+      "key_env": "OPENCODE_API_KEY",
+      "keys": [],
+      "priority": 1,
+      "models": [
+        "big-pickle",
+        "deepseek-v4-flash-free",
+        "mimo-v2.5-free",
+        "nemotron-3-ultra-free",
+        "nemotron-3.5-lightning-free",
+        "ling-3.0-flash-fin-free"
+      ],
+      "limits": {},
+      "cooldown_on_429": 3600,
+      "timeout": 300,
+      "notes": "Бесплатные модели OpenCode Zen. Аккаунт бесплатный, карта не нужна: https://opencode.ai/auth . У бесплатного тарифа есть внутренний лимит — при его исчерпании Zen отвечает 'Free usage exceeded' (роутер увидит 429 и уйдёт к следующему провайдеру). Обратите внимание: список бесплатных моделей Zen периодически меняется — если модель исчезла, ID можно поправить здесь или посмотреть актуальный на https://opencode.ai/docs/zen"
+    },
+    {
+      "name": "zen-paid",
+      "kind": "openai",
+      "base_url": "https://opencode.ai/zen/v1",
+      "key_env": "OPENCODE_API_KEY",
+      "keys": [],
+      "priority": 2,
+      "enabled": false,
+      "models": [
+        "deepseek-v4-flash",
+        "glm-5.3-flash",
+        "minimax-m2.7",
+        "kimi-k2.7-code",
+        "minimax-m3"
+      ],
+      "limits": {},
+      "cooldown_on_429": 300,
+      "timeout": 300,
+      "notes": "Платный режим Zen — оплата по факту (pay-as-you-go), обычно выходит $2-5 в месяц при обычной работе. Тот же ключ, что и у бесплатных. Включите (enabled: true), когда захотите больше объёма: пополнение баланса в кабинете https://opencode.ai/auth . Подписка OpenCode Go ($10/мес) — та же экосистема, но лимиты заметно выше."
+    },
+    {
+      "name": "google",
+      "kind": "openai",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "key_env": "GEMINI_API_KEY",
+      "keys": [],
+      "priority": 30,
+      "models": ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite"],
+      "limits": { "rpm": 10, "rpd": 250, "tpm": 250000 },
+      "notes": "Необязательный второй бесплатный источник (Google AI Studio). Если ключа нет — просто оставьте пустым, роутер это переживёт."
+    },
+    {
+      "name": "ollama",
+      "kind": "ollama",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "keys": ["local"],
+      "priority": 900,
+      "models": ["qwen2.5-coder:7b"],
+      "limits": {},
+      "timeout": 900,
+      "notes": "Локальный резерв без интернета и лимитов. Нужна: ollama pull qwen2.5-coder:7b"
+    }
+  ]
+}
