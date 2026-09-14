@@ -1,6 +1,7 @@
 package ru.elytrix.efc.checks.combat;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import org.bukkit.entity.Player;
@@ -14,11 +15,17 @@ import ru.elytrix.efc.util.DamageUtil;
 
 /**
  * KillAura.B: удар без взмаха рукой (silent / no-swing аура).
- * Честный клиент всегда шлёт анимацию перед ударом.
+ * Окно 550 мс — как у NESS KillauraNoSwing (570 мс).
+ * Самозащита от кривых форков: если взмахов нет НИ У КОГО на сервере —
+ * значит событие сломано и проверка молча расслабляется (лог в консоль).
+ * Если машет весь сервер, кроме одного — это сайлент, флаговать.
  */
 public final class KillAuraB extends Check {
 
     private final Map<UUID, Long> lastSwing = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer> hitsWithoutSwing = new ConcurrentHashMap<>();
+    private final Set<UUID> swingers = ConcurrentHashMap.newKeySet();
+    private boolean relaxedLogged;
 
     public KillAuraB(ElytrixFuckCheats plugin) {
         super(plugin, "KillAura", "B", Category.COMBAT);
@@ -27,11 +34,16 @@ public final class KillAuraB extends Check {
     @Override
     public void onQuit(UUID uuid) {
         lastSwing.remove(uuid);
+        hitsWithoutSwing.remove(uuid);
+        swingers.remove(uuid);
     }
 
     @EventHandler
     public void onAnimation(PlayerAnimationEvent event) {
-        lastSwing.put(event.getPlayer().getUniqueId(), System.currentTimeMillis());
+        UUID uuid = event.getPlayer().getUniqueId();
+        lastSwing.put(uuid, System.currentTimeMillis());
+        swingers.add(uuid);
+        hitsWithoutSwing.remove(uuid);
     }
 
     @EventHandler
@@ -50,16 +62,40 @@ public final class KillAuraB extends Check {
                     return;
                 }
             }
+            // На таких форках дополнительно требуем: взмахи вообще должны
+            // существовать на сервере, иначе событие тоже сломано.
+            if (swingers.isEmpty()) {
+                logRelaxed();
+                return;
+            }
         }
         long now = System.currentTimeMillis();
-        Long swing = lastSwing.get(attacker.getUniqueId());
-        if (swing == null) {
-            lastSwing.put(attacker.getUniqueId(), now);
+        UUID uuid = attacker.getUniqueId();
+        Long swing = lastSwing.get(uuid);
+        if (swing != null) {
+            if (now - swing > 550) {
+                flag(plugin.getDataManager().get(attacker), "no-swing");
+            }
             return;
         }
-        // Окно 550 мс — как у NESS KillauraNoSwing (570 мс).
-        if (now - swing > 550) {
-            flag(plugin.getDataManager().get(attacker), "no-swing");
+        // Взмахов не было ни разу за сессию.
+        int count = hitsWithoutSwing.merge(uuid, 1, Integer::sum);
+        if (count < 10) {
+            return;
+        }
+        if (!swingers.isEmpty()) {
+            // Весь сервер машет, а этот — нет. Сайлент-аура.
+            flag(plugin.getDataManager().get(attacker), "no-swing silent");
+        } else {
+            logRelaxed();
+        }
+    }
+
+    private void logRelaxed() {
+        if (!relaxedLogged) {
+            relaxedLogged = true;
+            plugin.getLogger().warning(
+                    "KillAura.B relaxed: no swing packets server-wide, check will not flag.");
         }
     }
 }
