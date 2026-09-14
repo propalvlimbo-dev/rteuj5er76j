@@ -11,6 +11,7 @@ import ru.elytrix.efc.checks.combat.AimB;
 import ru.elytrix.efc.checks.combat.AimC;
 import ru.elytrix.efc.checks.combat.AimD;
 import ru.elytrix.efc.checks.combat.AimE;
+import ru.elytrix.efc.checks.combat.AimF;
 import ru.elytrix.efc.checks.combat.AutoClickerA;
 import ru.elytrix.efc.checks.combat.AutoClickerB;
 import ru.elytrix.efc.checks.combat.AutoClickerC;
@@ -61,6 +62,7 @@ public final class CheckManager {
         register(new AimC(plugin));
         register(new AimD(plugin));
         register(new AimE(plugin));
+        register(new AimF(plugin));
         register(new AccuracyA(plugin));
         register(new CriticalsA(plugin));
         register(new VelocityA(plugin));
