@@ -12,10 +12,8 @@ import ru.elytrix.efc.util.DamageUtil;
 
 /**
  * Reach.A: дистанция глаз-&gt;хитбокс (порт Hawk EntityInteractReach).
- * База 3.1 м как у Hawk + компенсация пинга обоих бойцов.
- * Только игроки (как Hawk по умолчанию) — у мобов слишком разные боксы.
- * Митигация как у Grim: запредельный удар отменяется сразу,
- * пограничный — когда VL докажет, что это система, а не лаг.
+ * База 3.03 м + компенсация пинга. Удар за лимитом СРАЗУ отменяется,
+ * как у Grim: запредельный хит не наносит урона. Только игроки.
  */
 public final class ReachA extends Check {
 
@@ -46,27 +44,16 @@ public final class ReachA extends Check {
         Player victim = (Player) rawVictim;
         double distance = CombatGeometry.eyeToBoxDistance(attacker, victim, 0.1);
         double limit = DamageUtil.reachLimit(attacker, victim,
-                cfg("base", 3.1), cfg("per-ms", 0.003), cfg("cap", 4.6));
-        if (distance > cfg("cancel-reach", 5.0)) {
-            flag(plugin.getDataManager().get(attacker),
-                    "dist " + String.format("%.2f", distance) + " blocked");
-            cancel(event);
-            return;
-        }
+                cfg("base", 3.03), cfg("per-ms", 0.0022), cfg("cap", 3.75));
         if (distance > limit) {
-            double vl = flag(plugin.getDataManager().get(attacker),
-                    "dist " + String.format("%.2f", distance) + ">" + String.format("%.2f", limit));
-            if (vl >= cfg("cancel-vl", 8.0)) {
-                cancel(event);
+            flag(plugin.getDataManager().get(attacker),
+                    "dist " + String.format("%.2f", distance)
+                            + ">" + String.format("%.2f", limit) + " blocked");
+            try {
+                event.setCancelled(true);
+            } catch (Throwable ignored) {
+                // Форк без отмены урона — хотя бы флаг останется.
             }
-        }
-    }
-
-    private static void cancel(EntityDamageByEntityEvent event) {
-        try {
-            event.setCancelled(true);
-        } catch (Throwable ignored) {
-            // Форк без отмены урона — хотя бы флаг останется.
         }
     }
 }

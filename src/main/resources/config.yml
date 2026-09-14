@@ -35,11 +35,9 @@ checks:
     enabled: true
     add-vl: 1.0
     max-vl: 25.0
-    base: 3.1
-    per-ms: 0.003
-    cap: 4.6
-    cancel-vl: 8.0
-    cancel-reach: 5.0
+    base: 3.03
+    per-ms: 0.0022
+    cap: 3.75
   autoclicker-a:
     enabled: true
     add-vl: 2.0
@@ -69,6 +67,11 @@ checks:
     enabled: true
     add-vl: 2.0
     max-vl: 6.0
+  killaura-e:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+    max-precision: 17.0
   reach-b:
     enabled: true
     add-vl: 2.0
@@ -104,6 +107,14 @@ checks:
     base-expand: 0.3
     per-ms: 0.004
     cap-expand: 1.2
+  aim-d:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  aim-e:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 10.0
   accuracy-a:
     enabled: true
     add-vl: 1.0

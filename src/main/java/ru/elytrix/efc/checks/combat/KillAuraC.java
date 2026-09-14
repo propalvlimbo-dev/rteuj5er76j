@@ -15,9 +15,9 @@ import ru.elytrix.efc.check.Check;
 import ru.elytrix.efc.util.DamageUtil;
 
 /**
- * KillAura.C: мульти-аура — удары по 3+ разным целям за 300 мс.
- * Живой игрок так быстро цели не меняет. Свип-атака по толпе даёт
- * редкие флаги, но VL с затуханием их прощает.
+ * KillAura.C: мульти-аура — удары по 3+ разным ИГРОКАМ за 300 мс.
+ * Живой так быстро цели не меняет. Только игроки: свип по толпе мобов
+ * на ферме — честная игра, а мулька по игрокам — аура.
  */
 public final class KillAuraC extends Check {
 
@@ -48,11 +48,11 @@ public final class KillAuraC extends Check {
         if (attacker == null) {
             return;
         }
-        long now = System.currentTimeMillis();
-        java.util.UUID victimId = DamageUtil.victimId(event);
-        if (victimId == null) {
+        UUID victimId = DamageUtil.victimId(event);
+        if (victimId == null || !(DamageUtil.entityOf(event) instanceof Player)) {
             return;
         }
+        long now = System.currentTimeMillis();
         ArrayDeque<Hit> recent = hits.computeIfAbsent(attacker.getUniqueId(), key -> new ArrayDeque<>());
         recent.addLast(new Hit(victimId, now));
         while (!recent.isEmpty() && now - recent.peekFirst().time > 300) {

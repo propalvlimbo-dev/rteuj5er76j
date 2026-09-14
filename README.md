@@ -30,8 +30,10 @@
 
 ## Роадмап
 - [x] Ядро: PlayerData, VL, exemptions, алерты, наказания, команды
-- [x] Комбат-пакет (порты топов): Reach A/B (Hawk, глаз→бокс, отмена ударов),
-      Aim.C (Hawk, луч→бокс), Criticals.A (NESS), KillAura.D KeepSprint (Medusa),
+- [x] Комбат-пакет (порты топов): Reach A (Hawk, глаз→бокс, отмена с 3.03
+      как у Grim), Reach.B, Aim.C (Hawk, луч→бокс), Aim.D (Medusa, замок оси),
+      Aim.E (Medusa, круглые доводки), Criticals.A (NESS),
+      KillAura.D KeepSprint (Medusa), KillAura.E паттерн угла (NESS),
       AutoClicker.C (NESS MaxCPS 18), KillAura A/C, AutoClicker A/B,
       Accuracy.A, Velocity.A, FastBow.A, FastEat.A.
       KillAura.B, Aim.A/B ВЫКЛЮЧЕНЫ: no-swing и GCD-ротация дают ложные

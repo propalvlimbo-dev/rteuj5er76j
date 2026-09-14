@@ -73,10 +73,17 @@ public final class AccuracyA extends Check {
         state.moved = 0;
         state.lastVictim = null;
         state.victimStartOdo = 0;
-        if (moved <= 3.0 || victimMoved <= 2.0) {
+        double ratio = (double) hits / swings;
+        if (moved <= 3.0) {
+            // Стоя на месте честный мажет; идеал по движущейся жертве — аура.
+            if (victimMoved > 3.0 && ratio >= 0.99) {
+                flag(plugin.getDataManager().get(player), "perfect " + Math.round(ratio * 100) + "%");
+            }
             return;
         }
-        double ratio = (double) hits / swings;
+        if (victimMoved <= 2.0) {
+            return;
+        }
         if (ratio >= 0.95 && ratio <= 1.0) {
             flag(plugin.getDataManager().get(player), Math.round(ratio * 100) + "% " + swings);
         }
