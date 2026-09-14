@@ -4,6 +4,10 @@
     "",
     "АДРЕСА ШЛЮЗА (официальные):",
     "    OpenAI:    https://api.smartapi.shop/v1     — Cline, Continue, Cursor, свои скрипты",
+    "ПРИ СТАРТЕ роутер сам сверяет модели с каталогом шлюза: если шлюз называет",
+    "модель иначе (например claude-sonnet-4-6 вместо sonnet-4.6), он подставит",
+    "правильное имя и напишет об этом в своём окне. Если модели нет вообще —",
+    "в окне будет список доступных ID: впишите нужный в поле models ниже.",
     "    Anthropic: https://api.smartapi.shop        — Claude Code, Anthropic SDK",
     "Роутер умеет ОБА формата сам: он примет запрос как OpenAI-совместимый и отправит в",
     "SmartAPI как Anthropic /v1/messages (и наоборот). Поэтому agent, opencode, Cline и",
@@ -33,15 +37,14 @@
     "Ключ (sk-smart-…) лучше держать в переменной окружения:",
     "    setx SMARTAPI_KEY \"sk-smart-...\"    (Windows, затем НОВОЕ окно терминала)"
   ],
-
   "default_alias": "auto",
   "prefer_local_when_quota_out": true,
   "default_max_tokens": 16384,
   "log_requests": true,
-
   "aliases": {
     "auto": [
       "smartapi/sonnet-4.6",
+      "smartapi-oai/sonnet-4.6",
       "zen-free/big-pickle",
       "zen-free/deepseek-v4-flash-free",
       "google/gemini-3.5-flash",
@@ -49,12 +52,14 @@
     ],
     "smart": [
       "smartapi/opus-4.8",
+      "smartapi-oai/opus-4.8",
       "smartapi/sonnet-4.6",
       "zen-free/nemotron-3-ultra-free",
       "ollama/qwen2.5-coder:7b"
     ],
     "cheap": [
       "smartapi/sonnet-4.6",
+      "smartapi-oai/sonnet-4.6",
       "zen-free/deepseek-v4-flash-free",
       "ollama/qwen2.5-coder:7b"
     ],
@@ -65,9 +70,10 @@
       "google/gemini-3.5-flash",
       "ollama/qwen2.5-coder:7b"
     ],
-    "local": ["ollama/qwen2.5-coder:7b"]
+    "local": [
+      "ollama/qwen2.5-coder:7b"
+    ]
   },
-
   "providers": [
     {
       "name": "smartapi",
@@ -84,7 +90,9 @@
         "opus-4.6",
         "haiku-4.5"
       ],
-      "limits": { "tpd": 400000 },
+      "limits": {
+        "tpd": 400000
+      },
       "cooldown_on_429": 300,
       "timeout": 300,
       "notes": "Основной платный канал: https://api.smartapi.shop (формат Anthropic, роутер переводит сам). cost_multiplier=4 — коэффициент моделей из списка: на Sonnet 4.6 (×2) реальный расход вдвое меньше расчётного, на Opus 4.8 (×4) — совпадает. tpd=400000 — дневной лимит зачётных токенов: как только он выбран, роутер до конца суток сам уходит на бесплатные модели, а баланс не сгорает. Меняйте под себя: больше — быстрее тратите, меньше — дольше хватит. ID моделей должны совпадать с каталогом на странице «Модели»."
@@ -96,11 +104,16 @@
       "key_env": "SMARTAPI_KEY",
       "keys": [],
       "priority": 2,
-      "enabled": false,
+      "enabled": true,
       "cost_multiplier": 4,
-      "models": ["sonnet-4.6", "opus-4.8"],
-      "limits": { "tpd": 400000 },
-      "notes": "Тот же шлюз в формате OpenAI: https://api.smartapi.shop/v1 Включайте (enabled: true), только если провайдер выше вдруг откажет: у некоторых шлюзов доступен лишь один из двух форматов. Одновременно оба держать включёнными не нужно — иначе запросы будут дублироваться."
+      "models": [
+        "sonnet-4.6",
+        "opus-4.8"
+      ],
+      "limits": {
+        "tpd": 400000
+      },
+      "notes": "Тот же шлюз в формате OpenAI: https://api.smartapi.shop/v1 — второй шанс, если модель не найдена в Anthropic-формате. Ключ и лимит общие."
     },
     {
       "name": "zen-free",
@@ -109,7 +122,12 @@
       "key_env": "OPENCODE_API_KEY",
       "keys": [],
       "priority": 20,
-      "models": ["big-pickle", "deepseek-v4-flash-free", "mimo-v2.5-free", "nemotron-3-ultra-free"],
+      "models": [
+        "big-pickle",
+        "deepseek-v4-flash-free",
+        "mimo-v2.5-free",
+        "nemotron-3-ultra-free"
+      ],
       "limits": {},
       "cooldown_on_429": 3600,
       "timeout": 300,
@@ -122,17 +140,28 @@
       "key_env": "GEMINI_API_KEY",
       "keys": [],
       "priority": 30,
-      "models": ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite"],
-      "limits": { "rpm": 10, "rpd": 250 },
+      "models": [
+        "gemini-3.8-flash",
+        "gemini-3.5-flash",
+        "gemini-3.1-flash-lite"
+      ],
+      "limits": {
+        "rpm": 10,
+        "rpd": 250
+      },
       "notes": "Второй бесплатный источник. Не обязателен."
     },
     {
       "name": "ollama",
       "kind": "ollama",
       "base_url": "http://127.0.0.1:11434/v1",
-      "keys": ["local"],
+      "keys": [
+        "local"
+      ],
       "priority": 900,
-      "models": ["qwen2.5-coder:7b"],
+      "models": [
+        "qwen2.5-coder:7b"
+      ],
       "limits": {},
       "timeout": 900,
       "notes": "Последний рубеж: без интернета, без лимитов, без дополнительных трат. Нужна команда: ollama pull qwen2.5-coder:7b"

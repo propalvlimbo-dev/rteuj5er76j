@@ -393,5 +393,56 @@ class TestAnthropicFormat(CheckerTestBase):
         self.assertTrue(all(r["status"] == "OK" for r in ctx), ctx)
 
 
+
+class TestListModels(unittest.TestCase):
+    """Команда --list-models: показывает каталог шлюза, чтобы поймать ошибку 400 с ID модели."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.port = 18320
+        catalog = {"data": [{"id": "claude-sonnet-4-6"}, {"id": "claude-opus-4-8"}, {"id": "gpt-5.6-luna"}]}
+
+        class Gateway(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                if self.path.endswith("/models"):
+                    body = json.dumps(catalog).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+
+        cls.httpd = ThreadingHTTPServer(("127.0.0.1", cls.port), Gateway)
+        cls.thread = threading.Thread(target=cls.httpd.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+
+    def test_prints_ids(self):
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = cak.list_models(f"http://127.0.0.1:{self.port}", "k")
+        out = buf.getvalue()
+        self.assertEqual(code, 0)
+        for mid in ("claude-sonnet-4-6", "claude-opus-4-8", "gpt-5.6-luna"):
+            self.assertIn(mid, out)
+        self.assertIn("Моделей доступно: 3", out)
+
+    def test_requires_base_url_and_key(self):
+        with self.assertRaises(SystemExit):
+            cak.main(["--list-models"])
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

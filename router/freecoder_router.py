@@ -105,6 +105,7 @@ class Provider:
     timeout: int = 180                      # сек. на чтение ответа (стриминг длинный!)
     notes: str = ""
     kind: str = "openai"                    # openai | ollama | mock
+    model_map: Dict[str, str] = field(default_factory=dict)  # имя в конфиге -> имя в каталоге шлюза
 
     def all_keys(self) -> List[str]:
         keys = [k.strip() for k in (self.keys or []) if k and k.strip()]
@@ -418,6 +419,10 @@ class Router:
         if p.kind == "mock":
             return MockResponse(payload), {}
 
+        # Если каталог шлюза назвал модель иначе (sonnet-4.6 -> claude-sonnet-4-6),
+        # подставляем найденное имя. Заполняется при старте в probe_model_catalog().
+        model = p.model_map.get(model, model)
+
         if p.kind == "anthropic":
             body = oai_to_anthropic({**payload, "model": model})
             headers = {
@@ -454,6 +459,110 @@ class Router:
         return urllib.request.urlopen(req, timeout=p.timeout, context=ctx), {}
 
 
+
+# ----------------------------------------------------------------------------
+# Сверка моделей с каталогом шлюза.
+#
+# Шлюзы называют модели по-своему: в конфиге "sonnet-4.6", а в каталоге
+# "claude-sonnet-4-6". При старте роутер спрашивает /models и, если имя отличается
+# только разделителями или приставкой вендора, подставляет настоящее — молча и точно.
+# Если совпадения нет, печатает список доступных моделей: это самая частая причина
+# ошибки 400 «model does not exist».
+# ----------------------------------------------------------------------------
+
+
+def _norm_model(name: str) -> str:
+    """claude-sonnet-4.6 / sonnet-4-6 / Claude Sonnet 4.6 -> sonnet46"""
+    n = re.sub(r"[^a-z0-9]+", "", (name or "").lower())
+    for prefix in ("anthropic", "claude", "openai", "google", "gpt"):
+        if n.startswith(prefix) and len(n) > len(prefix) + 2:
+            n = n[len(prefix):]
+    return n
+
+
+def _fetch_catalog(p: Provider, key: str, timeout: int = 8) -> List[str]:
+    """Список id моделей шлюза. Пустой список = шлюз каталог не отдаёт."""
+    base = (p.base_url or "").rstrip("/")
+    candidates = [base + "/models"]
+    if base.endswith("/v1"):
+        candidates.append(base[:-3].rstrip("/") + "/models")
+    else:
+        candidates.append(base + "/v1/models")
+    for url in candidates:
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "x-api-key": key,
+                    "anthropic-version": os.environ.get("ANTHROPIC_VERSION", "2023-06-01"),
+                    "User-Agent": f"FreeCoderRouter/{VERSION}",
+                },
+                method="GET",
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                data = json.loads(r.read().decode("utf-8", "replace"))
+        except Exception:  # noqa: BLE001
+            continue
+        ids: List[str] = []
+        for item in (data.get("data") or data.get("models") or []):
+            if isinstance(item, dict):
+                mid = item.get("id") or item.get("name")
+                if mid:
+                    ids.append(str(mid))
+            elif isinstance(item, str):
+                ids.append(item)
+        if ids:
+            return ids
+    return []
+
+
+def probe_model_catalog(providers: List[Provider]) -> None:
+    """Сверяет модели из конфига с каталогом шлюза. Никогда не мешает запуску."""
+    if os.environ.get("FREECODER_PROBE", "1") == "0":
+        return
+    for p in providers:
+        keys = p.all_keys()
+        if not keys or p.kind in ("mock", "ollama"):
+            continue
+        is_local = re.search(r"(127\.0\.0\.1|localhost|0\.0\.0\.0)", p.base_url or "")
+        if is_local and os.environ.get("FREECODER_PROBE_LOCAL") != "1":
+            continue   # локальные адреса (Ollama, тестовые шлюзы) не опрашиваем
+        log(f"↻  {p.name}: сверяю модели с каталогом шлюза…")
+        ids = _fetch_catalog(p, keys[0])
+        if not ids:
+            log(f"   {p.name}: каталог моделей шлюз не отдаёт (это нормально) — "
+                f"имена моделей берутся из конфига как есть.")
+            continue
+        by_norm: Dict[str, str] = {}
+        for mid in ids:
+            by_norm.setdefault(_norm_model(mid), mid)
+
+        substituted: List[str] = []
+        missing: List[str] = []
+        for m in (p.models or []):
+            if m in ids:
+                continue
+            twin = by_norm.get(_norm_model(m))
+            if twin and twin != m:
+                p.model_map[m] = twin
+                substituted.append(f"{m} → {twin}")
+            elif not twin:
+                missing.append(m)
+
+        if substituted:
+            log(f"   {p.name}: шлюз называет иначе, подставил: " + "; ".join(substituted))
+        if missing:
+            log(f"   ⚠ {p.name}: в каталоге шлюза нет " + ", ".join(repr(x) for x in missing))
+            keywords = {_norm_model(m)[:6] for m in missing}
+            similar = [i for i in ids if any(k and k in _norm_model(i) for k in keywords)]
+            shown = (similar or ids)[:25]
+            log(f"     доступные модели ({len(ids)}): " + ", ".join(shown))
+            if len(ids) > len(shown):
+                log("     … полный список: python tools/check_api_key.py --list-models "
+                    "--base-url <адрес шлюза> --key <ключ>")
+        if not substituted and not missing:
+            log(f"   {p.name}: все модели из конфига есть в каталоге шлюза ✓")
 
 # ----------------------------------------------------------------------------
 # Слой совместимости: клиенты говорят на языке OpenAI, а шлюз может требовать
@@ -1078,11 +1187,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--host", default=os.environ.get("FREECODER_HOST", "127.0.0.1"))
     ap.add_argument("--port", type=int, default=int(os.environ.get("FREECODER_PORT", "8788")))
     ap.add_argument("--mock", action="store_true", help="добавить демо-провайдера (проверка без ключей)")
+    ap.add_argument("--no-probe", action="store_true",
+                    help="не сверять модели с каталогом шлюза при старте")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config, args.mock)
     router = Router(cfg, args.state, mock=args.mock)
     Handler.router = router
+
+    if not args.mock and not args.no_probe:
+        try:
+            probe_model_catalog(router.providers)
+        except Exception as e:  # noqa: BLE001
+            log(f"⚠  Сверка моделей не удалась ({type(e).__name__}: {e}) — работаю как есть.")
 
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     httpd.daemon_threads = True

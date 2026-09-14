@@ -380,6 +380,13 @@ class LLM:
                     "Все бесплатные квоты заняты (HTTP 429). Панель роутера покажет, кто остывает "
                     f"и сколько ждать: {self.base.replace('/v1', '')}/. Детали: {detail}"
                 ) from e
+            if "does not exist" in detail or "not available" in detail or "model_not_found" in detail:
+                raise RuntimeError(
+                    f"Ошибка API HTTP {e.code}: {detail}\n"
+                    f"    Похоже, ID модели не совпадает с каталогом шлюза. Откройте окно "
+                    f"FreeCoder Router — там список доступных моделей; нужное имя впишите "
+                    f"в router/providers.smartapi.json."
+                ) from e
             raise RuntimeError(f"Ошибка API HTTP {e.code}: {detail}") from e
         except urllib.error.URLError as e:
             raise RuntimeError(
@@ -822,7 +829,9 @@ def load_workspace_config(workspace: str) -> Dict[str, Any]:
 
 
 def repl(agent: Agent) -> None:
-    log("Диалоговый режим. Команды: /help, /tree, /diff, /undo, /model <имя>, /yes, /exit\n")
+    log(f"Рабочая папка: {agent.repo.root}")
+    log("Пишите задачи обычным текстом, например: «исправь ошибку в api.py — падает на пустом ответе».")
+    log("Команды: /help, /tree, /diff, /undo, /model <имя>, /cd <папка>, /pwd, /yes, /exit\n")
     while True:
         try:
             line = input("freecoder> ").strip()
@@ -844,6 +853,8 @@ def repl(agent: Agent) -> None:
 Команды:
   /tree   — дерево файлов      /diff   — что изменилось в этой сессии
   /undo   — откатить правки    /model  — какой маршрут моделей использовать
+  /cd     — сменить рабочую папку (например /cd C:\Проекты\бот)
+  /pwd    — какая папка рабочая сейчас
   /yes    — не спрашивать подтверждений (осторожно!)
   /exit   — выход""")
             elif cmd == "/tree":
@@ -856,6 +867,23 @@ def repl(agent: Agent) -> None:
                 agent.yes = True
                 agent.allow_cmd = True
                 log("Подтверждения отключены.")
+            elif cmd in ("/cd", "/pwd"):
+                if cmd == "/pwd":
+                    log(f"Рабочая папка: {agent.repo.root}")
+                elif not rest:
+                    log("Укажите папку: /cd C:\\Проекты\\мой-проект")
+                else:
+                    target = rest.strip().strip('"').strip("'")
+                    if not os.path.isdir(target):
+                        log(f"Папка не найдена: {target}")
+                    else:
+                        repo = Repo(target, dry_run=agent.repo.dry_run, backup=agent.repo.backup)
+                        agent.repo = repo
+                        agent.session_dir = os.path.join(repo.root, ".freecoder", "sessions")
+                        os.makedirs(agent.session_dir, exist_ok=True)
+                        agent.history = []          # история чужого проекта больше не нужна
+                        log(f"Рабочая папка теперь: {repo.root}")
+                        log("История диалога очищена — начинаем с чистого листа в новой папке.")
             elif cmd == "/model":
                 if rest:
                     agent.llm.model = rest

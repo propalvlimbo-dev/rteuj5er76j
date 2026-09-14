@@ -569,6 +569,46 @@ def print_report(results: List[Result], models: List[str]) -> None:
               "источники (docs/05, docs/06).")
 
 
+def list_models(base_url: str, key: str, api_format: str = "openai") -> int:
+    """Печатает список моделей шлюза: самые частые причины ошибки 400 — неверный ID модели."""
+    g = Gateway(base_url, key, api_format=api_format)
+    bases = [base_url.rstrip("/")]
+    if base_url.rstrip("/").endswith("/v1"):
+        bases.append(base_url.rstrip("/")[:-3].rstrip("/"))
+    else:
+        bases.append(base_url.rstrip("/") + "/v1")
+
+    last_text = ""
+    for base in bases:
+        st, text, _ = Gateway(base, key, api_format=api_format).get("/models")
+        last_text = text
+        ids: List[str] = []
+        try:
+            data = json.loads(text)
+            for item in (data.get("data") or data.get("models") or []):
+                if isinstance(item, dict):
+                    mid = item.get("id") or item.get("name")
+                    if mid:
+                        ids.append(str(mid))
+                elif isinstance(item, str):
+                    ids.append(item)
+        except Exception:  # noqa: BLE001
+            pass
+        if ids:
+            print(f"\nШлюз: {base}")
+            print(f"Моделей доступно: {len(ids)}\n")
+            for mid in ids:
+                print(f"  {mid}")
+            print("\nСкопируйте нужный ID в поле \"models\" файла router/providers.smartapi.json"
+                  "\n(или возьмите имя со страницы «Модели» в кабинете).")
+            return 0
+    print(f"\nКаталог моделей по адресу {base_url} не отдаётся (HTTP-ответ ниже).")
+    print("Это нормально для Anthropic-формата: возьмите ID модели со страницы «Модели»")
+    print("в кабинете SmartAPI и впишите его в router/providers.smartapi.json.")
+    print(f"\nОтвет шлюза: {last_text[:400]}")
+    return 2
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(
         description="Проверка стороннего API-ключа/шлюза («промокодные» лоты)",
@@ -577,9 +617,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                "  python tools/check_api_key.py --base-url https://шлюз/v1 --key sk-xxx \\\n"
                "      --model claude-opus-5 --claimed-tokens 8000000 --price-rub 20 \\\n"
                "      --report report.json\n")
-    ap.add_argument("--base-url", required=True, help="адрес шлюза, обычно .../v1")
-    ap.add_argument("--key", required=True, help="ключ, полученный от продавца")
-    ap.add_argument("--model", required=True, help="модель, которую обещали")
+    ap.add_argument("--base-url", help="адрес шлюза, обычно .../v1")
+    ap.add_argument("--key", help="ключ, полученный от продавца")
+    ap.add_argument("--model", help="модель, которую обещали")
+    ap.add_argument("--list-models", action="store_true",
+                    help="только показать доступные ID моделей шлюза и выйти")
     ap.add_argument("--claimed-tokens", type=int, default=None, help="сколько токенов обещано")
     ap.add_argument("--price-rub", type=float, default=None, help="сколько вы заплатили, ₽")
     ap.add_argument("--parallel", type=int, default=5, help="число параллельных запросов (по умолчанию 5)")
@@ -590,6 +632,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--report", default=None, help="куда сохранить JSON-отчёт")
     ap.add_argument("--version", action="version", version=f"check_api_key {VERSION}")
     args = ap.parse_args(argv)
+
+    if args.list_models:
+        if not args.base_url or not args.key:
+            ap.error("--list-models требует --base-url и --key")
+        return list_models(args.base_url, args.key, args.format)
+
+    if not args.base_url or not args.key or not args.model:
+        ap.error("нужны --base-url, --key и --model (либо --list-models для вывода каталога)")
 
     report = run_check(args.base_url, args.key, args.model, args.claimed_tokens,
                        args.price_rub, args.parallel, args.quick, args.format)

@@ -15,6 +15,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -286,6 +287,49 @@ class TestCLI(AgentTestBase):
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertTrue(os.path.isfile(os.path.join(self.ws, "from_cli.txt")), proc.stdout)
+
+
+class TestChangeDir(unittest.TestCase):
+    """Команда /cd — сменить рабочую папку, не выходя из агента."""
+
+    def _run(self, lines, agent):
+        with mock.patch("builtins.input", side_effect=lines):
+            fca.repl(agent)
+
+    def test_change_dir_resets_history(self):
+        tmp = tempfile.mkdtemp(prefix="fc-cd-")
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        start_dir = os.path.join(tmp, "старт")
+        other = os.path.join(tmp, "проект")
+        os.makedirs(start_dir)
+        os.makedirs(other)
+        repo = fca.Repo(start_dir)
+        llm = fca.LLM("http://127.0.0.1:1/v1", "k", "auto")
+        ag = fca.Agent(repo, llm)
+        ag.history = [{"role": "user", "content": "старая история"}]
+
+        self._run([f"/cd {other}", "/exit"], ag)
+
+        self.assertEqual(ag.repo.root, os.path.abspath(other))
+        self.assertEqual(ag.history, [], "после смены папки история прошлого проекта не нужна")
+
+    def test_change_dir_rejects_missing_folder(self):
+        tmp = tempfile.mkdtemp(prefix="fc-cd2-")
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        repo = fca.Repo(tmp)
+        llm = fca.LLM("http://127.0.0.1:1/v1", "k", "auto")
+        ag = fca.Agent(repo, llm)
+
+        self._run(["/cd " + os.path.join(tmp, "нет-такой-папки"), "/exit"], ag)
+
+        self.assertEqual(ag.repo.root, os.path.abspath(tmp))
+
+    def test_pwd_shows_folder(self):
+        tmp = tempfile.mkdtemp(prefix="fc-pwd-")
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        ag = fca.Agent(fca.Repo(tmp), fca.LLM("http://127.0.0.1:1/v1", "k", "auto"))
+        self._run(["/pwd", "/exit"], ag)
+        self.assertEqual(ag.repo.root, os.path.abspath(tmp))
 
 
 if __name__ == "__main__":

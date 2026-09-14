@@ -21,7 +21,7 @@ if errorlevel 1 (
 powershell -NoProfile -Command "try{ Invoke-WebRequest -Uri 'http://127.0.0.1:8788/health' -TimeoutSec 2 -UseBasicParsing | Out-Null; exit 0 } catch { exit 1 }" >nul 2>nul
 if errorlevel 1 (
   echo [i] Router is not running. Starting it in a separate window...
-  start "FreeCoder Router" cmd /c "%~dp0START-ROUTER.bat"
+  start "FreeCoder Router" /d "%~dp0.." cmd /c "windows\START-ROUTER.bat"
   timeout /t 3 /nobreak >nul
 )
 

@@ -14,6 +14,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "router"))
@@ -507,5 +508,107 @@ class TestAnthropicAdapter(RouterTestBase):
                          "после исчерпания дневного лимита запрос должен уйти на бесплатный резерв")
 
 
+class TestModelCatalogProbe(unittest.TestCase):
+    """Сверка моделей с каталогом шлюза: подстановка имени и предупреждение о неверном ID."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.port = 18160
+        cls.catalog = {"data": [
+            {"id": "claude-sonnet-4-6"},
+            {"id": "claude-opus-4-8"},
+            {"id": "gpt-5.6-luna"},
+        ]}
+        cls.seen_models = []
+        catalog = cls.catalog
+        seen = cls.seen_models
+
+        class Gateway(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                if self.path.endswith("/models"):
+                    body = json.dumps(catalog).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                payload = json.loads(self.rfile.read(length).decode())
+                seen.append(payload.get("model"))
+                out = json.dumps({
+                    "id": "x", "object": "chat.completion", "model": payload.get("model"),
+                    "choices": [{"index": 0, "finish_reason": "stop",
+                                 "message": {"role": "assistant", "content": "ok"}}],
+                    "usage": {"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4},
+                }).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
+
+        cls.httpd = ThreadingHTTPServer(("127.0.0.1", cls.port), Gateway)
+        cls.thread = threading.Thread(target=cls.httpd.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+
+    def test_norm_model_strips_vendor_and_separators(self):
+        self.assertEqual(fcr._norm_model("sonnet-4.6"), "sonnet46")
+        self.assertEqual(fcr._norm_model("claude-sonnet-4-6"), "sonnet46")
+        self.assertEqual(fcr._norm_model("Claude Sonnet 4.6"), "sonnet46")
+        self.assertEqual(fcr._norm_model("gpt-5.6-luna"), "56luna")
+
+    def test_probe_substitutes_name_and_warns_about_unknown(self):
+        p = fcr.Provider(
+            name="fake", base_url=f"http://127.0.0.1:{self.port}", keys=["k"],
+            models=["sonnet-4.6", "opus-4.8", "несуществующая-модель"],
+        )
+        with mock.patch.dict(os.environ, {"FREECODER_PROBE_LOCAL": "1"}):
+            fcr.probe_model_catalog([p])
+        self.assertEqual(p.model_map.get("sonnet-4.6"), "claude-sonnet-4-6")
+        self.assertEqual(p.model_map.get("opus-4.8"), "claude-opus-4-8")
+        self.assertNotIn("несуществующая-модель", p.model_map)
+
+    def test_substituted_name_goes_to_the_gateway(self):
+        """В шлюз уходит настоящее имя модели, а не то, что написано в конфиге."""
+        self.seen_models.clear()
+        fake = fcr.Provider(
+            name="fake", base_url=f"http://127.0.0.1:{self.port}", keys=["k"],
+            models=["sonnet-4.6"], kind="openai",
+        )
+        fake.model_map["sonnet-4.6"] = "claude-sonnet-4-6"
+        cfg = {"providers": [dict(
+            name="fake", base_url=f"http://127.0.0.1:{self.port}", keys=["k"],
+            models=["sonnet-4.6"], priority=1,
+        )], "aliases": {"auto": ["fake/sonnet-4.6"]}, "default_alias": "auto"}
+        r = fcr.Router(cfg, "/tmp/probe-state.json")
+        r.providers[0].model_map["sonnet-4.6"] = "claude-sonnet-4-6"
+        status, body = self._post(r, {"model": "auto", "messages": [{"role": "user", "content": "привет"}]})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.seen_models, ["claude-sonnet-4-6"])
+
+    def _post(self, router, payload):
+        handler = fcr.Handler.__new__(fcr.Handler)
+        handler.router = router
+        captured = {}
+        handler._send_json = lambda obj, code=200: (captured.update({"code": code, "obj": obj}), (code, obj))[1]
+        handler._read_json = lambda: payload
+        handler.path = "/v1/chat/completions"
+        handler.headers = {"Content-Type": "application/json"}
+        handler.do_POST()
+        return captured["code"], captured["obj"]
+
+
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    unittest.main()

@@ -19,10 +19,10 @@ if errorlevel 1 (
 )
 
 REM Check the router is alive; if not - warn (agent will show an error otherwise)
-powershell -NoProfile -Command "try{ $r=Invoke-WebRequest -Uri 'http://127.0.0.1:8788/health' -TimeoutSec 2 -UseBasicParsing; exit 0 } catch { exit 1 }" >nul 2>nul
+python -c "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8788/health',timeout=2).status==200 else 1)" >nul 2>nul
 if errorlevel 1 (
   echo [i] Router is not running. Starting it in a separate window...
-  start "FreeCoder Router" cmd /c "%~dp0START-ROUTER.bat"
+  start "FreeCoder Router" /d "%~dp0.." cmd /c "windows\START-ROUTER.bat"
   timeout /t 3 /nobreak >nul
 )
 
