@@ -5,9 +5,20 @@ import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import ru.elytrix.efc.ElytrixFuckCheats;
+import ru.elytrix.efc.checks.combat.AccuracyA;
+import ru.elytrix.efc.checks.combat.AimA;
+import ru.elytrix.efc.checks.combat.AimB;
+import ru.elytrix.efc.checks.combat.AimC;
 import ru.elytrix.efc.checks.combat.AutoClickerA;
+import ru.elytrix.efc.checks.combat.AutoClickerB;
+import ru.elytrix.efc.checks.combat.FastBowA;
+import ru.elytrix.efc.checks.combat.FastEatA;
 import ru.elytrix.efc.checks.combat.KillAuraA;
+import ru.elytrix.efc.checks.combat.KillAuraB;
+import ru.elytrix.efc.checks.combat.KillAuraC;
 import ru.elytrix.efc.checks.combat.ReachA;
+import ru.elytrix.efc.checks.combat.ReachB;
+import ru.elytrix.efc.checks.combat.VelocityA;
 import ru.elytrix.efc.checks.movement.FlyA;
 import ru.elytrix.efc.checks.movement.SpeedA;
 
@@ -26,8 +37,19 @@ public final class CheckManager {
 
     private void registerAll() {
         register(new KillAuraA(plugin));
+        register(new KillAuraB(plugin));
+        register(new KillAuraC(plugin));
         register(new ReachA(plugin));
+        register(new ReachB(plugin));
         register(new AutoClickerA(plugin));
+        register(new AutoClickerB(plugin));
+        register(new AimA(plugin));
+        register(new AimB(plugin));
+        register(new AimC(plugin));
+        register(new AccuracyA(plugin));
+        register(new VelocityA(plugin));
+        register(new FastBowA(plugin));
+        register(new FastEatA(plugin));
         register(new FlyA(plugin));
         register(new SpeedA(plugin));
     }

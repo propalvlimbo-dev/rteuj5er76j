@@ -8,4 +8,12 @@ public class EntityDamageEvent extends Event {
     public Entity getEntity() {
         return null;
     }
+
+    public double getDamage() {
+        return 0;
+    }
+
+    public DamageCause getCause() {
+        return null;
+    }
 }

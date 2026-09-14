@@ -55,10 +55,10 @@ public final class KillAuraA extends Check {
 
     @EventHandler
     public void onDamage(EntityDamageByEntityEvent event) {
-        if (!(event.getDamager() instanceof Player)) {
+        Player player = ru.elytrix.efc.util.DamageUtil.meleeAttacker(event);
+        if (player == null) {
             return;
         }
-        Player player = (Player) event.getDamager();
         State state = states.get(player.getUniqueId());
         if (state == null || !state.hasLast) {
             return;

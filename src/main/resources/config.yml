@@ -51,6 +51,53 @@ checks:
     add-vl: 1.0
     max-vl: 30.0
     max-bps: 9.5
+  killaura-b:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 16.0
+  killaura-c:
+    enabled: true
+    add-vl: 1.0
+    max-vl: 20.0
+  reach-b:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 20.0
+    avg-reach: 3.1
+  autoclicker-b:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 30.0
+    blatant-cps: 30
+  aim-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 20.0
+  aim-b:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 20.0
+  aim-c:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 12.0
+    max-angle: 100.0
+  accuracy-a:
+    enabled: true
+    add-vl: 1.0
+    max-vl: 20.0
+  velocity-a:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 24.0
+  fastbow-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 16.0
+  fasteat-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 16.0
 
 punishments:
   # Команды консоли. Плейсхолдеры: %player% %check% %vl%

@@ -5,6 +5,7 @@ import ru.elytrix.efc.alert.AlertManager;
 import ru.elytrix.efc.check.CheckManager;
 import ru.elytrix.efc.command.EfcCommand;
 import ru.elytrix.efc.config.ConfigManager;
+import ru.elytrix.efc.data.CombatTracker;
 import ru.elytrix.efc.data.DataManager;
 import ru.elytrix.efc.exempt.ExemptionManager;
 import ru.elytrix.efc.punish.PunishmentManager;
@@ -36,6 +37,7 @@ public final class ElytrixFuckCheats extends JavaPlugin {
         getServer().getPluginManager().registerEvents(dataManager, this);
         getServer().getPluginManager().registerEvents(exemptionManager, this);
         getServer().getPluginManager().registerEvents(alertManager, this);
+        getServer().getPluginManager().registerEvents(new CombatTracker(this), this);
 
         EfcCommand command = new EfcCommand(this);
         getCommand("efc").setExecutor(command);

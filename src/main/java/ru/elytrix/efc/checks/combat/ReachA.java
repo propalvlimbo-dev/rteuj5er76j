@@ -20,10 +20,10 @@ public final class ReachA extends Check {
 
     @EventHandler
     public void onDamage(EntityDamageByEntityEvent event) {
-        if (!(event.getDamager() instanceof Player)) {
+        Player attacker = ru.elytrix.efc.util.DamageUtil.meleeAttacker(event);
+        if (attacker == null) {
             return;
         }
-        Player attacker = (Player) event.getDamager();
         Entity victim = event.getEntity();
         double distance = attacker.getLocation().distance(victim.getLocation());
         double max = cfg("max-reach", 3.6);

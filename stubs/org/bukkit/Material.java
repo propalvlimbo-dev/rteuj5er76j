@@ -11,5 +11,10 @@ public enum Material {
     SCAFFOLDING,
     WATER,
     LAVA,
-    COBWEB
+    COBWEB,
+    BOW;
+
+    public boolean isEdible() {
+        return false;
+    }
 }

@@ -30,7 +30,9 @@
 
 ## Роадмап
 - [x] Ядро: PlayerData, VL, exemptions, алерты, наказания, команды
-- [x] Проверки на Bukkit-событиях: KillAura.A, Reach.A, AutoClicker.A, Fly.A, Speed.A
-- [ ] Пакетный слой (PacketEvents): пинг, версии клиентов, ротация
+- [x] Комбат-пакет (14): KillAura A/B/C, Reach A/B, AutoClicker A/B,
+      Aim A/B/C, Accuracy.A, Velocity.A, FastBow.A, FastEat.A
+- [x] Движение (2): Fly.A, Speed.A (консервативные)
+- [ ] Пакетный слой (PacketEvents): пинг, версии клиентов, точная ротация
 - [ ] Записи легитов как регресс-тесты
-- [ ] Aim-эвристики, Jesus, NoFall, scaffold-категория
+- [ ] Следующий пакет: Jesus, NoFall, Step, Scaffold, NoSlow, Criticals

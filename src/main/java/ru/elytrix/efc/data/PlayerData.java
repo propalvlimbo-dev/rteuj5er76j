@@ -19,6 +19,9 @@ public final class PlayerData {
     /** Версия клиента (ViaVersion protocol id), -1 = неизвестна. Заполнит пакетный слой. */
     private volatile int clientVersion = -1;
 
+    /** Момент последнего удара в ближнем бою, 0 = не бил. */
+    private volatile long lastAttackTime;
+
     public PlayerData(ElytrixFuckCheats plugin, UUID uuid) {
         this.plugin = plugin;
         this.uuid = uuid;
@@ -42,6 +45,14 @@ public final class PlayerData {
 
     public void setClientVersion(int clientVersion) {
         this.clientVersion = clientVersion;
+    }
+
+    public long getLastAttack() {
+        return lastAttackTime;
+    }
+
+    public void setLastAttack(long lastAttackTime) {
+        this.lastAttackTime = lastAttackTime;
     }
 
     public synchronized double addVl(String checkId, double amount) {
