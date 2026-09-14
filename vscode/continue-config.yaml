@@ -1,44 +1,41 @@
-# Continue (расширение VS Code / JetBrains) — конфиг под FreeCoder Router.
+# Continue (расширение VS Code / JetBrains) — конфиг под FreeCoder Router + SmartAPI.
 # Куда положить: ~/.continue/config.yaml  (Windows: C:\Users\<вы>\.continue\config.yaml)
 #
-# После этого в Continue появится модель "FreeCoder auto", которая автоматически
-# переключается между бесплатными провайдерами (Gemini, Groq, Mistral, OpenRouter,
-# NVIDIA, GLM) и локальной Ollama. Отдельные ключи для каждого сервиса не нужны —
-# они лежат в router/providers.json.
+# Ключ SmartAPI здесь не нужен: его читает роутер из переменной окружения SMARTAPI_KEY.
+# Continue видит модель "FreeCoder auto", а роутер сам решает, куда отправить запрос:
+#   auto  — SmartAPI Sonnet 4.6 (×2), при обрыве бесплатные модели и локальная Ollama
+#   smart — SmartAPI Opus 4.8 (×4) для сложных задач
+#   cheap — самая экономичная платная модель (автодополнение)
+#   local — только Ollama, офлайн и без лимитов
 #
-# Важно: перед работой запустите роутер (windows\START-ROUTER.bat).
+# Важно: перед работой запустите windows\START-SMARTAPI.bat (окно роутера не закрывать).
 
 name: FreeCoder
 version: 1.0.0
 schema: v1
 
 models:
-  - name: FreeCoder smart
+  - name: FreeCoder auto (Sonnet 4.6)
+    provider: openai
+    model: auto
+    apiBase: http://127.0.0.1:8788/v1
+    apiKey: freecoder
+    roles:
+      - chat
+      - edit
+      - apply
+
+  - name: FreeCoder smart (Opus 4.8, ×4)
     provider: openai
     model: smart
     apiBase: http://127.0.0.1:8788/v1
     apiKey: freecoder
     roles:
       - chat
-      - edit
-      - apply
 
-  - name: FreeCoder auto
+  - name: FreeCoder cheap (экономия)
     provider: openai
-    model: auto
-    apiBase: http://127.0.0.1:8788/v1
-    apiKey: freecoder
-    defaultCompletionOptions:
-      contextLength: 128000
-      maxTokens: 8192
-    roles:
-      - chat
-      - edit
-      - apply
-
-  - name: FreeCoder fast (быстрые правки и автодополнение)
-    provider: openai
-    model: fast
+    model: cheap
     apiBase: http://127.0.0.1:8788/v1
     apiKey: freecoder
     roles:

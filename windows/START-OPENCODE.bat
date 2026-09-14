@@ -8,7 +8,7 @@ if not "%~1"=="" set "WS=%~1"
 
 echo.
 echo  opencode will start in: %WS%
-echo  Model: freecoder/smart  (free models through your local router)
+echo  Model: freecoder/auto  (Sonnet 4.6 via SmartAPI; /model smart = Opus, local = offline)
 echo.
 
 where opencode >nul 2>nul

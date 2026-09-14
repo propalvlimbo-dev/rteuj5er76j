@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 <#
-    FreeCoder — установка «бесплатного ИИ-агента» на Windows 10/11.
+    FreeCoder — установка ИИ-агента на Windows 10/11 (работает на ключе SmartAPI).
     Ставит: Git, Python, Node.js, Ollama, opencode (терминальный агент) и Gemini CLI,
-    раскладывает конфиги и готовит файл с бесплатными ключами.
+    раскладывает конфиги. Установщик НЕ обязателен: для работы на купленном балансе
+    достаточно Python и windows\START-SMARTAPI.bat.
 
     Запуск (PowerShell от имени пользователя, НЕ обязательно админ):
         cd путь-к-папке-проекта
@@ -49,7 +50,7 @@ function Install-Pkg($id, $friendly, $exe) {
 }
 
 Say "============================================================" "Cyan"
-Say " FreeCoder: установка бесплатного ИИ-агента для Windows" "Cyan"
+Say " FreeCoder: установка ИИ-агента для Windows (основной режим — ключ SmartAPI)" "Cyan"
 Say "============================================================" "Cyan"
 Say " Папка проекта: $RepoRoot"
 
@@ -97,7 +98,7 @@ if (Have node) {
 }
 
 # ---------------------------------------------------------------- 3. ключи
-Step 3 "Готовлю файл с бесплатными ключами (router\providers.json)"
+Step 3 "Конфиг провайдеров (router\providers.json)"
 $providersFile = Join-Path $RepoRoot "router\providers.json"
 $exampleFile = Join-Path $RepoRoot "router\providers.example.json"
 if (-not (Test-Path $providersFile)) {
@@ -110,8 +111,11 @@ if (-not (Test-Path $providersFile)) {
 } else {
     Ok "router\providers.json уже существует (не трогаю — там ваши ключи)"
 }
-Say "    Сейчас откроется Блокнот. Вставьте ключи в поля \"keys\": [...] у нужных провайдеров." "Yellow"
-Say "    Как получить ключи бесплатно — docs\02-КЛЮЧИ-БЕСПЛАТНО.md" "Yellow"
+Say "    Если работаете на купленном балансе SmartAPI — этот шаг можно пропустить:" "Yellow"
+Say "    ключ читается из переменной окружения SMARTAPI_KEY, а конфиг уже готов —" "Yellow"
+Say "    windows\START-SMARTAPI.bat. Здесь же настраивается резерв на бесплатных моделях." "Yellow"
+Say "    Сейчас откроется Блокнот: вставьте ключи в поля \"keys\": [...] у нужных провайдеров." "Yellow"
+Say "    Как получить бесплатные ключи — docs\архив\02-КЛЮЧИ-БЕСПЛАТНО.md" "Yellow"
 Say "    Можно закрыть Блокнот без изменений и заполнить позже." "Yellow"
 Start-Process notepad.exe -ArgumentList "`"$providersFile`"" -Wait
 
@@ -191,5 +195,5 @@ Say @"
  Проверка без ключей: windows\START-ROUTER.bat с ключом --mock (в файле запуска
  добавьте --mock в конец строки с python) — агент заработает на заглушке.
 
- Если что-то не так — docs\01-БЫСТРЫЙ-СТАРТ.md, раздел «Если не работает».
+ Если что-то не так — docs\01-БЫСТРЫЙ-СТАРТ.md, раздел «Если не заработало».
 "@ "White"

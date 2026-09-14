@@ -2,52 +2,59 @@
   "$schema": "https://opencode.ai/config.json",
 
   "_комментарий": [
-    "Куда положить этот файл:",
+    "Конфиг opencode под локальный роутер FreeCoder (а он уже ходит в SmartAPI).",
+    "",
+    "Куда положить:",
     "  Windows: %USERPROFILE%\\.config\\opencode\\opencode.json",
     "  macOS/Linux: ~/.config/opencode/opencode.json",
-    "Либо просто скопируйте его в корень своего проекта — тогда настройка будет только для проекта.",
+    "Либо просто в корень проекта — тогда настройка будет только для этого проекта.",
     "",
-    "Провайдер 'freecoder' — это ваш локальный роутер. Агент думает, что говорит с одной моделью,",
-    "а роутер сам подставляет то Gemini Flash, то Groq, то Mistral, то локальную Ollama.",
-    "Отдельно подключать провайдеров в opencode не нужно — все ключи живут в router/providers.json."
+    "Ключ SmartAPI здесь не нужен: он живёт в переменной окружения SMARTAPI_KEY и читается",
+    "роутером. opencode видит одну модель 'freecoder', а роутер сам решает, куда её отправить:",
+    "  auto  → SmartAPI Sonnet 4.6 (×2 по расходу), при обрыве — бесплатные модели и Ollama",
+    "  smart → SmartAPI Opus 4.8 (×4) для сложных задач",
+    "  cheap → самая экономичная платная модель",
+    "  free  → только бесплатные источники",
+    "  local → только Ollama, без интернета и лимитов",
+    "",
+    "Перед работой запустите роутер: windows\\START-SMARTAPI.bat (или START-ROUTER.bat с",
+    "конфигом router\\providers.smartapi.json)."
   ],
 
   "provider": {
     "freecoder": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "FreeCoder (бесплатные модели через роутер)",
+      "name": "FreeCoder (SmartAPI + резерв)",
       "options": {
         "baseURL": "http://127.0.0.1:8788/v1",
         "apiKey": "freecoder"
       },
       "models": {
         "auto": {
-          "name": "auto — лучшая доступная бесплатная модель",
-          "limit": { "context": 128000, "output": 8192 }
+          "name": "auto — Sonnet 4.6, при обрыве резерв",
+          "limit": { "context": 200000, "output": 16384 }
         },
         "smart": {
-          "name": "smart — максимум качества (Gemini Flash / North Mini Code / Laguna)",
-          "limit": { "context": 128000, "output": 8192 }
+          "name": "smart — Opus 4.8 (×4, только для сложного)",
+          "limit": { "context": 200000, "output": 16384 }
         },
-        "fast": {
-          "name": "fast — быстро и дёшево (Groq gpt-oss-20b)",
-          "limit": { "context": 64000, "output": 8192 }
+        "cheap": {
+          "name": "cheap — экономичная платная модель"
+        },
+        "free": {
+          "name": "free — только бесплатные источники"
         },
         "local": {
-          "name": "local — только Ollama, без интернета и лимитов",
+          "name": "local — Ollama, без интернета и лимитов",
           "limit": { "context": 32000, "output": 8192 }
         }
       }
     }
   },
 
-  "model": "freecoder/smart",
-  "small_model": "freecoder/fast",
+  "model": "freecoder/auto",
+  "small_model": "freecoder/cheap",
 
-  "_полезные_настройки": {
-    "autoupdate": false,
-    "share": "disabled"
-  },
   "autoupdate": false,
   "share": "disabled"
 }
