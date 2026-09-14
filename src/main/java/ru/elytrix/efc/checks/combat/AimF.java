@@ -19,16 +19,15 @@ import ru.elytrix.efc.util.DamageUtil;
 /**
  * Aim.F: прилипание к цели (порт Medusa AimAssistH).
  * Разница между взглядом и идеальным доводом на жертву, 20 замеров:
- * у лока среднее &lt;7° и разброс &lt;12° окно за окном, живая рука так
- * не держит — у неё флики и срывы. Только в бою + VL поверх.
- * Позиция жертвы — из перемотки: атакующий целится в прошлое
- * (пинг обоих пополам + интерполяция клиента).
+ * у лока среднее &lt;7° и разброс &lt;12° окно за окном. Только в бою + VL.
+ * Позиция жертвы — из перемотки. Гейт 0.3° видит и медленный лок,
+ * буфер асимметричный (+1/-0.5): лок копит, живая рука со срывами — нет.
  */
 public final class AimF extends Check {
 
     private static final class State {
         final List<Double> diffs = new ArrayList<>();
-        int buffer;
+        double buffer;
         UUID victim;
         long victimTime;
     }
@@ -63,7 +62,7 @@ public final class AimF extends Check {
             return;
         }
         float deltaYaw = Math.abs(wrap(event.getTo().getYaw() - event.getFrom().getYaw()));
-        if (deltaYaw > 1.5) {
+        if (deltaYaw > 0.3) {
             Location from = player.getLocation();
             long delay = DamageUtil.rewindDelay(player, target);
             Location to = plugin.getPositionHistory().locationAt(target, now - delay);
@@ -92,12 +91,13 @@ public final class AimF extends Check {
             double deviation = Math.sqrt(variance);
             state.diffs.clear();
             if (mean < 7 && deviation < 12) {
-                if (++state.buffer > 6) {
+                state.buffer += 1;
+                if (state.buffer > 6) {
                     state.buffer = 0;
                     flag(plugin.getDataManager().get(player), "glue");
                 }
-            } else if (state.buffer > 0) {
-                state.buffer--;
+            } else {
+                state.buffer = Math.max(0, state.buffer - 0.5);
             }
         }
     }

@@ -15,10 +15,9 @@ import ru.elytrix.efc.util.DamageUtil;
 
 /**
  * Accuracy.B: длинная точность (расширение идеи NESS KillauraHitMissRatio).
- * 120 взмахов, хит только по той же цели подряд, планка 90%.
- * Ловит джиттер-ауры (SpookyTime и ко): они мажут чаще, чем грубые ауры,
- * но на длинной дистанции всё равно точнее любой живой руки.
- * Оба бойца должны двигаться, только игроки.
+ * 90 взмахов, хит только по той же цели подряд, планка 88%.
+ * Рабочая зона джиттер-аур (SpookyTime и ко): мажут чаще грубых,
+ * но точнее любой живой руки на дистанции. Оба двигаются, только игроки.
  */
 public final class AccuracyB extends Check {
 
@@ -58,7 +57,7 @@ public final class AccuracyB extends Check {
         Player player = event.getPlayer();
         State state = states.computeIfAbsent(player.getUniqueId(), key -> new State());
         state.swings++;
-        if (state.swings < 120) {
+        if (state.swings < 90) {
             return;
         }
         int swings = state.swings;
@@ -72,11 +71,11 @@ public final class AccuracyB extends Check {
         state.moved = 0;
         state.lastVictim = null;
         state.victimStartOdo = 0;
-        if (moved <= 5.0 || victimMoved <= 3.0) {
+        if (moved <= 4.0 || victimMoved <= 2.5) {
             return;
         }
         double ratio = (double) hits / swings;
-        if (ratio >= 0.90 && ratio <= 1.0) {
+        if (ratio >= 0.88 && ratio <= 1.0) {
             flag(plugin.getDataManager().get(player), Math.round(ratio * 100) + "% " + swings);
         }
     }
