@@ -48,5 +48,6 @@ public final class DataManager implements Listener {
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         data.remove(event.getPlayer().getUniqueId());
+        plugin.getCheckManager().onQuit(event.getPlayer().getUniqueId());
     }
 }

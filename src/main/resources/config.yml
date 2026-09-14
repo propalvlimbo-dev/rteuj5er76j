@@ -27,17 +27,30 @@ punish-cooldown-seconds: 60
 # Проверки. add-vl — сколько VL даёт один флаг, max-vl — порог наказания.
 checks:
   killaura-a:
-    enabled: false
-    add-vl: 1.0
-    max-vl: 20.0
+    enabled: true
+    add-vl: 2.0
+    max-vl: 16.0
+    snap-degrees: 150.0
   reach-a:
-    enabled: false
+    enabled: true
     add-vl: 1.0
     max-vl: 25.0
+    max-reach: 3.6
   autoclicker-a:
-    enabled: false
+    enabled: true
+    add-vl: 2.0
+    max-vl: 30.0
+    max-cps: 20
+    max-stddev-ms: 10.0
+  fly-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 40.0
+  speed-a:
+    enabled: true
     add-vl: 1.0
     max-vl: 30.0
+    max-bps: 9.5
 
 punishments:
   # Команды консоли. Плейсхолдеры: %player% %check% %vl%

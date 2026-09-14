@@ -83,4 +83,13 @@ public abstract class Check {
     protected final void reward(PlayerData data, double amount) {
         data.addVl(id(), -Math.abs(amount));
     }
+
+    /** Вызывается при выходе игрока — почистить своё состояние. */
+    public void onQuit(UUID uuid) {
+    }
+
+    /** Свой числовой параметр из checks.<ключ>.<параметр>. */
+    protected final double cfg(String key, double def) {
+        return plugin.getConfigManager().checkDouble(configKey(), key, def);
+    }
 }

@@ -67,6 +67,11 @@ public final class ConfigManager {
         return config().getDouble("checks." + key + ".add-vl", 1.0);
     }
 
+    /** Произвольный числовой параметр проверки. */
+    public double checkDouble(String checkKey, String key, double def) {
+        return config().getDouble("checks." + checkKey + "." + key, def);
+    }
+
     public List<String> punishCommands(String key) {
         List<String> specific = config().getStringList("punishments." + key);
         if (!specific.isEmpty()) {

@@ -39,4 +39,11 @@ public final class CheckManager {
         }
         return null;
     }
+
+    /** Почистить состояние всех проверок при выходе игрока. */
+    public void onQuit(UUID uuid) {
+        for (Check check : checks) {
+            check.onQuit(uuid);
+        }
+    }
 }
