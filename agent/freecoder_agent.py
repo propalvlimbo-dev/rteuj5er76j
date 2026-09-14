@@ -8,8 +8,8 @@ FreeCoder Agent — локальный ИИ-агент, который чита�
     · сам создаёт, правит и удаляет файлы — с показом diff до применения;
     · сам запускает команды (тесты, сборку, git) — с подтверждением;
     · делает резервные копии и умеет откатывать (/undo);
-    · работает с ЛЮБОЙ OpenAI-совместимой моделью: бесплатные ключи через
-      FreeCoder Router, локальная Ollama или ваш платный ключ — агенту всё равно.
+    · работает с любой OpenAI-совместимой моделью; проект настроен на шлюз SmartAPI
+      (ключ sk-smart-... в переменной SMARTAPI_KEY, конфиг router/providers.smartapi.json).
 
 Запуск:
     python freecoder_agent.py  "добавь в бота обработку команды /start"    # одна задача
@@ -37,6 +37,7 @@ import shlex
 import subprocess
 import sys
 import time
+import urllib.request
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -144,7 +145,19 @@ class Repo:
     def read(self, path: str, start: int = 1, end: int = 0) -> str:
         full = self.resolve(path)
         if not os.path.isfile(full):
-            return f"ОШИБКА: файл не найден: {path}"
+            hint = ""
+            parent = os.path.dirname(full)
+            if os.path.isdir(parent):
+                twins = [f for f in os.listdir(parent) if f.lower() == os.path.basename(full).lower()]
+                if twins:
+                    hint = f" Есть файл с похожим именем: {twins[0]}"
+                else:
+                    near = [f for f in os.listdir(parent) if os.path.isfile(os.path.join(parent, f))][:8]
+                    if near:
+                        hint = " В этой папке лежат: " + ", ".join(near)
+            return (f"ФАЙЛА ПОКА НЕТ: {path}.{hint} "
+                    f"Если его нужно создать — вызови write_file с полным содержимым "
+                    f"(папки создаются автоматически). Не сообщай пользователю «файла нет» как результат задачи.")
         try:
             with open(full, "r", encoding="utf-8", errors="replace") as f:
                 text = f.read()
@@ -222,6 +235,15 @@ class Repo:
         if old:
             return f"Файл перезаписан: {self.rel(full)} ({len(old)} → {len(content)} символов)"
         return f"Файл создан: {self.rel(full)} ({len(content)} символов)"
+
+    def mkdir(self, path: str) -> str:
+        full = self.resolve(path)
+        if os.path.isdir(full):
+            return f"Папка уже есть: {self.rel(full)}"
+        if self.dry_run:
+            return f"[dry-run] создал бы папку {self.rel(full)}"
+        os.makedirs(full, exist_ok=True)
+        return f"Папка создана: {self.rel(full)}"
 
     def replace(self, path: str, old: str, new: str, count: int = 0,
                 replace_all: bool = False) -> str:
@@ -339,6 +361,20 @@ class LLM:
         self.tokens_out = 0
         self.last_provider = "?"
 
+    def catalog(self) -> List[Dict[str, Any]]:
+        """Список моделей у роутера: алиасы и модели шлюза с коэффициентами расхода."""
+        url = self.base.rstrip("/") + "/models"
+        try:
+            req = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.key}"})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                data = json.loads(r.read().decode("utf-8", "replace"))
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(
+                f"Не могу получить список моделей от {url} ({type(e).__name__}). "
+                f"Роутер запущен? Это делает windows\\START-SMARTAPI.bat."
+            ) from e
+        return [m for m in (data.get("data") or []) if isinstance(m, dict) and m.get("id")]
+
     def chat(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None,
              temperature: float = 0.2) -> Dict[str, Any]:
         import urllib.error
@@ -377,7 +413,7 @@ class LLM:
                 pass
             if e.code == 429:
                 raise RuntimeError(
-                    "Все бесплатные квоты заняты (HTTP 429). Панель роутера покажет, кто остывает "
+                    "Дневной лимит расхода выбран (HTTP 429). Панель роутера покажет, кто остывает "
                     f"и сколько ждать: {self.base.replace('/v1', '')}/. Детали: {detail}"
                 ) from e
             if "does not exist" in detail or "not available" in detail or "model_not_found" in detail:
@@ -410,7 +446,8 @@ TOOL_SPECS = [
     ("list_files", "Показать дерево файлов проекта. args: {path?: string, pattern?: string}"),
     ("read_file", "Прочитать файл с нумерацией строк. args: {path: string, start?: int, end?: int}"),
     ("search", "Поиск по содержимому всех файлов (regex). args: {query: string, glob?: string}"),
-    ("write_file", "Создать файл или перезаписать целиком. args: {path: string, content: string}"),
+    ("write_file", "Создать файл (папки создаются автоматически) или перезаписать целиком. args: {path: string, content: string}"),
+    ("make_dir", "Создать пустую папку. args: {path: string}"),
     ("replace_in_file", "Точечная правка: заменить фрагмент. args: {path: string, old: string, new: string, replace_all?: bool}"),
     ("delete_file", "Удалить файл. args: {path: string}"),
     ("run_command", "Выполнить команду в папке проекта (тесты, сборка, git). args: {command: string}"),
@@ -463,15 +500,23 @@ def system_prompt(workspace: str, repo_tree: str, allow_cmd: bool, dry_run: bool
 КАК ТЫ РАБОТАЕШЬ
 1. Сначала осмотри проект (list_files, search, read_file) и пойми, как код устроен.
 2. Дальше действуй: правь файлы по одному, после каждой правки сверяйся с кодом.
+3. НОВЫЕ ФАЙЛЫ И ПАПКИ — твоя работа, а не повод отказаться. Если нужного файла нет,
+   просто создай его через write_file (вложенные папки создаются автоматически;
+   пустая папка — make_dir). НИКОГДА не отвечай пользователю «файла index.html нет»
+   и не заканчивай задачу из-за отсутствующего файла: отсутствие файла — это нормальное
+   начало работы. Пример: задача «сделай сайт» → write_file index.html, затем write_file style.css.
 3. Для больших файлов НЕ переписывай их целиком — используй replace_in_file с точным фрагментом.
 4. Если есть тесты или сборка — запусти их (run_command) и исправь ошибки.
-5. Закончив, вызови final с отчётом.
+5. Работай до готового результата: не сдавайся после первой ошибки инструмента,
+   а исправляй её и продолжай.
+6. Закончив, вызови final с отчётом: что сделано и какие файлы созданы/изменены.
 
 ПРАВИЛА БЕЗОПАСНОСТИ (нарушать нельзя)
 · Меняй только файлы внутри рабочей папки.
 · Не выполняй разрушительные команды (rm -rf, format, установка системного ПО).
 · Не трогай секреты и ключи (файлы .env, *.key, id_rsa) без прямой просьбы пользователя.
-· Не выдумывай содержимое файлов: если не читал — прочитай.
+· Не выдумывай содержимое существующих файлов: если правишь файл — сначала прочитай.
+· Но если файла ещё нет, выдумывать нечего — он твой, создавай целиком.
 
 ДОСТУПНЫЕ ИНСТРУМЕНТЫ
 {tools_txt}
@@ -623,6 +668,12 @@ class Agent:
             if tool == "diff":
                 return repo.diff(), False
 
+            if tool == "make_dir":
+                path = str(args.get("path", ""))
+                if not path:
+                    return "ОШИБКА: не передан path", False
+                return repo.mkdir(path), False
+
             if tool in ("write_file", "replace_in_file", "delete_file"):
                 if tool == "write_file":
                     path = str(args.get("path", ""))
@@ -744,7 +795,7 @@ class Agent:
                 return final_result
 
             # Возвращаем результаты. Если модель использовала нативный tool calling —
-            # отвечаем ролями tool с tool_call_id (так требуют Gemini/Groq/Mistral/OpenAI),
+            # отвечаем результатами инструментов с tool_call_id — так требует протокол OpenAI,
             # иначе — текстовым протоколом.
             if any(act.get("_call_id") for act, _, _ in results):
                 answer: Dict[str, Any] = {"role": "assistant", "content": content or None,
@@ -828,6 +879,52 @@ def load_workspace_config(workspace: str) -> Dict[str, Any]:
     return {}
 
 
+def pick_model(agent: Agent) -> None:
+    """Показывает доступные модели с коэффициентами и даёт выбрать номером."""
+    try:
+        items = agent.llm.catalog()
+    except RuntimeError as e:
+        log(f"⚠  {e}")
+        return
+    if not items:
+        log("Роутер не вернул список моделей.")
+        return
+
+    aliases = [m for m in items if m.get("alias")]
+    direct = [m for m in items if not m.get("alias")]
+    lines = ["", f"Текущая модель: {agent.llm.model}", "", "Маршруты:"]
+    for i, m in enumerate(aliases, 1):
+        lines.append(f"  {i:>2}) {str(m['id']):<8} ×{m.get('multiplier', 1):<4} {m.get('description', '')}")
+    if direct:
+        lines.append("")
+        lines.append("Отдельные модели шлюза (точный выбор):")
+        start = len(aliases) + 1
+        for j, m in enumerate(direct):
+            lines.append(f"  {start + j:>2}) {str(m['id']):<32} ×{m.get('multiplier', 1)}")
+    lines.append("")
+    lines.append("× — коэффициент расхода баланса: чем больше, тем дороже каждый шаг.")
+    log("\n".join(lines))
+
+    try:
+        ans = input("Номер модели (Enter — оставить как есть): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return
+    if not ans:
+        return
+    if ans.isdigit():
+        idx = int(ans)
+        if 1 <= idx <= len(items):
+            agent.llm.model = items[idx - 1]["id"]
+            agent.history = []
+            log(f"Модель: {agent.llm.model}. История диалога очищена — за старый контекст платить не нужно.")
+        else:
+            log("Нет такого номера.")
+        return
+    agent.llm.model = ans
+    agent.history = []
+    log(f"Модель: {ans}")
+
+
 def repl(agent: Agent) -> None:
     log(f"Рабочая папка: {agent.repo.root}")
     log("Пишите задачи обычным текстом, например: «исправь ошибку в api.py — падает на пустом ответе».")
@@ -852,7 +949,7 @@ def repl(agent: Agent) -> None:
   перепиши README под текущий код
 Команды:
   /tree   — дерево файлов      /diff   — что изменилось в этой сессии
-  /undo   — откатить правки    /model  — какой маршрут моделей использовать
+  /undo   — откатить правки    /model  — выбрать модель (покажет список с ценами)
   /cd     — сменить рабочую папку (например /cd C:\Проекты\бот)
   /pwd    — какая папка рабочая сейчас
   /yes    — не спрашивать подтверждений (осторожно!)
@@ -889,7 +986,7 @@ def repl(agent: Agent) -> None:
                     agent.llm.model = rest
                     log(f"Модель: {rest}")
                 else:
-                    log(f"Текущая модель: {agent.llm.model}")
+                    pick_model(agent)
             else:
                 log("Неизвестная команда. /help")
             continue

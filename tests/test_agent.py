@@ -237,7 +237,7 @@ class TestAgentLoop(AgentTestBase):
         agent = self.make_agent()
         out = agent.run_task("задача")
         self.assertIn("Ошибка", out)
-        self.assertIn("квоты", out)
+        self.assertIn("Дневной лимит", out)
 
     def test_session_log_written(self):
         FakeLLM.script = [json.dumps({"tool": "final", "args": {"summary": "готово"}})]
@@ -330,6 +330,133 @@ class TestChangeDir(unittest.TestCase):
         ag = fca.Agent(fca.Repo(tmp), fca.LLM("http://127.0.0.1:1/v1", "k", "auto"))
         self._run(["/pwd", "/exit"], ag)
         self.assertEqual(ag.repo.root, os.path.abspath(tmp))
+
+
+class TestCreateFilesAndFolders(unittest.TestCase):
+    """Агент обязан создавать файлы и папки, а не отвечать «файла нет»."""
+
+    def setUp(self):
+        self.ws = tempfile.mkdtemp(prefix="fc-new-")
+        self.addCleanup(shutil.rmtree, self.ws, ignore_errors=True)
+        self.repo = fca.Repo(self.ws)
+
+    def test_write_creates_nested_folders(self):
+        out = self.repo.write("site/assets/css/style.css", "body { color: #eee; }")
+        self.assertTrue(os.path.isfile(os.path.join(self.ws, "site", "assets", "css", "style.css")))
+        self.assertIn("создан", out.lower())
+
+    def test_make_dir(self):
+        out = self.repo.mkdir("demo/подпапка")
+        self.assertTrue(os.path.isdir(os.path.join(self.ws, "demo", "подпапка")))
+        self.assertIn("Папка создана", out)
+        again = self.repo.mkdir("demo/подпапка")
+        self.assertIn("уже есть", again)
+
+    def test_read_missing_file_tells_to_create(self):
+        msg = self.repo.read("index.html")
+        self.assertIn("ФАЙЛА ПОКА НЕТ", msg)
+        self.assertIn("write_file", msg, "подсказка должна вести к созданию файла")
+
+    def test_read_missing_file_hints_neighbours(self):
+        self.repo.write("index.html", "<h1>привет</h1>")
+        msg = self.repo.read("index.html")
+        self.assertIn("<h1>", msg)
+        msg2 = self.repo.read("нет-такого-файла.txt")
+        self.assertIn("index.html", msg2, "полезно показать, что лежит рядом")
+
+    def test_make_dir_tool_through_agent(self):
+        llm = fca.LLM("http://127.0.0.1:1/v1", "k", "auto")
+        ag = fca.Agent(self.repo, llm, yes=True)
+        out, done = ag.execute({"tool": "make_dir", "args": {"path": "новая-папка"}})
+        self.assertFalse(done)
+        self.assertTrue(os.path.isdir(os.path.join(self.ws, "новая-папка")))
+
+    def test_write_file_tool_through_agent(self):
+        llm = fca.LLM("http://127.0.0.1:1/v1", "k", "auto")
+        ag = fca.Agent(self.repo, llm, yes=True)
+        out, done = ag.execute({"tool": "write_file",
+                                "args": {"path": "demo/index.html", "content": "<html></html>"}})
+        self.assertFalse(done)
+        self.assertTrue(os.path.isfile(os.path.join(self.ws, "demo", "index.html")))
+
+    def test_sandbox_still_blocks_outside(self):
+        with self.assertRaises(ValueError):
+            self.repo.write("../снаружи.txt", "нельзя")
+
+
+class TestModelPicker(unittest.TestCase):
+    """Выбор модели в агенте: список берётся у роутера, выбор по номеру."""
+
+    CATALOG = {"object": "list", "data": [
+        {"id": "auto", "alias": True, "multiplier": 2, "description": "smartapi/claude-sonnet-4-6"},
+        {"id": "smart", "alias": True, "multiplier": 4, "description": "smartapi/claude-opus-4-8"},
+        {"id": "smartapi/claude-fable-5", "alias": False, "multiplier": 10},
+    ]}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.port = 18250
+        catalog = cls.CATALOG
+
+        class Gateway(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                if self.path.endswith("/models"):
+                    body = json.dumps(catalog).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+
+        cls.httpd = ThreadingHTTPServer(("127.0.0.1", cls.port), Gateway)
+        threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+
+    def _agent(self):
+        ws = tempfile.mkdtemp(prefix="fc-pick-")
+        self.addCleanup(shutil.rmtree, ws, ignore_errors=True)
+        llm = fca.LLM(f"http://127.0.0.1:{self.port}/v1", "freecoder", "auto")
+        return fca.Agent(fca.Repo(ws), llm)
+
+    def test_catalog(self):
+        items = self._agent().llm.catalog()
+        self.assertEqual(len(items), 3)
+        self.assertEqual(items[0]["id"], "auto")
+
+    def test_pick_by_number(self):
+        ag = self._agent()
+        with mock.patch("builtins.input", side_effect=["2"]):
+            fca.pick_model(ag)
+        self.assertEqual(ag.llm.model, "smart")
+
+    def test_pick_is_cancelled_on_enter(self):
+        ag = self._agent()
+        with mock.patch("builtins.input", side_effect=[""]):
+            fca.pick_model(ag)
+        self.assertEqual(ag.llm.model, "auto")
+
+    def test_pick_exact_model_name(self):
+        ag = self._agent()
+        with mock.patch("builtins.input", side_effect=["smartapi/claude-fable-5"]):
+            fca.pick_model(ag)
+        self.assertEqual(ag.llm.model, "smartapi/claude-fable-5")
+
+    def test_slash_model_opens_picker(self):
+        ag = self._agent()
+        ag.history = [{"role": "user", "content": "старое"}]
+        with mock.patch("builtins.input", side_effect=["/model", "2", "/exit"]):
+            fca.repl(ag)
+        self.assertEqual(ag.llm.model, "smart")
+        self.assertEqual(ag.history, [], "после смены модели история не нужна")
 
 
 if __name__ == "__main__":

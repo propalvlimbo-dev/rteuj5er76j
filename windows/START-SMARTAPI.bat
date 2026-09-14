@@ -91,16 +91,40 @@ if not exist "%LOCALAPPDATA%\FreeCoder" mkdir "%LOCALAPPDATA%\FreeCoder" 2>nul
 echo [i] Рабочая папка: !WS!
 echo.
 
+REM ---------------------------------------------------------- выбор модели
+echo Шаг 3. Какой моделью работать?
+echo    1) auto  — claude-sonnet-4-6  x2   рабочая лошадка, обычно её и хватает
+echo    2) smart — claude-opus-4-8    x4   заметно умнее, расход вдвое больше
+echo    3) max   — claude-opus-5      x5   самое сильное, для тяжёлых задач
+echo    4) cheap — gpt-5.6-luna       x1.7 экономит баланс, простые правки
+echo    5) выбрать в агенте: команда /model покажет полный список с ценами
+echo.
+set "MODEL=%FREECODER_MODEL%"
+if not defined MODEL set "MODEL=auto"
+set "PICK="
+set /p "PICK=Номер [Enter = !MODEL!]: "
+if "!PICK!"=="1" set "MODEL=auto"
+if "!PICK!"=="2" set "MODEL=smart"
+if "!PICK!"=="3" set "MODEL=max"
+if "!PICK!"=="4" set "MODEL=cheap"
+if not defined MODEL set "MODEL=auto"
+set "FREECODER_MODEL=!MODEL!"
+echo [i] Модель: !MODEL! ^(сменить в любой момент: /model^)
+echo.
+
 REM ---------------------------------------------------------- агент
-echo Шаг 3. Агент. Пишите задачи словами прямо здесь:
+echo Шаг 4. Агент. Пишите задачи словами прямо здесь:
 echo          "исправь ошибку в api.py — падает на пустом ответе"
 echo          "добавь в index.html секцию с ценами"
 echo          "сделай папку demo с приветственной страницей"
 echo        Каждую правку он покажет и спросит подтверждение ^(y^).
-echo        Команды: /help, /diff, /undo, /model smart, /cd другая-папка, /exit
+echo        Команды: /help, /diff, /undo, /model, /cd другая-папка, /exit
+echo.
+echo        Совет: если правите рабочий код — сначала сделайте в папке проекта
+echo        git init и коммит, тогда откат возможен и через git.
 echo.
 
-python "agent\freecoder_agent.py" --workspace "!WS!"
+python "agent\freecoder_agent.py" --workspace "!WS!" --model "!MODEL!"
 
 echo.
 echo ============================================================

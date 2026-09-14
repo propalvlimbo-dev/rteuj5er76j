@@ -1,12 +1,12 @@
 # Continue (расширение VS Code / JetBrains) — конфиг под FreeCoder Router + SmartAPI.
 # Куда положить: ~/.continue/config.yaml  (Windows: C:\Users\<вы>\.continue\config.yaml)
 #
-# Ключ SmartAPI здесь не нужен: его читает роутер из переменной окружения SMARTAPI_KEY.
-# Continue видит модель "FreeCoder auto", а роутер сам решает, куда отправить запрос:
-#   auto  — SmartAPI Sonnet 4.6 (×2), при обрыве бесплатные модели и локальная Ollama
-#   smart — SmartAPI Opus 4.8 (×4) для сложных задач
-#   cheap — самая экономичная платная модель (автодополнение)
-#   local — только Ollama, офлайн и без лимитов
+# Ключ SmartAPI здесь не нужен: его читает роутер из переменной SMARTAPI_KEY.
+# Модели — это маршруты роутера, а он уже отправляет запрос в SmartAPI:
+#   auto  — claude-sonnet-4-6 (×2)   обычная работа
+#   smart — claude-opus-4-8   (×4)   сложные задачи
+#   max   — claude-opus-5     (×5)   максимум качества
+#   cheap — gpt-5.6-luna      (×1,7) экономия, автодополнение
 #
 # Важно: перед работой запустите windows\START-SMARTAPI.bat (окно роутера не закрывать).
 
@@ -15,7 +15,7 @@ version: 1.0.0
 schema: v1
 
 models:
-  - name: FreeCoder auto (Sonnet 4.6)
+  - name: FreeCoder auto (Sonnet 4.6, ×2)
     provider: openai
     model: auto
     apiBase: http://127.0.0.1:8788/v1
@@ -33,21 +33,21 @@ models:
     roles:
       - chat
 
-  - name: FreeCoder cheap (экономия)
+  - name: FreeCoder max (Opus 5, ×5)
+    provider: openai
+    model: max
+    apiBase: http://127.0.0.1:8788/v1
+    apiKey: freecoder
+    roles:
+      - chat
+
+  - name: FreeCoder cheap (GPT-5.6 Luna, ×1,7)
     provider: openai
     model: cheap
     apiBase: http://127.0.0.1:8788/v1
     apiKey: freecoder
     roles:
       - autocomplete
-
-  - name: FreeCoder local (офлайн, без лимитов)
-    provider: openai
-    model: local
-    apiBase: http://127.0.0.1:8788/v1
-    apiKey: freecoder
-    roles:
-      - chat
 
 context:
   - provider: file

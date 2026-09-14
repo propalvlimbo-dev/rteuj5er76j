@@ -1,60 +1,55 @@
 {
   "$schema": "https://opencode.ai/config.json",
-
   "_комментарий": [
-    "Конфиг opencode под локальный роутер FreeCoder (а он уже ходит в SmartAPI).",
+    "Конфиг opencode под локальный роутер FreeCoder (а он ходит в SmartAPI).",
     "",
     "Куда положить:",
     "  Windows: %USERPROFILE%\\.config\\opencode\\opencode.json",
     "  macOS/Linux: ~/.config/opencode/opencode.json",
-    "Либо просто в корень проекта — тогда настройка будет только для этого проекта.",
     "",
-    "Ключ SmartAPI здесь не нужен: он живёт в переменной окружения SMARTAPI_KEY и читается",
-    "роутером. opencode видит одну модель 'freecoder', а роутер сам решает, куда её отправить:",
-    "  auto  → SmartAPI Sonnet 4.6 (×2 по расходу), при обрыве — бесплатные модели и Ollama",
-    "  smart → SmartAPI Opus 4.8 (×4) для сложных задач",
-    "  cheap → самая экономичная платная модель",
-    "  free  → только бесплатные источники",
-    "  local → только Ollama, без интернета и лимитов",
+    "Ключ SmartAPI здесь не нужен: он живёт в переменной SMARTAPI_KEY и читается роутером.",
+    "opencode видит один бренд моделей 'freecoder', а роутер сам отправляет запрос в SmartAPI:",
+    "  auto  → claude-sonnet-4-6   x2   обычная работа",
+    "  smart → claude-opus-4-8     x4   сложные задачи",
+    "  max   → claude-opus-5       x5   максимум качества",
+    "  cheap → gpt-5.6-luna        x1.7 экономия баланса",
+    "  code  → codex-auto-review   x4",
+    "  fable → claude-fable-5      x10  дорогая, только по необходимости",
     "",
-    "Перед работой запустите роутер: windows\\START-SMARTAPI.bat (или START-ROUTER.bat с",
-    "конфигом router\\providers.smartapi.json)."
+    "Перед работой запустите роутер: windows\\START-SMARTAPI.bat"
   ],
-
   "provider": {
     "freecoder": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "FreeCoder (SmartAPI + резерв)",
+      "name": "FreeCoder (SmartAPI)",
       "options": {
         "baseURL": "http://127.0.0.1:8788/v1",
         "apiKey": "freecoder"
       },
       "models": {
         "auto": {
-          "name": "auto — Sonnet 4.6, при обрыве резерв",
-          "limit": { "context": 200000, "output": 16384 }
+          "name": "auto — Sonnet 4.6 (×2)"
         },
         "smart": {
-          "name": "smart — Opus 4.8 (×4, только для сложного)",
-          "limit": { "context": 200000, "output": 16384 }
+          "name": "smart — Opus 4.8 (×4)"
+        },
+        "max": {
+          "name": "max — Opus 5 (×5)"
         },
         "cheap": {
-          "name": "cheap — экономичная платная модель"
+          "name": "cheap — GPT-5.6 Luna (×1,7)"
         },
-        "free": {
-          "name": "free — только бесплатные источники"
+        "code": {
+          "name": "code — codex-auto-review (×4)"
         },
-        "local": {
-          "name": "local — Ollama, без интернета и лимитов",
-          "limit": { "context": 32000, "output": 8192 }
+        "fable": {
+          "name": "fable — Fable 5 (×10, дорого)"
         }
       }
     }
   },
-
   "model": "freecoder/auto",
   "small_model": "freecoder/cheap",
-
   "autoupdate": false,
   "share": "disabled"
 }

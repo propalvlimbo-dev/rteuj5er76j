@@ -191,7 +191,7 @@ class TestFailover(RouterTestBase):
         ])
         code, out = self.post(port, {"model": "auto", "messages": [{"role": "user", "content": "x"}]})
         self.assertEqual(code, 429)
-        self.assertIn("квоты", out["error"]["message"])
+        self.assertIn("Дневной лимит", out["error"]["message"])
 
     def test_key_rotation_within_provider(self):
         """Первый ключ исчерпан — второй должен подхватить в том же запросе."""
@@ -610,5 +610,51 @@ class TestModelCatalogProbe(unittest.TestCase):
         return captured["code"], captured["obj"]
 
 
+class TestPerModelMultiplier(unittest.TestCase):
+    """Коэффициент зависит от модели: Sonnet ×2, Opus ×4 — дневной лимит считается честно."""
+
+    def _router(self, tmp):
+        cfg = {
+            "default_alias": "auto",
+            "aliases": {"auto": ["smartapi/claude-sonnet-4-6"],
+                        "smart": ["smartapi/claude-opus-4-8"]},
+            "providers": [{
+                "name": "smartapi", "kind": "mock", "base_url": "http://127.0.0.1:1",
+                "keys": ["k"], "models": ["claude-sonnet-4-6", "claude-opus-4-8"],
+                "priority": 1, "cost_multiplier": 4,
+                "model_multipliers": {"claude-sonnet-4-6": 2, "claude-opus-4-8": 4},
+                "limits": {"tpd": 1000000},
+            }],
+        }
+        return fcr.Router(cfg, os.path.join(tmp, "state.json"))
+
+    def test_multiplier_lookup(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        p = self._router(tmp).providers[0]
+        self.assertEqual(p.multiplier("claude-sonnet-4-6"), 2.0)
+        self.assertEqual(p.multiplier("claude-opus-4-8"), 4.0)
+        self.assertEqual(p.multiplier("неизвестная"), 4.0, "иначе берётся общий коэффициент шлюза")
+
+    def test_day_limit_uses_model_multiplier(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        r = self._router(tmp)
+        p = r.providers[0]
+        r.account_request(p, 0, tokens_in=1000, tokens_out=0, model="claude-sonnet-4-6")
+        r.account_request(p, 0, tokens_in=1000, tokens_out=0, model="claude-opus-4-8")
+        self.assertEqual(r.states["smartapi|0"].tokens_day, 1000 * 2 + 1000 * 4)
+
+    def test_models_payload_has_multipliers(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        r = self._router(tmp)
+        data = {m["id"]: m for m in fcr.models_payload(r)["data"]}
+        self.assertEqual(data["auto"]["multiplier"], 2.0)
+        self.assertEqual(data["smart"]["multiplier"], 4.0)
+        self.assertTrue(data["auto"]["alias"])
+        self.assertEqual(data["smartapi/claude-opus-4-8"]["multiplier"], 4.0)
+
+
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(verbosity=2)

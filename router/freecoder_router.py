@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-FreeCoder Router — бесплатный OpenAI-совместимый шлюз с ротацией ключей и failover.
+FreeCoder Router — OpenAI-совместимый шлюз к SmartAPI: дневной лимит расхода,
+перевод форматов (OpenAI <-> Anthropic), failover между адресами шлюза.
 
 Зачем он нужен:
-    Любой бесплатный тариф (Gemini Flash, Groq, Mistral, OpenRouter, NVIDIA NIM...)
-    заканчивается за час-два работы агента. Бесплатно и «бесконечно» получается
-    только если поставить между агентом и провайдерами прослойку, которая:
-      1) знает лимиты каждого тарифа (RPM / RPD / TPM / TPD),
-      2) сама выбирает провайдера с оставшейся квотой,
-      3) при 429 / 5xx / таймауте мгновенно уводит запрос к следующему,
-      4) ротирует несколько ключей одного провайдера,
-      5) в самом крайнем случае уходит на локальную модель через Ollama.
+    Баланс SmartAPI измеряется зачётными токенами, и без прослойки его легко
+    сжечь за один вечер. Роутер стоит между агентом и шлюзом и:
+      1) считает расход по коэффициенту каждой модели (×1,7 ... ×10),
+      2) держит дневной лимит tpd: выбран — платный канал до конца суток не используется,
+      3) при 429 / 5xx / таймауте мгновенно пробует второй адрес шлюза,
+      4) переводит формат: клиент говорит по-OpenAI, шлюз отвечает по-Anthropic,
+      5) при старте сверяет имена моделей с каталогом шлюза и подставляет верные.
 
     Агенту (opencode, Cline, Kilo Code, aider или встроенному agent/freecoder_agent.py)
     достаточно указать base_url = http://127.0.0.1:8788/v1 и любой ключ-заглушку.
@@ -48,7 +48,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 VERSION = "1.0.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CONFIG = os.path.join(HERE, "providers.json")
-EXAMPLE_CONFIG = os.path.join(HERE, "providers.example.json")
+SMARTAPI_CONFIG = os.path.join(HERE, "providers.smartapi.json")
 DEFAULT_STATE = os.path.join(HERE, "state.json")
 
 # ----------------------------------------------------------------------------
@@ -100,6 +100,7 @@ class Provider:
     headers: Dict[str, str] = field(default_factory=dict)
     limits: Dict[str, int] = field(default_factory=dict)  # rpm, rpd, tpm, tpd, max_ctx
     cost_multiplier: float = 1.0            # множитель расхода (коэффициент модели у шлюзов)
+    model_multipliers: Dict[str, float] = field(default_factory=dict)  # свой коэффициент каждой модели
     cooldown_on_error: int = 60             # сек. блокировки провайдера после 5xx/сети
     cooldown_on_429: int = 900              # сек. блокировки ключа при исчерпании квоты
     timeout: int = 180                      # сек. на чтение ответа (стриминг длинный!)
@@ -125,6 +126,14 @@ class Provider:
                 seen.add(k)
                 out.append(k)
         return out
+
+    def multiplier(self, model: str = "") -> float:
+        """Коэффициент расхода для модели: свой, иначе общий по провайдеру."""
+        name = (model or "").split("/")[-1]
+        for candidate in (name, self.model_map.get(name, "")):
+            if candidate and candidate in self.model_multipliers:
+                return max(1.0, float(self.model_multipliers[candidate]))
+        return max(1.0, float(self.cost_multiplier or 1.0))
 
     def url(self, path: str) -> str:
         return self.base_url.rstrip("/") + path
@@ -194,6 +203,8 @@ class Router:
                 headers=dict(raw.get("headers", {})),
                 limits=dict(raw.get("limits", {})),
                 cost_multiplier=float(raw.get("cost_multiplier", 1.0)),
+                model_multipliers={str(k): float(v)
+                                   for k, v in (raw.get("model_multipliers") or {}).items()},
                 cooldown_on_error=int(raw.get("cooldown_on_error", 60)),
                 cooldown_on_429=int(raw.get("cooldown_on_429", 900)),
                 timeout=int(raw.get("timeout", 180)),
@@ -351,14 +362,14 @@ class Router:
                     st = self.states.setdefault(f"{p.name}|0", KeyState())
                     st.blocked_until = 0
                     attempts.append((p, 0, p.models[0] if p.models else "qwen2.5-coder:7b"))
-                    log("⚠  Все облачные квоты исчерпаны — переключаюсь на локальную модель.")
+                    log("⚠  Дневной лимит расхода выбран — до конца суток платный канал не используется.")
                     break
         return attempts[:max_attempts]
 
     # ---- учёт --------------------------------------------------------------
 
     def account_request(self, p: Provider, key_idx: int, tokens_in: int = 0, tokens_out: int = 0,
-                        ok: bool = True, error: str = "") -> None:
+                        ok: bool = True, error: str = "", model: str = "") -> None:
         key = f"{p.name}|{key_idx}"
         with self.lock:
             st = self.states.setdefault(key, KeyState())
@@ -367,7 +378,7 @@ class Router:
             st.requests_day += 1
             # у шлюзов с коэффициентами списывается не 1:1, а с множителем:
             # считаем расход в тех же единицах, что и баланс провайдера
-            mult = max(1.0, float(getattr(p, "cost_multiplier", 1.0) or 1.0))
+            mult = p.multiplier(model)
             st.tokens_day += int((tokens_in + tokens_out) * mult)
             st.last_used = now_ts()
             st.last_error = error
@@ -851,10 +862,11 @@ class Handler(BaseHTTPRequestHandler):
                 {
                     "error": {
                         "message": (
-                            "Все бесплатные квоты исчерпаны или ключи не настроены. "
+                            "Запрос некуда отправить: ключ SMARTAPI_KEY не задан, либо выбран "
+                            "дневной лимит расхода, либо шлюз на паузе после ошибок. "
                             "Проверьте http://127.0.0.1:8788/ — там видно, кто остывает и на сколько. "
-                            "Варианты: добавить второй ключ, подождать сброса (обычно полночь по UTC), "
-                            "включить локальную модель Ollama."
+                            "Варианты: дождаться сброса лимита (полночь по UTC) или поднять tpd "
+                            "в router/providers.smartapi.json."
                         ),
                         "type": "insufficient_quota",
                     }
@@ -904,7 +916,7 @@ class Handler(BaseHTTPRequestHandler):
                         p, key_idx,
                         tokens_in=int(usage.get("prompt_tokens") or prompt_tokens),
                         tokens_out=int(usage.get("completion_tokens") or 0),
-                        ok=True,
+                        ok=True, model=model,
                     )
                     out["model"] = requested_model or out.get("model")
                     out.setdefault("x_freecoder_provider", p.name)
@@ -938,31 +950,35 @@ class Handler(BaseHTTPRequestHandler):
                             resp2, _ = r.call_provider_once(p, key_idx, key, model, fixed, stream)
                             data = resp2.read()
                             out = json.loads(data.decode("utf-8"))
-                            r.account_request(p, key_idx, prompt_tokens, 0, ok=True)
+                            r.account_request(p, key_idx, prompt_tokens, 0, ok=True, model=model)
                             out["model"] = requested_model or out.get("model")
                             out.setdefault("x_freecoder_provider", p.name)
                             return self._send_json(out)
                         except Exception as e2:  # noqa: BLE001
                             last_err = f"400 после очистки: {e2}"
-                    r.account_request(p, key_idx, prompt_tokens, 0, ok=False, error=last_err)
+                    r.account_request(p, key_idx, prompt_tokens, 0, ok=False, error=last_err,
+                                      model=model)
                 else:
-                    r.account_request(p, key_idx, prompt_tokens, 0, ok=False, error=last_err)
+                    r.account_request(p, key_idx, prompt_tokens, 0, ok=False, error=last_err,
+                                      model=model)
             except Exception as e:  # сеть, таймаут, SSL
                 last_err = f"{type(e).__name__}: {e}"
-                r.account_request(p, key_idx, prompt_tokens, 0, ok=False, error=last_err)
+                r.account_request(p, key_idx, prompt_tokens, 0, ok=False, error=last_err,
+                                  model=model)
                 r.block_provider(p, p.cooldown_on_error, last_err)
 
         r.save_state()
         status = 429 if saw_quota else 502
-        hint = ("Все бесплатные квоты на сегодня исчерпаны. "
-                if saw_quota else "Все провайдеры отказали. ")
+        hint = ("Дневной лимит расхода на сегодня выбран (tpd в конфиге). "
+                if saw_quota else "Ни один адрес шлюза не ответил. ")
         return self._send_json(
             {"error": {
                 "message": (f"{hint}Пробовал: {tried}. Последняя ошибка: {last_err}. "
                             f"Статус: http://127.0.0.1:{self.server.server_address[1]}/ — "
                             f"там видно, кто остывает и сколько ждать. "
-                            f"Квоты обычно сбрасываются в полночь по UTC."),
-                "type": "insufficient_quota" if saw_quota else "upstream_error"}},
+                            f"Дневной лимит сбрасывается в полночь по UTC, "
+                            f"либо поднимите tpd в router/providers.smartapi.json."),
+                "type": "daily_limit_reached" if saw_quota else "upstream_error"}},
             status,
         )
 
@@ -1026,7 +1042,8 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             self.wfile.write(b"0\r\n\r\n")
             self.wfile.flush()
-            self.router.account_request(p, key_idx, tokens_in, tokens_out, ok=True)
+            self.router.account_request(p, key_idx, tokens_in, tokens_out, ok=True,
+                                        model=requested_model or "")
 
 
 # ----------------------------------------------------------------------------
@@ -1071,17 +1088,46 @@ def status_payload(r: Router) -> Dict[str, Any]:
 
 
 def models_payload(r: Router) -> Dict[str, Any]:
+    """Список моделей для клиентов и для выбора модели в агенте.
+
+    Сначала алиасы (auto/smart/... — то, что видит пользователь), затем все модели
+    шлюзов с коэффициентом расхода: по нему агент показывает цену выбора.
+    """
     data = []
-    for alias in list(r.aliases.keys()) + ["auto"]:
+    seen_aliases: List[str] = []
+    for alias in list(r.aliases.keys()) + [r.default_alias]:
+        if alias in seen_aliases:
+            continue
+        seen_aliases.append(alias)
+        chain = r.aliases.get(alias, [])
+        first = chain[0] if chain else ""
+        mult = 1.0
+        if first and "/" in first:
+            pname, mname = first.split("/", 1)
+            for p in r.providers:
+                if p.name == pname:
+                    mult = p.multiplier(mname)
         data.append({
             "id": alias,
             "object": "model",
             "owned_by": "freecoder-router",
-            "description": " -> ".join(r.aliases.get(alias, [])),
+            "description": " -> ".join(chain),
+            "multiplier": mult,
+            "alias": True,
         })
+    seen_models: set = set()
     for p in r.providers:
         for m in p.models:
-            data.append({"id": f"{p.name}/{m}", "object": "model", "owned_by": p.name})
+            if m in seen_models:
+                continue   # та же модель через второй адрес шлюза — не дублируем в списке
+            seen_models.add(m)
+            data.append({
+                "id": f"{p.name}/{m}",
+                "object": "model",
+                "owned_by": p.name,
+                "multiplier": p.multiplier(m),
+                "alias": False,
+            })
     return {"object": "list", "data": data}
 
 
@@ -1170,18 +1216,20 @@ SERVER_START = now_ts()
 
 def load_config(path: str, mock: bool) -> Dict[str, Any]:
     if not os.path.exists(path):
-        if os.path.exists(EXAMPLE_CONFIG) and os.path.abspath(path) == os.path.abspath(DEFAULT_CONFIG):
-            log(f"ℹ  {os.path.basename(path)} не найден — беру {os.path.basename(EXAMPLE_CONFIG)}.")
-            path = EXAMPLE_CONFIG
+        fallback = SMARTAPI_CONFIG if os.path.exists(SMARTAPI_CONFIG) else SMARTAPI_CONFIG
+        if os.path.exists(fallback) and os.path.abspath(path) == os.path.abspath(DEFAULT_CONFIG):
+            log(f"ℹ  {os.path.basename(path)} не найден — беру {os.path.basename(fallback)}.")
+            path = fallback
         else:
             log(f"⚠  Конфиг {path} не найден — работаю с пустым списком провайдеров.")
+            log("   Рабочий конфиг: router/providers.smartapi.json")
             return {"providers": []}
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    ap = argparse.ArgumentParser(description="FreeCoder Router — бесплатный OpenAI-совместимый шлюз")
+    ap = argparse.ArgumentParser(description="FreeCoder Router — шлюз к SmartAPI с дневным лимитом")
     ap.add_argument("--config", default=os.environ.get("FREECODER_CONFIG", DEFAULT_CONFIG))
     ap.add_argument("--state", default=os.environ.get("FREECODER_STATE", DEFAULT_STATE))
     ap.add_argument("--host", default=os.environ.get("FREECODER_HOST", "127.0.0.1"))

@@ -566,7 +566,7 @@ def print_report(results: List[Result], models: List[str]) -> None:
     else:
         print("\nЯвных подмен и лимитов не найдено. Но помните: это чужая инфраструктура — "
               "ваш код и промпты через неё видит владелец. Для рабочего кода — официальные "
-              "источники (docs/05, docs/06).")
+              "официальный доступ к модели.")
 
 
 def list_models(base_url: str, key: str, api_format: str = "openai") -> int:
