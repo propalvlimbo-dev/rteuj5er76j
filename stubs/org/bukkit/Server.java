@@ -6,7 +6,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.ConsoleCommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.PluginManager;
-import org.bukkit.scheduler.Scheduler;
+import org.bukkit.scheduler.BukkitScheduler;
 
 /** LOCAL-BUILD STUB. Compile-only, never shaded into the jar. */
 public interface Server {
@@ -18,7 +18,7 @@ public interface Server {
 
     PluginManager getPluginManager();
 
-    Scheduler getScheduler();
+    BukkitScheduler getScheduler();
 
     ConsoleCommandSender getConsoleSender();
 
