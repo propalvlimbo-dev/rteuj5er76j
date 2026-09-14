@@ -733,5 +733,87 @@ class TestModelMenu(unittest.TestCase):
         self.assertEqual(ag.llm.model, "auto")
 
 
+class TestSessionMemory(unittest.TestCase):
+    """Агент должен помнить, что пользователь писал ему раньше в этой же сессии."""
+
+    def _agent(self):
+        ws = tempfile.mkdtemp(prefix="fc-mem-")
+        self.addCleanup(shutil.rmtree, ws, ignore_errors=True)
+        return fca.Agent(fca.Repo(ws), fca.LLM("http://127.0.0.1:1/v1", "k", "auto"), yes=True)
+
+    def _fake_chat(self, agent):
+        """Подменяет модель: записывает, что именно уехало в запрос, и сразу отдаёт final."""
+        seen = []
+
+        def chat(messages, tools=None, temperature=0.2):
+            seen.append([dict(m) for m in messages])
+            return {"choices": [{"message": {"content": json.dumps(
+                {"thought": "итог", "tool": "final",
+                 "args": {"summary": "готово"}}, ensure_ascii=False)}}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 10}, "_elapsed": 0.0}
+
+        agent.llm.chat = chat
+        return seen
+
+    def test_second_task_sees_first(self):
+        ag = self._agent()
+        seen = self._fake_chat(ag)
+        ag.run_task("сделай сайт про лампочку")
+        self.assertEqual(ag.remembered_tasks(), 1)
+        ag.run_task("добавь кнопку выключения")
+        self.assertEqual(ag.remembered_tasks(), 2)
+        second_request = " ".join(str(m.get("content")) for m in seen[1])
+        self.assertIn("сделай сайт про лампочку", second_request,
+                      "во второй задаче модель должна видеть первую")
+
+    def test_request_starts_with_system_then_memory_then_task(self):
+        ag = self._agent()
+        seen = self._fake_chat(ag)
+        ag.run_task("первая задача")
+        ag.run_task("вторая задача")
+        roles = [m.get("role") for m in seen[1]]
+        self.assertEqual(roles[0], "system")
+        self.assertEqual(roles[1], "user")
+        self.assertEqual(roles[2], "assistant")
+        self.assertEqual(roles[-1], "user")
+
+    def test_memory_is_short(self):
+        ag = self._agent()
+        self._fake_chat(ag)
+        ag.run_task("з" * 5000)
+        self.assertLessEqual(len(ag.history[0]["content"]), fca.MEMORY_TASK_CHARS + 1)
+
+    def test_memory_is_capped(self):
+        ag = self._agent()
+        self._fake_chat(ag)
+        for i in range(fca.MEMORY_TASKS + 4):
+            ag.run_task(f"задача {i}")
+        self.assertEqual(ag.remembered_tasks(), fca.MEMORY_TASKS)
+        self.assertIn("задача 4", ag.history[0]["content"], "старые задачи вытесняются")
+        self.assertNotIn("задача 3", " ".join(m["content"] for m in ag.history))
+
+    def test_clear_forgets_session(self):
+        ag = self._agent()
+        self._fake_chat(ag)
+        ag.run_task("сделай сайт")
+        with mock.patch("builtins.input", side_effect=["/clear", "/exit"]):
+            fca.repl(ag)
+        self.assertEqual(ag.history, [])
+        self.assertEqual(ag.remembered_tasks(), 0)
+
+    def test_history_command_shows_tasks(self):
+        ag = self._agent()
+        self._fake_chat(ag)
+        ag.run_task("сделай сайт")
+        printed = []
+        with mock.patch.object(fca, "log",
+                               side_effect=lambda *a: printed.append(" ".join(str(x) for x in a))), \
+             mock.patch("builtins.input", side_effect=["/history", "/exit"]):
+            fca.repl(ag)
+        text = "\n".join(printed)
+        self.assertIn("Помню задач", text)
+        self.assertIn("сделай сайт", text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

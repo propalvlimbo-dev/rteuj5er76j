@@ -25,6 +25,8 @@ FreeCoder Agent — локальный ИИ-агент, который чита�
     --steps N        максимум шагов агента на задачу (по умолчанию 15)
 
 Экономия токенов (подробно — docs/08-ЭКОНОМИЯ-ТОКЕНОВ.md):
+    · агент помнит задачи этой сессии (/history) — продолжения вроде «добавь ещё кнопку»
+      понимаются без повторов; сброс памяти — /clear;
     · в диалоге /tokens покажет, из чего складывается следующий запрос;
     · /clear — новая задача без старой истории;  /steps 8 — короче сессии;
     · каждый шаг пересылает историю заново, поэтому в задачах лучше называть
@@ -49,7 +51,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 DEFAULT_API_BASE = os.environ.get("FREECODER_API_BASE", "http://127.0.0.1:8788/v1")
 DEFAULT_API_KEY = os.environ.get("FREECODER_API_KEY", "freecoder")
 DEFAULT_MODEL = os.environ.get("FREECODER_MODEL", "auto")
@@ -72,6 +74,9 @@ HISTORY_TOOL_CHARS = 500        # остальные сжимаются до э�
 HISTORY_STEP_KEEP = 1           # сколько последних шагов модели держим целиком
 HISTORY_STEP_CHARS = 700        # старые шаги (правки с содержимым файлов) сжимаются
 DEFAULT_MAX_STEPS = 15          # предел шагов на задачу: меньше шагов — меньше повторов контекста
+MEMORY_TASKS = 8                # сколько прошлых задач сессии помним (история диалога)
+MEMORY_TASK_CHARS = 400         # сколько символов оставляем от задачи пользователя
+MEMORY_SUMMARY_CHARS = 500      # сколько символов оставляем от отчёта агента
 CHARS_PER_TOKEN = 3.5           # грубая оценка для расчёта размера запроса
 TEXT_EXT_HINT = {
     ".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".md", ".txt", ".html", ".css",
@@ -91,6 +96,12 @@ DENY_COMMAND_PATTERNS = [
 
 def log(*parts: Any) -> None:
     print(*parts, flush=True)
+
+
+def short_text(text: str, limit: int) -> str:
+    """Сжимает текст до одной строки нужной длины — для памяти сессии."""
+    line = " ".join(str(text or "").split())
+    return line if len(line) <= limit else line[:limit].rstrip() + "…"
 
 
 def human(n: int) -> str:
@@ -559,6 +570,12 @@ def system_prompt(workspace: str, repo_tree: str, allow_cmd: bool, dry_run: bool
    а исправляй её и продолжай.
 6. Закончив, вызови final с отчётом: что сделано и какие файлы созданы/изменены.
 
+ПАМЯТЬ СЕССИИ
+· Перед этой задачей в истории — тезисы прошлых задач сессии и что в них сделано.
+· Уточнения вроде «добавь ещё кнопку», «поменяй цвет», «теперь сделай то же для второй страницы»
+  относятся именно к ним. Не переспрашивай пользователя и не начинай с нуля: посмотри дерево
+  файлов и правь то, что уже есть.
+
 ЭКОНОМИЯ ТОКЕНОВ (пользователь платит за каждый шаг, поэтому контекст не раздуваем)
 · Каждый шаг заново пересылает всю историю — чем короче сессия, тем дешевле. Лимит: {max_steps} шагов.
 · Не перечитывай файл, который уже читал, и не читай файл, который только что создал.
@@ -809,6 +826,31 @@ class Agent:
         self.session_dir = os.path.join(repo.root, ".freecoder", "sessions")
         os.makedirs(self.session_dir, exist_ok=True)
 
+    # --- память сессии: что просил пользователь и чем закончились прошлые задачи ---
+
+    def remember(self, task: str, summary: str, files: Optional[List[str]] = None) -> None:
+        """Копит короткие тезисы задач: следующая задача видит контекст, но платит за него копейки.
+
+        Держим не всю переписку (она дорогая), а по две строки на задачу: что попросили
+        и что сделали. Полностью забыть сессию можно командой /clear.
+        """
+        if files is None:
+            files = sorted(set(self.repo.touched))
+        what = ", ".join(files) or "файлы не менялись"
+        brief = short_text(summary, MEMORY_SUMMARY_CHARS)
+        self.history.append({"role": "user", "content": short_text(task, MEMORY_TASK_CHARS)})
+        self.history.append({"role": "assistant",
+                             "content": f"Сделано: {brief} Изменено: {what}" if brief
+                                        else f"Изменено: {what}"})
+        self.history = self.history[-2 * MEMORY_TASKS:]
+
+    def remembered_tasks(self) -> int:
+        """Сколько задач сессии сейчас в памяти."""
+        return len(self.history) // 2
+
+    def memory_messages(self) -> List[Dict[str, Any]]:
+        return [dict(m) for m in self.history]
+
     # --- журнал ---
 
     def save_event(self, event: Dict[str, Any]) -> None:
@@ -914,9 +956,15 @@ class Agent:
     def run_task(self, task: str, quiet: bool = False) -> str:
         log(f"\n🎯 Задача: {task}\n")
         tree = self.repo.tree()
+        touched_before = list(self.repo.touched)
+        memory = self.memory_messages()
+        if memory:
+            log(f"   помню прошлых задач: {self.remembered_tasks()}"
+                f" (полный сброс — /clear)\n")
         messages: List[Dict[str, Any]] = [
             {"role": "system", "content": system_prompt(self.repo.root, tree, self.allow_cmd,
                                                         self.repo.dry_run, self.max_steps)},
+            *memory,
             {"role": "user", "content": task},
         ]
         self.last_messages = messages
@@ -929,6 +977,7 @@ class Agent:
                 resp = self.llm.chat(messages, tools=TOOLS_SCHEMA)
             except RuntimeError as e:
                 log(f"⚠  {e}")
+                self.remember(task, f"Не получилось: {e}", files=[])
                 return f"Ошибка модели: {e}"
 
             msg = (resp.get("choices") or [{}])[0].get("message") or {}
@@ -967,6 +1016,7 @@ class Agent:
                     log(f"     {content.strip()[:1500]}")
                     self.save_event({"type": "text", "content": content})
                     if step == 1 and len(content) < 1500:
+                        self.remember(task, content.strip(), files=[])
                         return content.strip()
                     messages.append({"role": "assistant", "content": content})
                     messages.append({"role": "user", "content":
@@ -1009,6 +1059,8 @@ class Agent:
                     f"токенов: вход {human(self.llm.tokens_in)}, выход {human(self.llm.tokens_out)}"
                     + (f" · {self.llm.spend_line()}" if self.llm.spend_line() else ""))
                 log("")
+                self.remember(task, final_result, files=[f for f in self.repo.touched
+                                                         if f not in touched_before])
                 return final_result
 
             # Возвращаем результаты. Если модель использовала нативный tool calling —
@@ -1031,6 +1083,8 @@ class Agent:
             if sum(len(str(m.get('content') or '')) for m in messages) > 140000:
                 messages = trim_history(messages)
 
+        self.remember(task, "Достигнут предел шагов: часть работы сделана, смотрите /diff",
+                      files=[f for f in self.repo.touched if f not in touched_before])
         return "Достигнут предел шагов. Что успел — сделал, посмотрите diff."
 
 
@@ -1217,6 +1271,9 @@ def context_report(agent: Agent) -> str:
             lines.append(f"   самое тяжёлое: {msg.get('role', '?')} {name} — {human(size)} символов")
     else:
         lines.append("В этой сессии задач ещё не было: истории нет, запрос будет дешёвым.")
+    if agent.remembered_tasks():
+        lines.append(f"Помню прошлых задач сессии: {agent.remembered_tasks()} "
+                     f"— их тезисы тоже едут в запросе (сброс — /clear)")
     lines.append(f"За сессию: вход {human(agent.llm.tokens_in)}, выход {human(agent.llm.tokens_out)}")
     spend = agent.llm.spend_line()
     if spend:
@@ -1233,7 +1290,8 @@ def repl(agent: Agent) -> None:
     log(f"папка:  {agent.repo.root}")
     log(f"модель: {agent.llm.model} · {mode} · шагов на задачу: {agent.max_steps}"
         + (f" · {spend}" if spend else ""))
-    log("задача пишется словами · /help команды · /model модели (Claude и GPT) · /tokens расход\n")
+    log("задача пишется словами · агент помнит задачи этой сессии (/history)")
+    log("/help команды · /model модели (Claude и GPT) · /tokens расход · /exit выход\n")
     while True:
         try:
             line = input("freecoder> ").strip()
@@ -1257,7 +1315,8 @@ def repl(agent: Agent) -> None:
   /model            выбрать модель: Claude, GPT, Codex — с коэффициентами расхода
   /tokens           разбор расхода: сколько уйдёт на следующий шаг и почему
   /steps 8          сколько шагов разрешено на задачу (сейчас {agent.max_steps})
-  /clear            очистить историю сессии (новая задача — дешевле)
+  /history          что агент помнит о прошлых задачах этой сессии
+  /clear            забыть прошлые задачи и историю (новая тема — дешевле)
   /undo             откатить правки этой сессии      /diff — что изменилось
   /tree             файлы проекта
   /confirm on|off   подтверждать правки или применять сразу
@@ -1316,12 +1375,25 @@ def repl(agent: Agent) -> None:
             elif cmd == "/tokens":
                 log(context_report(agent))
             elif cmd == "/clear":
+                was = agent.remembered_tasks()
                 agent.history = []
                 agent.last_messages = []
                 agent.llm.tokens_in = 0
                 agent.llm.tokens_out = 0
                 agent.llm.last_usage = {}
-                log("История очищена. Следующая задача уйдёт без прошлого контекста — это дешевле.")
+                log(f"Забыто задач: {was}. Следующая задача уйдёт с чистого листа — это дешевле."
+                    if was else "История и так пустая.")
+            elif cmd == "/history":
+                if not agent.history:
+                    log("Пока ничего не помню: в этой сессии задач ещё не было.")
+                else:
+                    log(f"Помню задач в этой сессии: {agent.remembered_tasks()} "
+                        f"(сброс — /clear)\n")
+                    for i in range(0, len(agent.history), 2):
+                        asked = agent.history[i].get("content", "")
+                        done = agent.history[i + 1].get("content", "") if i + 1 < len(agent.history) else ""
+                        log(f"  {i // 2 + 1}) вы: {asked}")
+                        log(f"     {done}")
             elif cmd == "/steps":
                 if rest.isdigit() and 1 <= int(rest) <= 60:
                     agent.max_steps = int(rest)
