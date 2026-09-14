@@ -14,17 +14,17 @@ import ru.elytrix.efc.check.Check;
 import ru.elytrix.efc.util.DamageUtil;
 
 /**
- * Accuracy.A: 100% попаданий по игрокам за 40+ взмахов в активном бою.
- * Триггерботы и хитбоксы почти не мажут. Фарм стоя на месте (АФК-мобы)
- * не считается — требуем движение атакующего.
+ * Accuracy.A: процент попаданий (логика NESS KillauraHitMissRatio).
+ * 60 взмахов, хит засчитывается только по той же цели подряд,
+ * атакующий должен двигаться. Порог 95–100%. Плюс наше: только по игрокам.
  */
 public final class AccuracyA extends Check {
 
     private static final class State {
         int swings;
         int hits;
-        long windowStart;
         double moved;
+        UUID lastVictim;
     }
 
     private final Map<UUID, State> states = new ConcurrentHashMap<>();
@@ -50,37 +50,40 @@ public final class AccuracyA extends Check {
     public void onAnimation(PlayerAnimationEvent event) {
         Player player = event.getPlayer();
         State state = states.computeIfAbsent(player.getUniqueId(), key -> new State());
-        long now = System.currentTimeMillis();
-        if (state.windowStart == 0) {
-            state.windowStart = now;
-        }
-        if (now - state.windowStart >= 10000) {
-            int swings = state.swings;
-            int hits = state.hits;
-            double moved = state.moved;
-            state.swings = 0;
-            state.hits = 0;
-            state.moved = 0;
-            state.windowStart = now;
-            if (swings >= 40 && moved > 3.0) {
-                double ratio = (double) hits / swings;
-                if (ratio >= 0.98 && ratio <= 1.0) {
-                    flag(plugin.getDataManager().get(player), "100% " + swings);
-                    return;
-                }
-            }
-        }
         state.swings++;
+        if (state.swings < 60) {
+            return;
+        }
+        int swings = state.swings;
+        int hits = state.hits;
+        double moved = state.moved;
+        state.swings = 0;
+        state.hits = 0;
+        state.moved = 0;
+        state.lastVictim = null;
+        if (moved <= 3.0) {
+            return;
+        }
+        double ratio = (double) hits / swings;
+        if (ratio >= 0.95 && ratio <= 1.0) {
+            flag(plugin.getDataManager().get(player), Math.round(ratio * 100) + "% " + swings);
+        }
     }
 
     @EventHandler
     public void onDamage(EntityDamageByEntityEvent event) {
         Player attacker = DamageUtil.meleeAttacker(event);
-        Object rawVictim = DamageUtil.entityOf(event);
-        if (attacker == null || !(rawVictim instanceof Player)) {
+        if (attacker == null) {
+            return;
+        }
+        UUID victim = DamageUtil.victimId(event);
+        if (victim == null || !(DamageUtil.entityOf(event) instanceof Player)) {
             return;
         }
         State state = states.computeIfAbsent(attacker.getUniqueId(), key -> new State());
-        state.hits++;
+        if (victim.equals(state.lastVictim)) {
+            state.hits++;
+        }
+        state.lastVictim = victim;
     }
 }

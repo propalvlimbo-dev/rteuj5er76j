@@ -40,14 +40,25 @@ public final class KillAuraB extends Check {
         if (attacker == null) {
             return;
         }
+        // Без getCause (кривые форки) шипы неотличимы от удара:
+        // если жертва сама била меньше секунды назад — вероятно шипы.
+        if (!DamageUtil.hasCause()) {
+            Object rawVictim = DamageUtil.entityOf(event);
+            if (rawVictim instanceof Player) {
+                long victimAttack = plugin.getDataManager().get((Player) rawVictim).getLastAttack();
+                if (System.currentTimeMillis() - victimAttack < 1000) {
+                    return;
+                }
+            }
+        }
         long now = System.currentTimeMillis();
         Long swing = lastSwing.get(attacker.getUniqueId());
         if (swing == null) {
-            // Первый удар без истории — прощаем, дальше следим.
             lastSwing.put(attacker.getUniqueId(), now);
             return;
         }
-        if (now - swing > 300) {
+        // Окно 550 мс — как у NESS KillauraNoSwing (570 мс).
+        if (now - swing > 550) {
             flag(plugin.getDataManager().get(attacker), "no-swing");
         }
     }

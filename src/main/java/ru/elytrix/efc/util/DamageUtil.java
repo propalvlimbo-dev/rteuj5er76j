@@ -9,7 +9,7 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 
 /**
- * Доступ к методам damage-событий через рефлексию.
+ * Доступ к методам damage-событий через рефлексию + пинг + лимиты рича.
  * Некоторые форки (замечен ShieldSpigot) ломают иерархию событий:
  * унаследованные getCause/getDamage/getEntity отсутствуют и прямой вызов
  * падает с NoSuchMethodError. Здесь всё с проверками и фолбэками.
@@ -21,6 +21,9 @@ public final class DamageUtil {
     private static final Method GET_ENTITY = find(EntityDamageEvent.class, "getEntity");
     private static final Method GET_DAMAGER = find(EntityDamageByEntityEvent.class, "getDamager");
 
+    private static Method pingMethod;
+    private static Class<?> pingClass;
+
     private DamageUtil() {
     }
 
@@ -30,6 +33,11 @@ public final class DamageUtil {
         } catch (Throwable ignored) {
             return null;
         }
+    }
+
+    /** Есть ли рабочий getCause (нет — включаются запасные эвристики). */
+    public static boolean hasCause() {
+        return GET_CAUSE != null;
     }
 
     /** Есть ли рабочий getDamage (нужен Velocity.A). */
@@ -105,5 +113,30 @@ public final class DamageUtil {
         }
         Entity damager = damagerOf(event);
         return damager instanceof Player ? (Player) damager : null;
+    }
+
+    /** Пинг через CraftPlayer.getPing (в API 1.16 его нет, дёргаем рефлексией). */
+    public static int pingOf(Player player) {
+        try {
+            if (pingMethod == null || pingClass != player.getClass()) {
+                pingClass = player.getClass();
+                pingMethod = pingClass.getMethod("getPing");
+            }
+            Object value = pingMethod.invoke(player);
+            int ping = value instanceof Number ? ((Number) value).intValue() : 150;
+            return Math.max(0, Math.min(2000, ping));
+        } catch (Throwable ignored) {
+            pingMethod = null;
+            return 150;
+        }
+    }
+
+    /**
+     * Лимит дистанции с компенсацией пинга обоих бойцов (как у всех топов):
+     * лагующий честный игрок бьёт «дальше» только на бумаге.
+     */
+    public static double reachLimit(Player attacker, Entity victim, double base, double perMs, double cap) {
+        int total = pingOf(attacker) + (victim instanceof Player ? pingOf((Player) victim) : 0);
+        return Math.min(base + total * perMs, cap);
     }
 }

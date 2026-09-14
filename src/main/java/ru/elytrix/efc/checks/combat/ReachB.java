@@ -59,7 +59,9 @@ public final class ReachB extends Check {
         double average = state.sum / state.count;
         state.count = 0;
         state.sum = 0;
-        if (average > cfg("avg-reach", 3.1)) {
+        double max = DamageUtil.reachLimit(attacker, victim,
+                cfg("base", 3.0), cfg("per-ms", 0.0025), cfg("cap", 4.0));
+        if (average > max) {
             flag(plugin.getDataManager().get(attacker), "avg " + String.format("%.2f", average));
         }
     }

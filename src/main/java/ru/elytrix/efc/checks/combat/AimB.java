@@ -1,6 +1,7 @@
 package ru.elytrix.efc.checks.combat;
 
-import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -12,12 +13,20 @@ import ru.elytrix.efc.check.Category;
 import ru.elytrix.efc.check.Check;
 
 /**
- * Aim.B: линейное наведение — 20 пакетов подряд с почти одинаковым шагом.
- * Живая рука так ровно не ведёт, только робот. Только в бою.
+ * Aim.B: стабильность НОД питча (математика Hawk AimbotPrecision).
+ * Hawk специально использует питч: yaw на высоких FPS даёт ложные.
+ * Окно 10 семплов, игнор резких движений и взгляда в зенит.
+ * Плюс наш гейт: оцениваем только в бою (удар в последние 3 сек).
  */
 public final class AimB extends Check {
 
-    private final Map<UUID, ArrayDeque<Double>> deltas = new ConcurrentHashMap<>();
+    private static final class State {
+        final List<Float> samples = new ArrayList<>();
+        float lastGcd;
+        boolean hasGcd;
+    }
+
+    private final Map<UUID, State> states = new ConcurrentHashMap<>();
 
     public AimB(ElytrixFuckCheats plugin) {
         super(plugin, "Aim", "B", Category.COMBAT);
@@ -25,46 +34,68 @@ public final class AimB extends Check {
 
     @Override
     public void onQuit(UUID uuid) {
-        deltas.remove(uuid);
+        states.remove(uuid);
     }
 
     @EventHandler
     public void onMove(PlayerMoveEvent event) {
         Player player = event.getPlayer();
-        double delta = yawDelta(event.getFrom().getYaw(), event.getTo().getYaw());
-        if (delta < 0.1 || delta > 20) {
+        State state = states.computeIfAbsent(player.getUniqueId(), key -> new State());
+
+        float deltaPitch = event.getTo().getPitch() - event.getFrom().getPitch();
+        if (deltaPitch != 0 && Math.abs(deltaPitch) <= 0.96f && Math.abs(event.getTo().getPitch()) != 90) {
+            state.samples.add(Math.abs(deltaPitch));
+        }
+        if (state.samples.size() < 10) {
             return;
         }
-        ArrayDeque<Double> window = deltas.computeIfAbsent(player.getUniqueId(), key -> new ArrayDeque<>());
-        window.addLast(delta);
-        while (window.size() > 20) {
-            window.pollFirst();
+        float gcd = gcdRational(state.samples);
+        float diff = Math.abs(gcd - (state.hasGcd ? state.lastGcd : gcd));
+        if (diff > 0.001f && state.hasGcd && state.lastGcd > 0.001f) {
+            // Повтор с прошлым НОД: 10 семплов могло не хватить для того же НОД.
+            state.samples.add(state.lastGcd);
+            gcd = gcdRational(state.samples);
         }
-        if (window.size() < 20) {
-            return;
-        }
-        long now = System.currentTimeMillis();
-        if (now - plugin.getDataManager().get(player).getLastAttack() > 3000) {
-            return;
-        }
-        double min = Double.MAX_VALUE;
-        double max = 0;
-        for (double value : window) {
-            if (value < min) {
-                min = value;
+        state.samples.clear();
+        state.lastGcd = gcd;
+        state.hasGcd = true;
+
+        if (gcd < 0.00001f) {
+            long now = System.currentTimeMillis();
+            if (now - plugin.getDataManager().get(player).getLastAttack() > 3000) {
+                return;
             }
-            if (value > max) {
-                max = value;
-            }
-        }
-        if (min > 0 && max / min < 1.05) {
-            window.clear();
-            flag(plugin.getDataManager().get(player), "linear");
+            flag(plugin.getDataManager().get(player), "unsolvable");
         }
     }
 
-    private static double yawDelta(double from, double to) {
-        double delta = Math.abs(from - to) % 360.0;
-        return delta > 180.0 ? 360.0 - delta : delta;
+    /** НОД для дробей (Hawk MathPlus.gcdRational). */
+    private static float gcdRational(float a, float b) {
+        if (a == 0) {
+            return b;
+        }
+        int quotient = getIntQuotient(b, a);
+        float remainder = ((b / a) - quotient) * a;
+        if (Math.abs(remainder) < Math.max(a, b) * 1e-3f) {
+            remainder = 0;
+        }
+        return gcdRational(remainder, a);
+    }
+
+    private static float gcdRational(List<Float> numbers) {
+        float result = numbers.get(0);
+        for (int i = 1; i < numbers.size(); i++) {
+            result = gcdRational(numbers.get(i), result);
+            if (result < 1e-7f) {
+                return 0;
+            }
+        }
+        return result;
+    }
+
+    private static int getIntQuotient(float dividend, float divisor) {
+        float ans = dividend / divisor;
+        float error = Math.max(dividend, divisor) * 1e-3f;
+        return (int) (ans + error);
     }
 }

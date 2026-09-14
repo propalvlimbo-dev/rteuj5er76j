@@ -35,7 +35,9 @@ checks:
     enabled: true
     add-vl: 1.0
     max-vl: 25.0
-    max-reach: 3.6
+    base: 3.05
+    per-ms: 0.003
+    cap: 4.6
   autoclicker-a:
     enabled: true
     add-vl: 2.0
@@ -63,7 +65,9 @@ checks:
     enabled: true
     add-vl: 2.0
     max-vl: 20.0
-    avg-reach: 3.1
+    base: 3.0
+    per-ms: 0.0025
+    cap: 4.0
   autoclicker-b:
     enabled: true
     add-vl: 3.0
@@ -71,12 +75,12 @@ checks:
     blatant-cps: 30
   aim-a:
     enabled: true
-    add-vl: 2.0
-    max-vl: 20.0
+    add-vl: 1.0
+    max-vl: 6.0
   aim-b:
     enabled: true
-    add-vl: 2.0
-    max-vl: 20.0
+    add-vl: 1.0
+    max-vl: 10.0
   aim-c:
     enabled: true
     add-vl: 2.0

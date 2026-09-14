@@ -29,9 +29,11 @@ public final class ReachA extends Check {
             return;
         }
         double distance = attacker.getLocation().distance(victim.getLocation());
-        double max = cfg("max-reach", 3.6);
+        double max = ru.elytrix.efc.util.DamageUtil.reachLimit(attacker, victim,
+                cfg("base", 3.05), cfg("per-ms", 0.003), cfg("cap", 4.6));
         if (distance > max) {
-            flag(plugin.getDataManager().get(attacker), "dist " + String.format("%.2f", distance));
+            flag(plugin.getDataManager().get(attacker),
+                    "dist " + String.format("%.2f", distance) + ">" + String.format("%.2f", max));
         }
     }
 }

@@ -32,6 +32,7 @@
 - [x] Ядро: PlayerData, VL, exemptions, алерты, наказания, команды
 - [x] Комбат-пакет (14): KillAura A/B/C, Reach A/B, AutoClicker A/B,
       Aim A/B/C, Accuracy.A, Velocity.A, FastBow.A, FastEat.A
+      (математика по образцу NESS/Frequency, Hawk, VulcanOLD — свои пороги щадящие)
 - [x] Движение (2): Fly.A, Speed.A (консервативные)
 - [ ] Пакетный слой (PacketEvents): пинг, версии клиентов, точная ротация
 - [ ] Записи легитов как регресс-тесты
