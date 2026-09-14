@@ -18,6 +18,8 @@ import ru.elytrix.efc.util.DamageUtil;
  * 90 взмахов, хит только по той же цели подряд, планка 88%.
  * Рабочая зона джиттер-аур (SpookyTime и ко): мажут чаще грубых,
  * но точнее любой живой руки на дистанции. Оба двигаются, только игроки.
+ * Уверенность — только серией: 3 окна подряд = x5, 5 = x20 (кик).
+ * Чистое окно, сомнения и пауза 5 мин обнуляют серию.
  */
 public final class AccuracyB extends Check {
 
@@ -25,6 +27,8 @@ public final class AccuracyB extends Check {
         int swings;
         int hits;
         double moved;
+        int streak;
+        long lastEval;
         UUID lastVictim;
         double victimStartOdo;
     }
@@ -60,6 +64,7 @@ public final class AccuracyB extends Check {
         if (state.swings < 90) {
             return;
         }
+        long now = System.currentTimeMillis();
         int swings = state.swings;
         int hits = state.hits;
         double moved = state.moved;
@@ -71,13 +76,27 @@ public final class AccuracyB extends Check {
         state.moved = 0;
         state.lastVictim = null;
         state.victimStartOdo = 0;
+        if (now - state.lastEval > 300000) {
+            state.streak = 0;
+        }
+        state.lastEval = now;
         if (moved <= 4.0 || victimMoved <= 2.5) {
+            state.streak = 0;
             return;
         }
         double ratio = (double) hits / swings;
         if (ratio >= 0.88 && ratio <= 1.0) {
-            flag(plugin.getDataManager().get(player), Math.round(ratio * 100) + "% " + swings);
+            streakFlag(player, state, Math.round(ratio * 100) + "% " + swings);
+        } else {
+            state.streak = 0;
         }
+    }
+
+    private void streakFlag(Player player, State state, String details) {
+        state.streak++;
+        double mult = state.streak >= 5 ? 20.0 : state.streak >= 3 ? 5.0 : 1.0;
+        flag(plugin.getDataManager().get(player),
+                details + (state.streak >= 2 ? " x" + state.streak : ""), mult);
     }
 
     @EventHandler

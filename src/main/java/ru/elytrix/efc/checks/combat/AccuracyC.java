@@ -16,8 +16,10 @@ import ru.elytrix.efc.util.DamageUtil;
 /**
  * Accuracy.C: быстрая точность (та же идея NESS KillauraHitMissRatio).
  * 20 взмахов, все в цель — первый ответ уже через ~15 сек боя.
- * Слабый сигнал: один флаг ничего не решает, подтверждение — A/B.
- * Позиции не важны, работает и в подвижном бою. Оба двигаются.
+ * Окно живёт 60 сек: рваное пвп (2 удара тут, 2 там) считается
+ * взмахами, а не позицией, старые взмахи протухают.
+ * Уверенность — только серией: 3 окна подряд = x5, 5 = x20 (кик).
+ * Чистое окно, сомнения и пауза 5 мин обнуляют серию.
  */
 public final class AccuracyC extends Check {
 
@@ -25,6 +27,9 @@ public final class AccuracyC extends Check {
         int swings;
         int hits;
         double moved;
+        int streak;
+        long lastEval;
+        long windowStart;
         UUID lastVictim;
         double victimStartOdo;
     }
@@ -56,6 +61,17 @@ public final class AccuracyC extends Check {
     public void onAnimation(PlayerAnimationEvent event) {
         Player player = event.getPlayer();
         State state = states.computeIfAbsent(player.getUniqueId(), key -> new State());
+        long now = System.currentTimeMillis();
+        if (state.swings == 0) {
+            state.windowStart = now;
+        } else if (now - state.windowStart > 60000) {
+            state.swings = 0;
+            state.hits = 0;
+            state.moved = 0;
+            state.lastVictim = null;
+            state.victimStartOdo = 0;
+            state.windowStart = now;
+        }
         state.swings++;
         if (state.swings < 20) {
             return;
@@ -71,12 +87,26 @@ public final class AccuracyC extends Check {
         state.moved = 0;
         state.lastVictim = null;
         state.victimStartOdo = 0;
+        if (now - state.lastEval > 300000) {
+            state.streak = 0;
+        }
+        state.lastEval = now;
         if (moved <= 3.0 || victimMoved <= 2.0) {
+            state.streak = 0;
             return;
         }
         if (hits >= swings - 1) {
-            flag(plugin.getDataManager().get(player), hits + "/" + swings);
+            streakFlag(player, state, hits + "/" + swings);
+        } else {
+            state.streak = 0;
         }
+    }
+
+    private void streakFlag(Player player, State state, String details) {
+        state.streak++;
+        double mult = state.streak >= 5 ? 20.0 : state.streak >= 3 ? 5.0 : 1.0;
+        flag(plugin.getDataManager().get(player),
+                details + (state.streak >= 2 ? " x" + state.streak : ""), mult);
     }
 
     @EventHandler

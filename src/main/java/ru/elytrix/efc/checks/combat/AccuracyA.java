@@ -19,6 +19,8 @@ import ru.elytrix.efc.util.DamageUtil;
  * Плюс наши гейты против ложных: атакующий должен двигаться (прочь от
  * фермы на месте) И жертва должна двигаться (избиение стоящего друга
  * с 95% — не чит). Порог 95–100%, только по игрокам.
+ * Уверенность — только серией: 3 окна подряд = x5, 5 = x20 (кик).
+ * Чистое окно, сомнения и пауза 5 мин обнуляют серию.
  */
 public final class AccuracyA extends Check {
 
@@ -26,6 +28,8 @@ public final class AccuracyA extends Check {
         int swings;
         int hits;
         double moved;
+        int streak;
+        long lastEval;
         UUID lastVictim;
         double victimStartOdo;
     }
@@ -62,6 +66,7 @@ public final class AccuracyA extends Check {
         if (state.swings < 60) {
             return;
         }
+        long now = System.currentTimeMillis();
         int swings = state.swings;
         int hits = state.hits;
         double moved = state.moved;
@@ -73,20 +78,36 @@ public final class AccuracyA extends Check {
         state.moved = 0;
         state.lastVictim = null;
         state.victimStartOdo = 0;
+        if (now - state.lastEval > 300000) {
+            state.streak = 0;
+        }
+        state.lastEval = now;
         double ratio = (double) hits / swings;
         if (moved <= 3.0) {
             // Стоя на месте честный мажет; идеал по движущейся жертве — аура.
             if (victimMoved > 3.0 && ratio >= 0.99) {
-                flag(plugin.getDataManager().get(player), "perfect " + Math.round(ratio * 100) + "%");
+                streakFlag(player, state, "perfect " + Math.round(ratio * 100) + "%");
+            } else {
+                state.streak = 0;
             }
             return;
         }
         if (victimMoved <= 2.0) {
+            state.streak = 0;
             return;
         }
         if (ratio >= 0.95 && ratio <= 1.0) {
-            flag(plugin.getDataManager().get(player), Math.round(ratio * 100) + "% " + swings);
+            streakFlag(player, state, Math.round(ratio * 100) + "% " + swings);
+        } else {
+            state.streak = 0;
         }
+    }
+
+    private void streakFlag(Player player, State state, String details) {
+        state.streak++;
+        double mult = state.streak >= 5 ? 20.0 : state.streak >= 3 ? 5.0 : 1.0;
+        flag(plugin.getDataManager().get(player),
+                details + (state.streak >= 2 ? " x" + state.streak : ""), mult);
     }
 
     @EventHandler
