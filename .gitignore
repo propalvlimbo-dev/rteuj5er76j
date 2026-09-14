@@ -1,5 +1,4 @@
-# Секреты и локальное состояние — никогда не коммитим
-config/providers.json
+# Локальное состояние (ключ живёт в переменной окружения SMARTAPI_KEY, не в файлах)
 app/state.json
 app/state.json.tmp
 state.json
