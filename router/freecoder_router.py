@@ -76,9 +76,20 @@ def est_tokens(text: Any) -> int:
     return max(1, int(len(text) / 2.8))
 
 
+LOG_FILE: List[str] = [""]          # путь к журналу задаётся ключом --log-file
+
+
 def log(*parts: Any) -> None:
     stamp = datetime.now().strftime("%H:%M:%S")
-    print(f"[{stamp}]", *parts, flush=True)
+    line = " ".join(str(p) for p in parts)
+    print(f"[{stamp}]", line, flush=True)
+    path = LOG_FILE[0]
+    if path:
+        try:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(f"[{stamp}] {line}\n")
+        except OSError:
+            pass
 
 
 # ----------------------------------------------------------------------------
@@ -394,8 +405,27 @@ class Router:
             self.events = self.events[-200:]
         if self.log_requests:
             mark = "✓" if ok else "✗"
-            extra = f" {error[:70]}" if error else ""
-            log(f"{mark} {p.name}[{key_idx}] in={tokens_in} out={tokens_out}{extra}")
+            extra = f" · {error[:70]}" if error else ""
+            mult = p.multiplier(model)
+            name = (model or "").split("/")[-1] or "?"
+            spent_now = self._day_spend(p)
+            limit = int((p.limits or {}).get("tpd") or 0)
+            progress = ""
+            if limit:
+                progress = f" · за сегодня {spent_now:,} из {limit:,} ({round(spent_now * 100 / limit)}%)"
+            else:
+                progress = f" · за сегодня {spent_now:,}"
+            log(f"{mark} {p.name} · {name} x{mult:g} · токенов {tokens_in + tokens_out}"
+                f"{progress}{extra}".replace(",", " "))
+
+    def _day_spend(self, p: Provider) -> int:
+        """Сколько зачётных токенов уже израсходовано у провайдера за текущие сутки."""
+        total = 0
+        for i in range(len(p.all_keys()) or 1):
+            st = self.states.get(f"{p.name}|{i}")
+            if st:
+                total += int(st.tokens_day or 0)
+        return total
 
     def block_key(self, p: Provider, key_idx: int, seconds: int, reason: str) -> None:
         with self.lock:
@@ -819,7 +849,20 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         path = urllib.parse.urlparse(self.path).path
         if path in ("/", "/status", "/dashboard"):
-            return self._send_text(dashboard_html(self.router))
+            summary = status_payload(self.router)
+            port = self.server.server_address[1]
+            lines = ["FreeCoder Router работает. Расход печатается в окне роутера после каждого запроса.",
+                     f"Порт: {port}", ""]
+            for p in summary.get("providers", []):
+                spent = sum(int(k.get("tokens_day") or 0) for k in p.get("keys", []))
+                limit = int((p.get("limits") or {}).get("tpd") or 0)
+                reqs = int((p.get("stats") or {}).get("requests") or 0)
+                line = f"{p['name']}: {spent} зачётных токенов"
+                if limit:
+                    line += f" из {limit} ({round(spent * 100 / limit)}%)"
+                lines.append(line + f", запросов: {reqs}")
+            lines += ["", "Программный доступ: /status.json", "Список моделей: /v1/models"]
+            return self._send_text("\n".join(lines))
         if path == "/status.json":
             return self._send_json(status_payload(self.router))
         if path == "/v1/models":
@@ -894,7 +937,8 @@ class Handler(BaseHTTPRequestHandler):
                     usage = out.get("usage") or {}
                     r.account_request(p, key_idx,
                                       tokens_in=int(usage.get("prompt_tokens") or prompt_tokens),
-                                      tokens_out=int(usage.get("completion_tokens") or 0), ok=True)
+                                      tokens_out=int(usage.get("completion_tokens") or 0),
+                                      ok=True, model=model)
                     out["x_freecoder_provider"] = p.name
                     if stream:
                         body = oai_sse_from_message(out)
@@ -1051,6 +1095,9 @@ class Handler(BaseHTTPRequestHandler):
 # ----------------------------------------------------------------------------
 
 
+SERVER_START = now_ts()
+
+
 def status_payload(r: Router) -> Dict[str, Any]:
     providers = []
     for p in r.providers:
@@ -1131,84 +1178,6 @@ def models_payload(r: Router) -> Dict[str, Any]:
     return {"object": "list", "data": data}
 
 
-def dashboard_html(r: Router) -> str:
-    s = status_payload(r)
-    rows = []
-    for p in s["providers"]:
-        lim = p["limits"] or {}
-        lim_txt = " · ".join(f"{k.upper()}={v}" for k, v in lim.items()) or "—"
-        mult = p.get("cost_multiplier") or 1
-        if mult != 1:
-            lim_txt += f" · коэффициент расхода ×{mult}"
-            lim_txt += " (токены в панели уже умножены на коэффициент)"
-        key_cells = []
-        for k in p["keys"]:
-            status = "⏸ остывает %ss" % k["blocked_for"] if k["blocked_for"] else "✓ готов"
-            if k.get("last_error") and not k["blocked_for"]:
-                status += " (последняя ошибка: %s)" % k["last_error"][:60]
-            used = ""
-            if lim.get("rpd"):
-                used = f" · запросов сегодня: {k['requests_day']}/{lim['rpd']}"
-            if lim.get("tpd"):
-                used += f" · израсходовано: {k['tokens_day']:,}/{lim['tpd']:,}"
-            key_cells.append(f"<div class='key'>ключ #{k['index']}: {status}{used}</div>")
-        st = p["stats"]
-        rows.append(f"""
-        <div class="card">
-          <div class="card-head">
-            <b>{p['name']}</b>
-            <span class="muted">{p['kind']} · приоритет {p['priority']}</span>
-          </div>
-          <div class="muted small">{', '.join(p['models']) or '—'}</div>
-          <div class="muted small">Лимиты: {lim_txt}</div>
-          <div class="muted small">Успешно: {st.get('ok',0)} · ошибок: {st.get('fail',0)} · токенов: {st.get('tokens_in',0)+st.get('tokens_out',0):,}</div>
-          <div class="keys">{''.join(key_cells)}</div>
-        </div>""")
-
-    events = "".join(
-        f"<tr><td>{datetime.fromtimestamp(e['t']).strftime('%H:%M:%S')}</td>"
-        f"<td>{e['provider']}</td><td>{'✓' if e['ok'] else '✗'}</td>"
-        f"<td class='small'>{e.get('error','')[:110]}</td></tr>"
-        for e in s["recent_events"]
-    )
-    return f"""<!doctype html><html lang="ru"><head><meta charset="utf-8">
-<title>FreeCoder Router</title>
-<meta http-equiv="refresh" content="5">
-<style>
- :root {{ color-scheme: dark }}
- body {{ font: 14px/1.5 ui-sans-serif, system-ui, Segoe UI, Roboto, sans-serif; background:#0e1116; color:#e6edf3; margin:0; padding:24px }}
- h1 {{ font-size:20px; margin:0 0 4px }}
- h2 {{ font-size:15px; margin:24px 0 8px; color:#9aa7b4; font-weight:600 }}
- .muted {{ color:#8b949e }}{{ }}
- .small {{ font-size:12px }}
- .grid {{ display:grid; gap:10px; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)) }}
- .card {{ background:#161b22; border:1px solid #21262d; border-radius:10px; padding:12px }}
- .card-head {{ display:flex; justify-content:space-between; align-items:baseline }}
- .keys {{ margin-top:6px; display:flex; flex-direction:column; gap:4px }}
- .key {{ font-size:12px; background:#0d1117; border:1px solid #21262d; border-radius:6px; padding:4px 6px }}
- table {{ border-collapse:collapse; width:100%; font-size:12px }}
- td, th {{ border-bottom:1px solid #21262d; padding:4px 6px; text-align:left }}
- .code {{ background:#0d1117; border:1px solid #21262d; border-radius:8px; padding:10px; font-family:ui-monospace,Consolas,monospace; font-size:12px; white-space:pre-wrap }}
-</style></head><body>
-<h1>FreeCoder Router <span class="muted small">v{VERSION} · uptime {s['uptime_s']}s</span></h1>
-<div class="muted">Бесплатный шлюз: сам выбирает провайдера с живой квотой, уводит запрос при 429 и ротирует ключи. Обновляется каждые 5 секунд.</div>
-
-<h2>Подключение</h2>
-<div class="code">base_url: http://127.0.0.1:8788/v1
-api_key : любой (например, freecoder)
-model   : auto   (или: {', '.join(list(s['aliases'].keys())[:6]) or 'smart, fast, local'})</div>
-
-<h2>Провайдеры ({len(s['providers'])})</h2>
-<div class="grid">{''.join(rows) or "<div class='card'>Ни одного провайдера. Запустите с --mock или добавьте ключи в providers.json</div>"}</div>
-
-<h2>Последние запросы</h2>
-<table><tr><th>время</th><th>провайдер</th><th></th><th>ошибка</th></tr>{events or "<tr><td colspan=4 class='muted'>пока пусто</td></tr>"}</table>
-</body></html>"""
-
-
-SERVER_START = now_ts()
-
-
 # ----------------------------------------------------------------------------
 # Точка входа
 # ----------------------------------------------------------------------------
@@ -1235,9 +1204,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--host", default=os.environ.get("FREECODER_HOST", "127.0.0.1"))
     ap.add_argument("--port", type=int, default=int(os.environ.get("FREECODER_PORT", "8788")))
     ap.add_argument("--mock", action="store_true", help="добавить демо-провайдера (проверка без ключей)")
+    ap.add_argument("--log-file", default=os.environ.get("FREECODER_LOG", ""),
+                    help="дублировать журнал в файл (для разбора сбоев)")
     ap.add_argument("--no-probe", action="store_true",
                     help="не сверять модели с каталогом шлюза при старте")
     args = ap.parse_args(argv)
+
+    if args.log_file:
+        LOG_FILE[0] = args.log_file
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(args.log_file)), exist_ok=True)
+        except OSError:
+            pass
 
     cfg = load_config(args.config, args.mock)
     router = Router(cfg, args.state, mock=args.mock)
@@ -1254,8 +1232,13 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     print()
     log(f"FreeCoder Router v{VERSION} слушает http://{args.host}:{args.port}")
-    log(f"  панель:  http://127.0.0.1:{args.port}/")
+    log(f"  журнал:  расход по каждому запросу печатается здесь же")
     log(f"  API:     http://127.0.0.1:{args.port}/v1   (OpenAI-совместимо)")
+    for p in router.providers:
+        limit = int((p.limits or {}).get("tpd") or 0)
+        if limit:
+            log(f"  Лимит {p.name}: {limit:,} зачётных токенов в сутки — "
+                f"расход виден здесь после каждого запроса".replace(",", " "))
     log("  Ctrl+C — остановить")
     print()
 
