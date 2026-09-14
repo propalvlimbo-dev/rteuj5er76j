@@ -19,9 +19,9 @@ inspect_npm_package.py — разбор чужого npm-пакета ДО ус�
   · выдаёт вердикт и JSON-отчёт с точными строками-доказательствами.
 
 Использование:
-    python tools/inspect_npm_package.py https://site/pkg.tgz
-    python tools/inspect_npm_package.py ./pkg.tgz --report pkg-report.json
-    python tools/inspect_npm_package.py https://site/pkg.tgz --keep   # оставить распакованное
+    python dev/inspect_npm_package.py https://site/pkg.tgz
+    python dev/inspect_npm_package.py ./pkg.tgz --report pkg-report.json
+    python dev/inspect_npm_package.py https://site/pkg.tgz --keep   # оставить распакованное
 
 Только стандартная библиотека Python 3.8+.
 """
@@ -437,7 +437,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         description="Разбор чужого npm-пакета до установки (ничего не запускает)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Пример:\n"
-               "  python tools/inspect_npm_package.py https://site/pkg.tgz --report pkg.json\n")
+               "  python dev/inspect_npm_package.py https://site/pkg.tgz --report pkg.json\n")
     ap.add_argument("source", help="URL или путь к .tgz")
     ap.add_argument("--report", default=None, help="сохранить JSON-отчёт")
     ap.add_argument("--keep", action="store_true", help="оставить распакованные файлы для изучения")

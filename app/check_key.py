@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-check_api_key.py — проверка чужого API-ключа/шлюза (лоты вида «Claude Opus 5 за 30 ₽»).
+app/check_key.py — проверка чужого API-ключа/шлюза (лоты вида «Claude Opus 5 за 30 ₽»).
 
 Что делает: прогоняет 12 тестов и говорит, соответствует ли ключ тому, что обещал продавец.
 Что ищет:
@@ -17,7 +17,7 @@ check_api_key.py — проверка чужого API-ключа/шлюза (л
 кроме своего отчёта.
 
 Использование:
-    python tools/check_api_key.py --base-url https://адрес-шлюза/v1 --key ВАШ-КЛЮЧ \
+    python dev/app/check_key.py --base-url https://адрес-шлюза/v1 --key ВАШ-КЛЮЧ \
         --model claude-opus-5 --claimed-tokens 8000000 --price-rub 20 --report report.json
 
 ВАЖНО: только для проверки того, что вы уже оплатили. Не направляйте через такие ключи
@@ -42,11 +42,11 @@ from typing import Any, Dict, List, Optional, Tuple
 VERSION = "1.1.0"
 
 # Адаптер форматов берём из роутера, чтобы не дублировать логику перевода.
-_ROUTER_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "router")
+_ROUTER_DIR = os.path.dirname(os.path.abspath(__file__))   # app/ — роутер лежит рядом
 if _ROUTER_DIR not in sys.path:
     sys.path.insert(0, _ROUTER_DIR)
 try:
-    import freecoder_router as _fcr
+    import router as _fcr
     _HAS_ADAPTER = True
 except Exception:  # noqa: BLE001
     _HAS_ADAPTER = False
@@ -599,12 +599,12 @@ def list_models(base_url: str, key: str, api_format: str = "openai") -> int:
             print(f"Моделей доступно: {len(ids)}\n")
             for mid in ids:
                 print(f"  {mid}")
-            print("\nСкопируйте нужный ID в поле \"models\" файла router/providers.smartapi.json"
+            print("\nСкопируйте нужный ID в поле \"models\" файла config/providers.json"
                   "\n(или возьмите имя со страницы «Модели» в кабинете).")
             return 0
     print(f"\nКаталог моделей по адресу {base_url} не отдаётся (HTTP-ответ ниже).")
     print("Это нормально для Anthropic-формата: возьмите ID модели со страницы «Модели»")
-    print("в кабинете SmartAPI и впишите его в router/providers.smartapi.json.")
+    print("в кабинете SmartAPI и впишите его в config/providers.json.")
     print(f"\nОтвет шлюза: {last_text[:400]}")
     return 2
 
@@ -614,7 +614,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         description="Проверка стороннего API-ключа/шлюза («промокодные» лоты)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Пример:\n"
-               "  python tools/check_api_key.py --base-url https://шлюз/v1 --key sk-xxx \\\n"
+               "  python dev/app/check_key.py --base-url https://шлюз/v1 --key sk-xxx \\\n"
                "      --model claude-opus-5 --claimed-tokens 8000000 --price-rub 20 \\\n"
                "      --report report.json\n")
     ap.add_argument("--base-url", help="адрес шлюза, обычно .../v1")
@@ -630,7 +630,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="формат шлюза: openai (обычный, /v1/chat/completions) "
                          "или anthropic (/v1/messages)")
     ap.add_argument("--report", default=None, help="куда сохранить JSON-отчёт")
-    ap.add_argument("--version", action="version", version=f"check_api_key {VERSION}")
+    ap.add_argument("--version", action="version", version=f"check_key {VERSION}")
     args = ap.parse_args(argv)
 
     if args.list_models:

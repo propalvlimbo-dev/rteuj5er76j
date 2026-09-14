@@ -3,7 +3,7 @@
 """
 Тесты FreeCoder Router: failover, ротация ключей, учёт квот, стриминг, алиасы.
 
-Запуск:  python tests/test_router.py       (или python -m unittest discover tests)
+Запуск:  python dev/tests/test_router.py       (или python -m unittest discover dev/tests)
 """
 
 import json
@@ -17,9 +17,10 @@ import unittest
 from unittest import mock
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "router"))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(ROOT, "app"))
 
-import freecoder_router as fcr  # noqa: E402
+import router as fcr  # noqa: E402
 
 
 # --------------------------------------------------------------------------

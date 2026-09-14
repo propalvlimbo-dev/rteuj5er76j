@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-FreeCoder: запуск одним действием (вызывается из windows\\START-SMARTAPI.bat).
+FreeCoder: запуск одним действием (вызывается из START.bat в корне проекта).
 
 Что делает:
   1) проверяет ключ SMARTAPI_KEY (спрашивает один раз и сохраняет в переменную окружения);
   2) поднимает роутер на 127.0.0.1:8788 и ждёт, пока он ответит;
-  3) предлагает выбрать модель (Enter — auto, то есть Sonnet ×2);
+  3) предлагает выбрать модель — маршруты и все модели шлюза (Claude, GPT, Codex);
   4) спрашивает папку с вашим кодом и запоминает её;
   5) запускает агента в этой папке.
 
@@ -25,17 +25,19 @@ import time
 import urllib.error
 import urllib.request
 
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 PORT = 8788
 BASE = f"http://127.0.0.1:{PORT}"
-ROUTER_CONFIG = os.path.join("router", "providers.smartapi.json")
+ROUTER_CONFIG = os.path.join("config", "providers.json")
 
-MODELS = [
-    ("auto",  "claude-sonnet-4-6", "x2",    "обычная работа — обычно её и хватает"),
-    ("smart", "claude-opus-4-8",   "x4",    "сложные задачи, заметно умнее"),
-    ("max",   "claude-opus-5",     "x5",    "максимум качества, для тяжёлого"),
-    ("cheap", "gpt-5.6-luna",      "x1,7",  "экономит баланс на простых правках"),
+# Рекомендуемые маршруты: пользователь выбирает одну цифру, роутер сам ведёт на нужную модель.
+ROUTES = [
+    ("auto",  "claude-sonnet-4-6", "2",    "обычная работа — обычно хватает её"),
+    ("cheap", "gpt-5.6-luna",      "1,7",  "самая дешёвая: мелкие правки и вопросы"),
+    ("smart", "claude-opus-4-8",   "4",    "сложные задачи, заметно умнее"),
+    ("max",   "claude-opus-5",     "5",    "максимум качества, для тяжёлого"),
 ]
+FAMILIES = (("Claude", "claude"), ("GPT", "gpt"), ("Codex", "codex"))
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +97,7 @@ def wait_for_router(port: int = PORT, timeout: int = 40, on_tick=None) -> bool:
 
 
 def router_command(root: str, config: str, port: int = PORT, log_file: str = "") -> list:
-    cmd = [sys.executable, os.path.join("router", "freecoder_router.py"),
+    cmd = [sys.executable, os.path.join(root, "app", "router.py"),
            "--config", config, "--port", str(port)]
     if log_file:
         cmd += ["--log-file", log_file]
@@ -124,11 +126,13 @@ def start_router_in_process(root: str, config: str, port: int = PORT, log_file: 
     Так получается одно окно: статистика агента и роутер живут в одной консоли.
     Возвращает httpd (или None, если роутер недоступен как модуль).
     """
-    router_dir = os.path.join(root, "router")
+    router_dir = os.path.join(root, "app")
+    if not os.path.isfile(os.path.join(router_dir, "router.py")):
+        return None
     if router_dir not in sys.path:
         sys.path.insert(0, router_dir)
     try:
-        import freecoder_router as fcr
+        import router as fcr
     except Exception:  # noqa: BLE001
         return None
     state = os.path.join(state_dir(), "router-state.json")
@@ -137,10 +141,16 @@ def start_router_in_process(root: str, config: str, port: int = PORT, log_file: 
     return httpd
 
 
-def agent_command(root: str, workspace: str, model: str, confirm: bool = False) -> list:
-    """Команда запуска агента: правки применяются сразу, если не просили подтверждать."""
-    cmd = [sys.executable, os.path.join(root, "agent", "freecoder_agent.py"),
-           "--workspace", workspace, "--model", model, "--quiet"]
+def agent_command(root: str, workspace: str, model: str, confirm: bool = False,
+                  port: int = PORT) -> list:
+    """Команда запуска агента: правки применяются сразу, если не просили подтверждать.
+
+    Адрес роутера передаём явно: если стартовать на другом порту (например, для проверки),
+    агент всё равно попадёт в свой роутер, а не в чужой на 8788.
+    """
+    cmd = [sys.executable, os.path.join(root, "app", "agent.py"),
+           "--workspace", workspace, "--model", model, "--quiet",
+           "--api-base", f"http://127.0.0.1:{port}/v1"]
     cmd += ["--allow-cmd"] if confirm else ["--yes"]
     return cmd
 
@@ -260,12 +270,83 @@ def ensure_key(ask=input) -> str:
     return key
 
 
-def ask_model(ask=input, default: str = "auto") -> str:
+def model_family(model_id: str) -> str:
+    short = model_id.split("/")[-1].lower()
+    for title, prefix in FAMILIES:
+        if short.startswith(prefix):
+            return title
+    return "Прочее"
+
+
+def fmt_mult(mult: float) -> str:
+    """Коэффициент без хвоста: 2, а не 2,0."""
+    number = float(mult)
+    return str(int(number)) if number == int(number) else str(number).replace(".", ",")
+
+
+def price_note(mult: float) -> str:
+    if mult <= 2:
+        return "дёшево"
+    if mult <= 3:
+        return "средне"
+    if mult <= 4:
+        return "дорого"
+    return "очень дорого"
+
+
+def read_catalog(config: str) -> list:
+    """Модели из конфига роутера: [(id, коэффициент), ...] — Claude, GPT, Codex.
+
+    Список берётся из config/providers.json, поэтому если в кабинете SmartAPI появятся
+    новые модели, достаточно дописать их туда — меню подхватит.
+    """
+    seen = {}
+    try:
+        with open(config, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:  # noqa: BLE001
+        return []
+    for provider in data.get("providers") or []:
+        mults = provider.get("model_multipliers") or {}
+        names = list(mults.keys()) + [m for m in (provider.get("models") or []) if m not in mults]
+        for name in names:
+            seen.setdefault(str(name), float(mults.get(name) or 1))
+    return sorted(seen.items(), key=lambda kv: (model_family(kv[0]), kv[1]))
+
+
+def ask_model(ask=input, default: str = "auto", catalog=None) -> str:
+    """Меню моделей: сначала 4 маршрута, потом все модели шлюза по семействам."""
     out()
-    out("  Какой моделью работать?")
-    for i, (alias, model, mult, note) in enumerate(MODELS, 1):
-        out(f"    {i}) {alias:<6} {model:<18} x{mult:<4} {note}")
-    out("    Enter — оставить текущую. Полный список с ценами: команда /model в агенте.")
+    out("  Чем работать? Номер выбирает модель, Enter — оставить как есть.")
+    out()
+    out("  Рекомендую:")
+    numbered = []
+    for alias, model, mult, note in ROUTES:
+        numbered.append(alias)
+        out(f"    {len(numbered):>2}) {alias:<6} {model:<20} ×{mult:<5} {note}")
+    catalog = catalog or []
+    if catalog:
+        out()
+        out("  Любая модель шлюза (номер — работать прямо на ней):")
+        family = ""
+        line = "    "
+        for model_id, mult in catalog:
+            fam = model_family(model_id)
+            if fam != family:
+                if line.strip():
+                    out(line)
+                family = fam
+                line = f"    {fam + ':':<8}"
+            numbered.append(model_id)
+            cell = f"{len(numbered):>2}) {model_id:<20} ×{fmt_mult(mult):<5}"
+            if len(line) + len(cell) > 100:
+                out(line)
+                line = "    " + " " * 8
+            line += cell
+        if line.strip():
+            out(line)
+    out()
+    out("  × — во сколько раз дороже токен. Дешевле всего gpt-5.6-luna (×1,7).")
     try:
         ans = (ask(f"  Номер [{default}]: ") or "").strip()
     except (EOFError, KeyboardInterrupt):
@@ -274,8 +355,10 @@ def ask_model(ask=input, default: str = "auto") -> str:
         return default
     if ans.isdigit():
         idx = int(ans)
-        if 1 <= idx <= len(MODELS):
-            return MODELS[idx - 1][0]
+        if 1 <= idx <= len(numbered):
+            return numbered[idx - 1]
+        warn("нет такого номера — оставляю как было")
+        return default
     return ans
 
 
@@ -312,6 +395,7 @@ def ask_workspace(ask=input, exists=os.path.isdir, makedirs=os.makedirs) -> str:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Запуск FreeCoder: роутер + агент")
+    # app/launch.py лежит внутри app/, поэтому корень проекта — на уровень выше
     ap.add_argument("--root", default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     ap.add_argument("--config", default=ROUTER_CONFIG)
     ap.add_argument("--port", type=int, default=PORT)
@@ -328,8 +412,8 @@ def main(argv=None) -> int:
 
     head("FreeCoder: агент на вашем балансе SmartAPI")
 
-    if not os.path.isfile(os.path.join(root, "router", "freecoder_router.py")):
-        fail("не найден router/freecoder_router.py — файлы проекта распакованы полностью?")
+    if not os.path.isfile(os.path.join(root, "app", "router.py")):
+        fail("не найден app/router.py — файлы проекта распакованы полностью?")
         return 2
     if not os.path.isfile(config):
         fail(f"не найден конфиг {config}")
@@ -391,7 +475,7 @@ def main(argv=None) -> int:
     # --- шаг 3: модель
     out()
     out("Шаг 3. Модель")
-    model = args.model or ask_model()
+    model = args.model or ask_model(catalog=read_catalog(config))
     ok(f"модель: {model} (менять в любой момент: /model)")
 
     # --- шаг 4: папка
@@ -409,8 +493,9 @@ def main(argv=None) -> int:
     out("  «в api.py падает get_user на пустом ответе — исправь»")
     out("  «сделай в папке demo index.html и style.css — тёмный адаптивный сайт»")
     out("  Правки применяются сразу, откат — /undo. Подтверждения: /confirm on")
+    out("  Следить за расходом: /tokens. Дешевле: одна задача за запуск и /clear между задачами.")
     out()
-    agent_cmd = agent_command(root, workspace, model, confirm=args.confirm)
+    agent_cmd = agent_command(root, workspace, model, confirm=args.confirm, port=args.port)
     try:
         code = subprocess.call(agent_cmd, cwd=root)
     except KeyboardInterrupt:
@@ -419,7 +504,7 @@ def main(argv=None) -> int:
     head("Готово")
     print_spend(args.port)
     out(f"  Резервные копии правок: {os.path.join(workspace, '.freecoder')}")
-    out("  Следующий раз — просто запустите START-SMARTAPI.bat снова.")
+    out("  Следующий раз — просто запустите START.bat снова.")
     return code
 
 

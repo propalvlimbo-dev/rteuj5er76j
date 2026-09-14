@@ -13,13 +13,13 @@ FreeCoder Router — OpenAI-совместимый шлюз к SmartAPI: дне�
       4) переводит формат: клиент говорит по-OpenAI, шлюз отвечает по-Anthropic,
       5) при старте сверяет имена моделей с каталогом шлюза и подставляет верные.
 
-    Агенту (opencode, Cline, Kilo Code, aider или встроенному agent/freecoder_agent.py)
+    Агенту (opencode, Cline, Kilo Code, aider или встроенному app/agent.py)
     достаточно указать base_url = http://127.0.0.1:8788/v1 и любой ключ-заглушку.
 
 Запуск:
-    python freecoder_router.py                 # порт 8788, host 127.0.0.1
-    python freecoder_router.py --host 0.0.0.0 --port 8788
-    python freecoder_router.py --mock          # демо-провайдер без ключей (проверка)
+    python app/router.py                 # порт 8788, host 127.0.0.1
+    python app/router.py --host 0.0.0.0 --port 8788
+    python app/router.py --mock          # демо-провайдер без ключей (проверка)
 
 Зависимостей нет — только стандартная библиотека Python 3.8+.
 
@@ -47,8 +47,8 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 VERSION = "1.0.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_CONFIG = os.path.join(HERE, "providers.json")
-SMARTAPI_CONFIG = os.path.join(HERE, "providers.smartapi.json")
+DEFAULT_CONFIG = os.path.join(HERE, os.pardir, "config", "providers.json")
+SMARTAPI_CONFIG = DEFAULT_CONFIG
 DEFAULT_STATE = os.path.join(HERE, "state.json")
 
 # ----------------------------------------------------------------------------
@@ -603,7 +603,7 @@ def probe_model_catalog(providers: List[Provider]) -> None:
             shown = (similar or ids)[:25]
             log(f"     доступные модели ({len(ids)}): " + ", ".join(shown))
             if len(ids) > len(shown):
-                log("     … полный список: python tools/check_api_key.py --list-models "
+                log("     … полный список: python dev/app/check_key.py --list-models "
                     "--base-url <адрес шлюза> --key <ключ>")
         if not substituted and not missing:
             log(f"   {p.name}: все модели из конфига есть в каталоге шлюза ✓")
@@ -912,7 +912,7 @@ class Handler(BaseHTTPRequestHandler):
                             "дневной лимит расхода, либо шлюз на паузе после ошибок. "
                             "Проверьте http://127.0.0.1:8788/ — там видно, кто остывает и на сколько. "
                             "Варианты: дождаться сброса лимита (полночь по UTC) или поднять tpd "
-                            "в router/providers.smartapi.json."
+                            "в config/providers.json."
                         ),
                         "type": "insufficient_quota",
                     }
@@ -1024,7 +1024,7 @@ class Handler(BaseHTTPRequestHandler):
                             f"Статус: http://127.0.0.1:{self.server.server_address[1]}/ — "
                             f"там видно, кто остывает и сколько ждать. "
                             f"Дневной лимит сбрасывается в полночь по UTC, "
-                            f"либо поднимите tpd в router/providers.smartapi.json."),
+                            f"либо поднимите tpd в config/providers.json."),
                 "type": "daily_limit_reached" if saw_quota else "upstream_error"}},
             status,
         )
@@ -1194,7 +1194,7 @@ def load_config(path: str, mock: bool) -> Dict[str, Any]:
             path = fallback
         else:
             log(f"⚠  Конфиг {path} не найден — работаю с пустым списком провайдеров.")
-            log("   Рабочий конфиг: router/providers.smartapi.json")
+            log("   Рабочий конфиг: config/providers.json")
             return {"providers": []}
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)

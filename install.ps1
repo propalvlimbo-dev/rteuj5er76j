@@ -7,7 +7,7 @@
 
     Запуск (PowerShell от имени пользователя, админ не нужен):
         cd путь-к-папке-проекта
-        powershell -ExecutionPolicy Bypass -File windows\install.ps1
+        powershell -ExecutionPolicy Bypass -File install.ps1
 
     Параметры:
         -SkipWinget   не ставить программы, только разложить конфиги
@@ -21,7 +21,7 @@ param(
 )
 
 $ErrorActionPreference = "Continue"
-$RepoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Home_ = $env:USERPROFILE
 
 function Say($t, $c = "Gray") { Write-Host $t -ForegroundColor $c }
@@ -70,25 +70,25 @@ if ($env:SMARTAPI_KEY) {
     Ok "переменная SMARTAPI_KEY уже задана"
 } else {
     Warn "SMARTAPI_KEY не задана"
-    Say "    Ключ вводится один раз при запуске windows\START-SMARTAPI.bat —" Yellow
+    Say "    Ключ вводится один раз при запуске START.bat —" Yellow
     Say "    скрипт сохранит его в переменную окружения пользователя." Yellow
     Say "    Взять ключ: https://smartapi.shop/api-keys" Yellow
 }
 
 # ---------------------------------------------------------------- 3. конфиг
 Step 3 "Конфиг роутера"
-$cfg = Join-Path $RepoRoot "router\providers.smartapi.json"
+$cfg = Join-Path $RepoRoot "config\providers.json"
 if (Test-Path $cfg) {
-    Ok "router\providers.smartapi.json на месте (модели и дневной лимит уже настроены)"
+    Ok "config\providers.json на месте (модели и дневной лимит уже настроены)"
 } else {
-    Fail "не найден router\providers.smartapi.json — файлы проекта распакованы полностью?"
+    Fail "не найден config\providers.json — файлы проекта распакованы полностью?"
 }
 
 # ---------------------------------------------------------------- 4. конфиги агентов
 Step 4 "Конфиги для opencode и Continue (VS Code)"
 foreach ($pair in @(
-    @{ Src = "opencode\opencode.json";        Dst = ".config\opencode\opencode.json";  Name = "opencode" },
-    @{ Src = "vscode\continue-config.yaml";   Dst = ".continue\config.yaml";          Name = "Continue" }
+    @{ Src = "config\opencode.json";  Dst = ".config\opencode\opencode.json";  Name = "opencode" },
+    @{ Src = "config\continue.yaml";  Dst = ".continue\config.yaml";           Name = "Continue" }
 )) {
     $src = Join-Path $RepoRoot $pair.Src
     $dst = Join-Path $Home_ $pair.Dst
@@ -105,8 +105,8 @@ foreach ($pair in @(
 Step 5 "Проверка"
 $checks = @(
     @{ Name = "Python";  Ok = (Have python) },
-    @{ Name = "роутер";  Ok = (Test-Path (Join-Path $RepoRoot "router\freecoder_router.py")) },
-    @{ Name = "агент";   Ok = (Test-Path (Join-Path $RepoRoot "agent\freecoder_agent.py")) },
+    @{ Name = "роутер";  Ok = (Test-Path (Join-Path $RepoRoot "app\router.py")) },
+    @{ Name = "агент";   Ok = (Test-Path (Join-Path $RepoRoot "app\agent.py")) },
     @{ Name = "конфиг";  Ok = (Test-Path $cfg) }
 )
 foreach ($c in $checks) {
@@ -118,7 +118,7 @@ Say " Готово. Как работать:" "Green"
 Say "============================================================" "Green"
 Say @"
 
- 1) Двойной клик: windows\START-SMARTAPI.bat
+ 1) Двойной клик: START.bat
       · спросит ключ SmartAPI (один раз),
       · поднимет роутер с дневным лимитом,
       · спросит папку с вашим кодом и запустит агента в ней.
@@ -126,10 +126,13 @@ Say @"
  2) Задачи пишутся словами в окне агента:
       · «исправь ошибку в api.py — падает на пустом ответе»
       · «добавь в index.html секцию с ценами»
-    Правки агент показывает и спрашивает подтверждение (y/n).
+    Правки применяются сразу, откат — /undo.
 
- 3) Смена модели — команда /model в агенте (покажет список с коэффициентами).
+ 3) Смена модели — команда /model в агенте (Claude, GPT, Codex с коэффициентами).
+    Расход — команда /tokens; новая задача без старой истории — /clear.
 
- Панель расхода: http://127.0.0.1:8788/
- Инструкции: docs\01-БЫСТРЫЙ-СТАРТ.md и docs\07-РАБОТА-С-МОИМ-КОДОМ.md
+ 4) Для VS Code (Cline/Continue) отдельно: START-ROUTER.bat — роутер в своём окне.
+
+ Инструкции: docs\01-БЫСТРЫЙ-СТАРТ.md, docs\07-РАБОТА-С-МОИМ-КОДОМ.md,
+             docs\08-ЭКОНОМИЯ-ТОКЕНОВ.md (как тратить меньше)
 "@ "White"

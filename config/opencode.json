@@ -16,7 +16,7 @@
     "  code  → codex-auto-review   x4",
     "  fable → claude-fable-5      x10  дорогая, только по необходимости",
     "",
-    "Перед работой запустите роутер: windows\\START-SMARTAPI.bat"
+    "Перед работой запустите роутер: START-ROUTER.bat"
   ],
   "provider": {
     "freecoder": {

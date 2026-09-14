@@ -1,7 +1,9 @@
 # Секреты и локальное состояние — никогда не коммитим
-router/providers.json
-router/state.json
-router/state.json.tmp
+config/providers.json
+app/state.json
+app/state.json.tmp
+state.json
+state.json.tmp
 *.log
 .env
 .env.*

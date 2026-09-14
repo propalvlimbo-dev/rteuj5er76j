@@ -9,19 +9,26 @@ FreeCoder Agent — локальный ИИ-агент, который чита�
     · сам запускает команды (тесты, сборку, git) — с подтверждением;
     · делает резервные копии и умеет откатывать (/undo);
     · работает с любой OpenAI-совместимой моделью; проект настроен на шлюз SmartAPI
-      (ключ sk-smart-... в переменной SMARTAPI_KEY, конфиг router/providers.smartapi.json).
+      (ключ sk-smart-... в переменной SMARTAPI_KEY, конфиг config/providers.json).
 
 Запуск:
-    python freecoder_agent.py  "добавь в бота обработку команды /start"    # одна задача
-    python freecoder_agent.py                                             # диалоговый режим
-    python freecoder_agent.py --workspace C:\\Projects\\bot --model auto
+    python app/agent.py  "добавь в бота обработку команды /start"    # одна задача
+    python app/agent.py                                             # диалоговый режим
+    python app/agent.py --workspace C:\\Projects\\bot --model auto
 
 Ключевые флаги:
     --yes            не спрашивать подтверждения на правки и команды
     --dry-run        показать, что агент собирается сделать, но ничего не менять
-    --model smart    выбрать маршрут на роутере (auto / smart / fast / local / provider/model)
+    --model smart    маршрут (auto / cheap / smart / max) или точное имя: gpt-5.6-luna,
+                     claude-opus-4-8 — список даёт команда /model в диалоге
     --api-base URL   свой OpenAI-совместимый endpoint (по умолчанию роутер на 127.0.0.1:8788)
-    --steps N        максимум шагов агента на задачу (по умолчанию 30)
+    --steps N        максимум шагов агента на задачу (по умолчанию 15)
+
+Экономия токенов (подробно — docs/08-ЭКОНОМИЯ-ТОКЕНОВ.md):
+    · в диалоге /tokens покажет, из чего складывается следующий запрос;
+    · /clear — новая задача без старой истории;  /steps 8 — короче сессии;
+    · каждый шаг пересылает историю заново, поэтому в задачах лучше называть
+      конкретные файлы, а не просить «посмотреть проект».
 
 Только стандартная библиотека Python 3.8+. Лицензия MIT.
 """
@@ -42,7 +49,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 DEFAULT_API_BASE = os.environ.get("FREECODER_API_BASE", "http://127.0.0.1:8788/v1")
 DEFAULT_API_KEY = os.environ.get("FREECODER_API_KEY", "freecoder")
 DEFAULT_MODEL = os.environ.get("FREECODER_MODEL", "auto")
@@ -58,10 +65,14 @@ IGNORE_EXT = {
     ".7z", ".rar", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".mp3",
     ".mp4", ".mov", ".woff", ".woff2", ".ttf", ".otf", ".lock", ".sqlite", ".db",
 }
-MAX_FILE_CHARS = 24000          # сколько символов файла отдаём модели целиком
-MAX_TREE_LINES = 150            # сколько строк дерева попадает в системный промпт
-HISTORY_TOOL_KEEP = 2           # сколько последних результатов инструментов держим целиком
-HISTORY_TOOL_CHARS = 400        # остальные сжимаются до этой длины (экономия контекста)
+MAX_FILE_CHARS = 8000           # сколько символов файла отдаём модели за одно чтение
+MAX_TREE_LINES = 120            # сколько строк дерева попадает в системный промпт
+HISTORY_TOOL_KEEP = 1           # сколько последних результатов инструментов держим целиком
+HISTORY_TOOL_CHARS = 500        # остальные сжимаются до этой длины (экономия контекста)
+HISTORY_STEP_KEEP = 1           # сколько последних шагов модели держим целиком
+HISTORY_STEP_CHARS = 700        # старые шаги (правки с содержимым файлов) сжимаются
+DEFAULT_MAX_STEPS = 15          # предел шагов на задачу: меньше шагов — меньше повторов контекста
+CHARS_PER_TOKEN = 3.5           # грубая оценка для расчёта размера запроса
 TEXT_EXT_HINT = {
     ".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".md", ".txt", ".html", ".css",
     ".scss", ".vue", ".svelte", ".go", ".rs", ".java", ".kt", ".c", ".h", ".cpp",
@@ -177,7 +188,8 @@ class Repo:
         truncated = ""
         if len(body) > MAX_FILE_CHARS:
             body = body[:MAX_FILE_CHARS]
-            truncated = f"\n... (файл обрезан, всего строк: {len(lines)})"
+            truncated = (f"\n…(показаны не все строки: файл {len(lines)} строк. "
+                         f"Продолжение — read_file с start/end, целиком его пересылать не нужно)")
         numbered = "\n".join(f"{i + start:>4} | {ln}" for i, ln in enumerate(body.split("\n")))
         return f"# {self.rel(full)} (строки {start}-{start + len(chunk) - 1} из {len(lines)})\n{numbered}{truncated}"
 
@@ -355,6 +367,8 @@ class Repo:
 
 
 class LLM:
+    last_usage: Dict[str, int]
+
     def __init__(self, base: str, key: str, model: str, timeout: int = 300):
         self.base = base.rstrip("/")
         self.key = key
@@ -362,6 +376,7 @@ class LLM:
         self.timeout = timeout
         self.tokens_in = 0
         self.tokens_out = 0
+        self.last_usage: Dict[str, int] = {}
         self.last_provider = "?"
         self._spend_cache: Tuple[float, str] = (0.0, "")
 
@@ -400,7 +415,7 @@ class LLM:
         except Exception as e:  # noqa: BLE001
             raise RuntimeError(
                 f"Не могу получить список моделей от {url} ({type(e).__name__}). "
-                f"Роутер запущен? Это делает windows\\START-SMARTAPI.bat."
+                f"Роутер запущен? Это делает START.bat."
             ) from e
         return [m for m in (data.get("data") or []) if isinstance(m, dict) and m.get("id")]
 
@@ -450,19 +465,22 @@ class LLM:
                     f"Ошибка API HTTP {e.code}: {detail}\n"
                     f"    Похоже, ID модели не совпадает с каталогом шлюза. Откройте окно "
                     f"FreeCoder Router — там список доступных моделей; нужное имя впишите "
-                    f"в router/providers.smartapi.json."
+                    f"в config/providers.json."
                 ) from e
             raise RuntimeError(f"Ошибка API HTTP {e.code}: {detail}") from e
         except urllib.error.URLError as e:
             raise RuntimeError(
                 f"Не могу подключиться к {self.base}. Роутер запущен? "
-                f"Запустите: python router/freecoder_router.py   ({e.reason})"
+                f"Запустите: python app/router.py   ({e.reason})"
             ) from e
 
         obj = json.loads(body)
         usage = obj.get("usage") or {}
-        self.tokens_in += int(usage.get("prompt_tokens") or 0)
-        self.tokens_out += int(usage.get("completion_tokens") or 0)
+        pin = int(usage.get("prompt_tokens") or 0)
+        pout = int(usage.get("completion_tokens") or 0)
+        self.tokens_in += pin
+        self.tokens_out += pout
+        self.last_usage = {"in": pin, "out": pout, "total": pin + pout}
         obj["_elapsed"] = time.time() - t0
         return obj
 
@@ -519,7 +537,8 @@ TOOLS_SCHEMA = [
 }]
 
 
-def system_prompt(workspace: str, repo_tree: str, allow_cmd: bool, dry_run: bool) -> str:
+def system_prompt(workspace: str, repo_tree: str, allow_cmd: bool, dry_run: bool,
+                  max_steps: int = DEFAULT_MAX_STEPS) -> str:
     tools_txt = "\n".join(f"  · {n} — {d}" for n, d in TOOL_SPECS)
     mode = "РЕЖИМ ПРЕДПРОСМОТРА (ничего не меняется)" if dry_run else "Рабочий режим"
     return f"""Ты FreeCoder — автономный инженер-программист, работающий прямо в файлах пользователя.
@@ -539,6 +558,17 @@ def system_prompt(workspace: str, repo_tree: str, allow_cmd: bool, dry_run: bool
 5. Работай до готового результата: не сдавайся после первой ошибки инструмента,
    а исправляй её и продолжай.
 6. Закончив, вызови final с отчётом: что сделано и какие файлы созданы/изменены.
+
+ЭКОНОМИЯ ТОКЕНОВ (пользователь платит за каждый шаг, поэтому контекст не раздуваем)
+· Каждый шаг заново пересылает всю историю — чем короче сессия, тем дешевле. Лимит: {max_steps} шагов.
+· Не перечитывай файл, который уже читал, и не читай файл, который только что создал.
+· Меняется часть файла — replace_in_file с маленьким фрагментом; write_file только для новых
+  файлов или полной переписки. Не вставляй в аргументы то, что не изменилось.
+· В thought — одна строка. Не пересказывай содержимое файлов и не повторяй задание.
+· Длинный файл читай по частям (start/end), а не целиком.
+· Если содержимое старого файла понадобилось снова — прочитай его заново: это дешевле,
+  чем тащить все файлы в истории до конца задачи.
+· Как только задача решена — сразу final. Никаких «на всякий случай проверю ещё раз».
 
 ПРАВИЛА БЕЗОПАСНОСТИ (нарушать нельзя)
 · Меняй только файлы внутри рабочей папки.
@@ -618,17 +648,80 @@ def human_result(tool: str, text: str) -> str:
     return first[:140]
 
 
+KEEP_ARG_KEYS = ("path", "start", "end", "query", "command", "glob", "pattern",
+                 "replace_all", "why")
+
+
+def compact_action_args(args_json: str, limit: int = HISTORY_STEP_CHARS) -> str:
+    """Оставляет от аргументов действия только «скелет»: путь, диапазон строк, команду.
+
+    Главная статья расхода — содержимое файлов в истории: записал файл на 12 КБ — и оно
+    пересылается модели на каждом следующем шаге. Сам файл уже на диске, поэтому в контексте
+    от него остаётся только пометка.
+    """
+    try:
+        parsed = json.loads(args_json)
+    except Exception:  # noqa: BLE001
+        return args_json if len(args_json) <= limit else args_json[:limit] + "…(сокращено)"
+    if not isinstance(parsed, dict):
+        return args_json
+    small: Dict[str, Any] = {}
+    for key, value in parsed.items():
+        if isinstance(value, str) and len(value) > 200:
+            small[key] = f"<{len(value)} символов убрано из контекста: файл уже на диске>"
+        elif key in KEEP_ARG_KEYS or len(str(value)) <= 200:
+            small[key] = value
+    return json.dumps(small, ensure_ascii=False)
+
+
 def compact_history(messages: List[Dict[str, Any]], keep: int = HISTORY_TOOL_KEEP,
-                    limit: int = HISTORY_TOOL_CHARS) -> int:
-    """Сжимает старые результаты инструментов: длинные простыни больше не уезжают в модель
-    на каждом следующем шаге. Возвращает, сколько символов удалось сэкономить."""
-    tool_idx = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
+                    limit: int = HISTORY_TOOL_CHARS, step_keep: int = HISTORY_STEP_KEEP,
+                    step_limit: int = HISTORY_STEP_CHARS) -> int:
+    """Сжимает всё, что пересылается заново: старые результаты инструментов и старые шаги модели.
+
+    Возвращает, сколько символов удалось сэкономить на следующем запросе.
+    """
     saved = 0
+
+    # 1. Результаты инструментов: последние keep — целиком, остальные — коротко.
+    tool_idx = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
     for i in tool_idx[:-keep] if keep else tool_idx:
         content = messages[i].get("content") or ""
         if len(content) > limit:
             saved += len(content) - limit
             messages[i] = {**messages[i], "content": content[:limit] + "\n…(сокращено)"}
+
+    # 2. Старые шаги модели: именно там лежат целые файлы (write_file / replace_in_file).
+    step_idx = [i for i, m in enumerate(messages) if m.get("role") == "assistant"]
+    for i in step_idx[:-step_keep] if step_keep else step_idx:
+        msg = messages[i]
+        changed = False
+        for call in (msg.get("tool_calls") or []):
+            fn = call.get("function") or {}
+            args = str(fn.get("arguments") or "")
+            if len(args) > step_limit:
+                fn["arguments"] = compact_action_args(args, step_limit)
+                saved += len(args) - len(fn["arguments"])
+                changed = True
+        content = str(msg.get("content") or "")
+        if len(content) > step_limit:
+            action = parse_action(content)
+            if action:
+                name = action.get("tool") or "?"
+                body = compact_action_args(json.dumps(action.get("args") or {}, ensure_ascii=False))
+                try:
+                    compact_args = json.loads(body)
+                except Exception:  # noqa: BLE001
+                    compact_args = {}
+                content = json.dumps({"thought": "шаг выполнен", "tool": name,
+                                      "args": compact_args}, ensure_ascii=False)
+            else:
+                content = content[:step_limit] + "…(сокращено)"
+            saved += len(str(msg.get("content") or "")) - len(content)
+            msg = {**msg, "content": content}
+            changed = True
+        if changed:
+            messages[i] = msg
     return saved
 
 
@@ -704,12 +797,13 @@ def actions_from_tool_calls(msg: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 class Agent:
-    def __init__(self, repo: Repo, llm: LLM, yes: bool = False, max_steps: int = 30,
-                 allow_cmd: bool = True):
+    def __init__(self, repo: Repo, llm: LLM, yes: bool = False,
+                 max_steps: int = DEFAULT_MAX_STEPS, allow_cmd: bool = True):
         self.repo = repo
         self.llm = llm
         self.yes = yes
-        self.max_steps = max_steps
+        self.max_steps = max_steps or DEFAULT_MAX_STEPS
+        self.last_messages: List[Dict[str, Any]] = []
         self.allow_cmd = allow_cmd or yes
         self.history: List[Dict[str, Any]] = []
         self.session_dir = os.path.join(repo.root, ".freecoder", "sessions")
@@ -821,9 +915,11 @@ class Agent:
         log(f"\n🎯 Задача: {task}\n")
         tree = self.repo.tree()
         messages: List[Dict[str, Any]] = [
-            {"role": "system", "content": system_prompt(self.repo.root, tree, self.allow_cmd, self.repo.dry_run)},
+            {"role": "system", "content": system_prompt(self.repo.root, tree, self.allow_cmd,
+                                                        self.repo.dry_run, self.max_steps)},
             {"role": "user", "content": task},
         ]
+        self.last_messages = messages
         self.save_event({"type": "task", "task": task, "model": self.llm.model})
 
         for step in range(1, self.max_steps + 1):
@@ -843,11 +939,16 @@ class Agent:
             elapsed = resp.get("_elapsed", 0.0)
 
             def step_line(what: str) -> None:
-                """Одна компактная строка: что делаю · время · токены · расход за сутки."""
+                """Одна компактная строка: что делаю · время · вход/выход · расход за сутки.
+
+                «вход» — это вся история, которую модель читает заново на каждом шаге;
+                именно она делает счёт в конце месяца. «выход» — то, что модель написала.
+                """
+                used = self.llm.last_usage or {}
                 parts = [f"[{step}/{self.max_steps}] {what}", f"{elapsed:.1f}с"]
-                total = tok.get("total_tokens")
-                if total:
-                    parts.append(f"{total / 1000:.1f}K")
+                if used:
+                    parts.append(f"вход {human(int(used.get('in', 0)))}"
+                                 f" / выход {human(int(used.get('out', 0)))}")
                 spend = self.llm.spend_line()
                 if spend:
                     parts.append(spend)
@@ -904,8 +1005,8 @@ class Agent:
                 log(f"✅ {final_result}")
                 files = ", ".join(sorted(set(self.repo.touched))) or "нет"
                 log(f"   файлы: {files}")
-                log(f"   токенов: принято {human(self.llm.tokens_in)}, "
-                    f"сгенерировано {human(self.llm.tokens_out)}"
+                log(f"   шагов: {step} из {self.max_steps} · "
+                    f"токенов: вход {human(self.llm.tokens_in)}, выход {human(self.llm.tokens_out)}"
                     + (f" · {self.llm.spend_line()}" if self.llm.spend_line() else ""))
                 log("")
                 return final_result
@@ -927,7 +1028,7 @@ class Agent:
                 messages.append({"role": "user", "content": "\n\n".join(
                     f"РЕЗУЛЬТАТ {act.get('tool')}:\n{r_txt}" for act, r_txt, _ in results)})
 
-            if sum(len(str(m.get('content') or '')) for m in messages) > 220000:
+            if sum(len(str(m.get('content') or '')) for m in messages) > 140000:
                 messages = trim_history(messages)
 
         return "Достигнут предел шагов. Что успел — сделал, посмотрите diff."
@@ -995,30 +1096,77 @@ def load_workspace_config(workspace: str) -> Dict[str, Any]:
     return {}
 
 
+MODEL_FAMILIES = (("Claude", "claude"), ("GPT", "gpt"), ("Codex", "codex"))
+
+
+def model_family(model_id: str) -> str:
+    """Семейство модели — чтобы список читался как у людей: Claude, GPT, Codex."""
+    short = model_id.split("/")[-1].lower()
+    for title, prefix in MODEL_FAMILIES:
+        if short.startswith(prefix):
+            return title
+    return "Прочее"
+
+
+def fmt_mult(mult: float) -> str:
+    """Коэффициент без хвоста: 2, а не 2,0."""
+    number = float(mult)
+    return str(int(number)) if number == int(number) else str(number).replace(".", ",")
+
+
+def price_note(mult: float) -> str:
+    if mult <= 2:
+        return "дёшево"
+    if mult <= 3:
+        return "средне"
+    if mult <= 4:
+        return "дорого"
+    return "очень дорого"
+
+
 def pick_model(agent: Agent) -> None:
-    """Показывает доступные модели с коэффициентами и даёт выбрать номером."""
+    """Показывает маршруты и все модели шлюза — Claude, GPT и Codex — с коэффициентами расхода."""
     try:
         items = agent.llm.catalog()
     except RuntimeError as e:
         log(f"⚠  {e}")
         return
-    if not items:
+    routes = [m for m in items if m.get("alias")]
+    direct = [m for m in items if not m.get("alias")]
+    direct.sort(key=lambda m: (model_family(str(m["id"])), float(m.get("multiplier") or 0)))
+    if not routes and not direct:
         log("Роутер не вернул список моделей.")
         return
 
-    aliases = [m for m in items if m.get("alias")]
-    direct = [m for m in items if not m.get("alias")]
-    lines = ["", f"Текущая модель: {agent.llm.model}", "", "Маршруты:"]
-    for i, m in enumerate(aliases, 1):
-        lines.append(f"  {i:>2}) {str(m['id']):<8} ×{m.get('multiplier', 1):<4} {m.get('description', '')}")
+    numbered: List[Tuple[str, float]] = []
+    lines = ["", f"Текущая модель: {agent.llm.model}", "", "Маршруты (самый простой выбор):"]
+    for m in routes:
+        mid = str(m["id"])
+        numbered.append((mid, float(m.get("multiplier") or 1)))
+        mark = "  ← сейчас" if agent.llm.model == mid else ""
+        lines.append(f"  {len(numbered):>3}) {mid:<8} ×{fmt_mult(m.get('multiplier') or 1):<5} "
+                     f"{m.get('description', '')}{mark}")
+
     if direct:
         lines.append("")
-        lines.append("Отдельные модели шлюза (точный выбор):")
-        start = len(aliases) + 1
-        for j, m in enumerate(direct):
-            lines.append(f"  {start + j:>2}) {str(m['id']):<32} ×{m.get('multiplier', 1)}")
+        lines.append("Все модели шлюза (работать прямо на этой):")
+        family = ""
+        for m in direct:
+            mid = str(m["id"])
+            short = mid.split("/")[-1]
+            fam = model_family(mid)
+            if fam != family:
+                family = fam
+                lines.append(f"   {fam}:")
+            numbered.append((mid, float(m.get("multiplier") or 1)))
+            mark = "  ← сейчас" if agent.llm.model in (mid, short) else ""
+            lines.append(f"  {len(numbered):>3}) {short:<22} ×{fmt_mult(m.get('multiplier') or 1):<5} "
+                         f"{price_note(float(m.get('multiplier') or 1))}{mark}")
+
     lines.append("")
-    lines.append("× — коэффициент расхода баланса: чем больше, тем дороже каждый шаг.")
+    lines.append("× — во сколько раз дороже обычного токена: ×1,7 — дешевле всего, ×5 и выше — только для тяжёлого.")
+    lines.append("Можно вписать имя и руками: /model gpt-5.6-luna")
+    lines.append("")
     log("\n".join(lines))
 
     try:
@@ -1029,24 +1177,63 @@ def pick_model(agent: Agent) -> None:
         return
     if ans.isdigit():
         idx = int(ans)
-        if 1 <= idx <= len(items):
-            agent.llm.model = items[idx - 1]["id"]
+        if 1 <= idx <= len(numbered):
+            agent.llm.model = numbered[idx - 1][0]
             agent.history = []
-            log(f"Модель: {agent.llm.model}. История диалога очищена — за старый контекст платить не нужно.")
+            log(f"Модель: {agent.llm.model}. История очищена — за старый контекст платить не нужно.")
         else:
             log("Нет такого номера.")
         return
     agent.llm.model = ans
     agent.history = []
-    log(f"Модель: {ans}")
+    log(f"Модель: {ans}. История очищена.")
+
+
+def context_report(agent: Agent) -> str:
+    """Разбор запроса: из чего складываются токены, которые уедут на следующем шаге."""
+    def size_of(msg: Dict[str, Any]) -> int:
+        total = len(str(msg.get("content") or ""))
+        for call in (msg.get("tool_calls") or []):
+            total += len(str((call.get("function") or {}).get("arguments") or ""))
+        return total
+
+    msgs = agent.last_messages or []
+    lines: List[str] = []
+    if msgs:
+        system = size_of(msgs[0])
+        rest = sum(size_of(m) for m in msgs[1:])
+        lines.append(f"Следующий запрос: ~{human(int((system + rest) / CHARS_PER_TOKEN))} токенов "
+                     f"на входе, {len(msgs)} сообщений в истории")
+        lines.append(f"   системный промпт и структура проекта: ~{human(int(system / CHARS_PER_TOKEN))}")
+        lines.append(f"   задача и прошлые шаги: ~{human(int(rest / CHARS_PER_TOKEN))}")
+        heavy = sorted(((size_of(m), m) for m in msgs[1:]), reverse=True, key=lambda x: x[0])[:3]
+        for size, msg in heavy:
+            if size < 1000:
+                break
+            name = ""
+            for call in (msg.get("tool_calls") or []):
+                name = (call.get("function") or {}).get("name") or ""
+                break
+            lines.append(f"   самое тяжёлое: {msg.get('role', '?')} {name} — {human(size)} символов")
+    else:
+        lines.append("В этой сессии задач ещё не было: истории нет, запрос будет дешёвым.")
+    lines.append(f"За сессию: вход {human(agent.llm.tokens_in)}, выход {human(agent.llm.tokens_out)}")
+    spend = agent.llm.spend_line()
+    if spend:
+        lines.append(f"За сутки: {spend}")
+    lines.append("Как платить меньше: /clear перед новой задачей (история не пересылается заново),")
+    lines.append("/steps 8 — короче сессии, дешёвая модель — /model (×1,7 вместо ×2),")
+    lines.append("в задаче указывать конкретные файлы, а не «посмотри проект».")
+    return "\n".join(lines)
 
 
 def repl(agent: Agent) -> None:
-    mode = "правки применяются сразу (откат — /undo)" if agent.yes else "правки с подтверждением"
+    mode = "правки сразу (откат — /undo)" if agent.yes else "правки с подтверждением"
     spend = agent.llm.spend_line()
-    log(f"папка: {agent.repo.root}")
-    log(f"модель: {agent.llm.model} · {mode}" + (f" · {spend}" if spend else ""))
-    log("пишите задачу словами · /help команды · /model сменить модель · /exit выход\n")
+    log(f"папка:  {agent.repo.root}")
+    log(f"модель: {agent.llm.model} · {mode} · шагов на задачу: {agent.max_steps}"
+        + (f" · {spend}" if spend else ""))
+    log("задача пишется словами · /help команды · /model модели (Claude и GPT) · /tokens расход\n")
     while True:
         try:
             line = input("freecoder> ").strip()
@@ -1067,7 +1254,10 @@ def repl(agent: Agent) -> None:
   сделай в папке demo index.html и style.css
 
 Команды:
-  /model            выбрать модель (список с коэффициентами расхода)
+  /model            выбрать модель: Claude, GPT, Codex — с коэффициентами расхода
+  /tokens           разбор расхода: сколько уйдёт на следующий шаг и почему
+  /steps 8          сколько шагов разрешено на задачу (сейчас {agent.max_steps})
+  /clear            очистить историю сессии (новая задача — дешевле)
   /undo             откатить правки этой сессии      /diff — что изменилось
   /tree             файлы проекта
   /confirm on|off   подтверждать правки или применять сразу
@@ -1119,9 +1309,25 @@ def repl(agent: Agent) -> None:
             elif cmd == "/model":
                 if rest:
                     agent.llm.model = rest
-                    log(f"Модель: {rest}")
+                    agent.history = []
+                    log(f"Модель: {rest}. История очищена — за старый контекст платить не нужно.")
                 else:
                     pick_model(agent)
+            elif cmd == "/tokens":
+                log(context_report(agent))
+            elif cmd == "/clear":
+                agent.history = []
+                agent.last_messages = []
+                agent.llm.tokens_in = 0
+                agent.llm.tokens_out = 0
+                agent.llm.last_usage = {}
+                log("История очищена. Следующая задача уйдёт без прошлого контекста — это дешевле.")
+            elif cmd == "/steps":
+                if rest.isdigit() and 1 <= int(rest) <= 60:
+                    agent.max_steps = int(rest)
+                    log(f"Шагов на задачу: {agent.max_steps}")
+                else:
+                    log(f"Сейчас шагов на задачу: {agent.max_steps}. Поставить другое: /steps 10")
             else:
                 log("Неизвестная команда. /help")
             continue
@@ -1133,15 +1339,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         description="FreeCoder Agent — ИИ-агент, который сам правит ваши файлы",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Примеры:\n"
-               '  python freecoder_agent.py "добавь логирование в main.py"\n'
-               "  python freecoder_agent.py --workspace C:\\Projects\\bot --yes\n",
+               '  python app/agent.py "добавь логирование в main.py"\n'
+               "  python app/agent.py --workspace C:\\Projects\\bot --yes\n",
     )
     ap.add_argument("task", nargs="*", help="задача (если пусто — диалоговый режим)")
     ap.add_argument("--workspace", "-w", default=os.getcwd(), help="папка проекта (по умолчанию текущая)")
     ap.add_argument("--api-base", default=DEFAULT_API_BASE, help="OpenAI-совместимый endpoint")
     ap.add_argument("--api-key", default=DEFAULT_API_KEY, help="ключ (роутеру всё равно какой)")
     ap.add_argument("--model", "-m", default=DEFAULT_MODEL, help="auto | smart | fast | local | provider/model")
-    ap.add_argument("--steps", type=int, default=30, help="максимум шагов на задачу")
+    ap.add_argument("--steps", type=int, default=DEFAULT_MAX_STEPS, help="максимум шагов на задачу")
     ap.add_argument("--yes", "-y", action="store_true", help="подтверждать всё автоматически")
     ap.add_argument("--dry-run", action="store_true", help="ничего не менять (только показать план)")
     ap.add_argument("--allow-cmd", action="store_true", help="разрешить запуск команд")
@@ -1161,9 +1367,10 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if not getattr(args, "quiet", False):
         log(f"FreeCoder Agent {VERSION} · {repo.root}")
-        log(f"  модель: {model} → {api_base}"
+        log(f"  модель: {model} → {api_base} · шагов на задачу: {agent.max_steps}"
             + (" · ПРЕДПРОСМОТР (файлы не меняются)" if args.dry_run else "")
             + ("" if args.yes else " · правки с подтверждением"))
+        log("  /help команды · /tokens расход · /model модели (Claude и GPT)")
 
     cluster = " ".join(args.task).strip()
     if cluster:

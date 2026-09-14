@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Тесты запускатора windows/launch.py: проверка связи с роутером, ожидание старта,
+Тесты запускатора app/launch.py: проверка связи с роутером, ожидание старта,
 строка расхода (вместо веб-панели), выбор модели и папки проекта.
 """
 
@@ -15,8 +15,8 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(ROOT, "windows"))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(ROOT, "app"))
 
 import launch  # noqa: E402
 
@@ -120,10 +120,42 @@ class TestSpendLine(LauncherTestBase):
 
 
 class TestPromptLogic(unittest.TestCase):
+    CONFIG = os.path.join(ROOT, "config", "providers.json")
+
     def test_model_by_number(self):
-        self.assertEqual(launch.ask_model(ask=lambda _: "2"), "smart")
-        self.assertEqual(launch.ask_model(ask=lambda _: "4"), "cheap")
-        self.assertEqual(launch.ask_model(ask=lambda _: "3"), "max")
+        self.assertEqual(launch.ask_model(ask=lambda _: "1"), "auto")
+        self.assertEqual(launch.ask_model(ask=lambda _: "2"), "cheap")
+        self.assertEqual(launch.ask_model(ask=lambda _: "3"), "smart")
+        self.assertEqual(launch.ask_model(ask=lambda _: "4"), "max")
+
+    def test_catalog_reads_all_vendors(self):
+        """В меню должны быть не только Claude, но и GPT с Codex — на этом настаивал пользователь."""
+        catalog = dict(launch.read_catalog(self.CONFIG))
+        self.assertIn("claude-sonnet-4-6", catalog)
+        self.assertIn("gpt-5.6-luna", catalog)
+        self.assertIn("codex-auto-review", catalog)
+        self.assertEqual(catalog["gpt-5.6-luna"], 1.7)
+        self.assertEqual(catalog["claude-opus-4-8"], 4.0)
+
+    def test_family_and_price_note(self):
+        self.assertEqual(launch.model_family("gpt-5.6-terra"), "GPT")
+        self.assertEqual(launch.model_family("claude-opus-5"), "Claude")
+        self.assertEqual(launch.model_family("codex-auto-review"), "Codex")
+        self.assertEqual(launch.price_note(1.7), "дёшево")
+        self.assertEqual(launch.price_note(10), "очень дорого")
+        self.assertEqual(launch.fmt_mult(2.0), "2")
+        self.assertEqual(launch.fmt_mult(1.7), "1,7")
+
+    def test_number_picks_gpt_model(self):
+        catalog = launch.read_catalog(self.CONFIG)
+        ids = [m for m, _ in catalog]
+        number = len(launch.ROUTES) + ids.index("gpt-5.6-luna") + 1
+        picked = launch.ask_model(ask=lambda _: str(number), catalog=catalog)
+        self.assertEqual(picked, "gpt-5.6-luna")
+
+    def test_bad_number_keeps_default(self):
+        catalog = launch.read_catalog(self.CONFIG)
+        self.assertEqual(launch.ask_model(ask=lambda _: "99", catalog=catalog), "auto")
 
     def test_model_enter_keeps_default(self):
         self.assertEqual(launch.ask_model(ask=lambda _: "", default="auto"), "auto")
@@ -158,11 +190,11 @@ class TestPromptLogic(unittest.TestCase):
 
 class TestRouterCommand(unittest.TestCase):
     def test_command_has_config_port_and_log(self):
-        cmd = launch.router_command("/repo", "router/providers.smartapi.json", 8788, "/tmp/r.log")
+        cmd = launch.router_command("/repo", "config/providers.json", 8788, "/tmp/r.log")
         self.assertIn("--config", cmd)
         self.assertIn("8788", cmd)
         self.assertIn("--log-file", cmd)
-        self.assertTrue(any(p.endswith("freecoder_router.py") for p in cmd))
+        self.assertTrue(any(p.endswith("app/router.py") for p in cmd))
 
     def test_log_tail_reads_last_lines(self):
         tmp = tempfile.mkdtemp()
@@ -190,7 +222,7 @@ class TestMainDryRun(unittest.TestCase):
         with mock.patch.dict(os.environ, {"SMARTAPI_KEY": "sk-test", "LOCALAPPDATA": tmp}):
             code = launch.main(["--port", str(self.port), "--no-agent",
                                 "--root", ROOT,
-                                "--config", "router/providers.smartapi.json"])
+                                "--config", "config/providers.json"])
         self.assertEqual(code, 0)
 
     def test_main_without_key_returns_error(self):
@@ -200,7 +232,7 @@ class TestMainDryRun(unittest.TestCase):
             os.environ.pop("SMARTAPI_KEY", None)
             code = launch.main(["--port", str(self.port), "--no-agent",
                                 "--root", ROOT,
-                                "--config", "router/providers.smartapi.json"])
+                                "--config", "config/providers.json"])
         self.assertEqual(code, 1, "без ключа работать нечем — понятная ошибка, а не зависание")
 
 class TestAgentCommand(unittest.TestCase):
@@ -211,6 +243,12 @@ class TestAgentCommand(unittest.TestCase):
         self.assertIn("--yes", cmd)
         self.assertIn("--quiet", cmd, "шапку агента печатает запускатор, дублировать не нужно")
         self.assertNotIn("--allow-cmd", cmd)
+
+    def test_api_base_points_to_router_port(self):
+        """Если роутер поднят не на 8788, агент всё равно должен попасть в свой роутер."""
+        cmd = launch.agent_command(ROOT, "/tmp/проект", "auto", port=8899)
+        self.assertIn("--api-base", cmd)
+        self.assertIn("http://127.0.0.1:8899/v1", cmd)
 
     def test_confirm_mode_asks(self):
         cmd = launch.agent_command(ROOT, "/tmp/проект", "smart", confirm=True)

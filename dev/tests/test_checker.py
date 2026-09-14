@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 """
 Тесты проверяльщика ключей: поднимаем фальшивые шлюзы, каждый со своим «грехом»,
-и убеждаемся, что tools/check_api_key.py его ловит.
+и убеждаемся, что app/check_key.py его ловит.
 
-Запуск: python tests/test_checker.py
+Запуск: python dev/tests/test_checker.py
 
 Фальшивые шлюзы:
   honest   — честный: ничего не подменяет (проверяльщик не должен ругаться)
@@ -27,10 +27,10 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(ROOT, "tools"))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(ROOT, "app"))
 
-import check_api_key as cak  # noqa: E402
+import check_key as cak  # noqa: E402
 
 CONFIG: dict = {}          # port -> dict настроек фальшивого шлюза
 ACTIVE: dict = {}          # port -> текущее число одновременных запросов

@@ -4,7 +4,7 @@
 Тесты разборщика npm-пакетов: собираем синтетические .tgz с разными «сюрпризами»
 и проверяем, что каждый ловится, а чистый пакет не получает ложных обвинений.
 
-Запуск: python tests/test_inspector.py
+Запуск: python dev/tests/test_inspector.py
 """
 
 import io
@@ -16,8 +16,8 @@ import tarfile
 import tempfile
 import unittest
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(ROOT, "tools"))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(ROOT, "dev"))
 
 import inspect_npm_package as insp  # noqa: E402
 

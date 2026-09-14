@@ -4,7 +4,7 @@
 Тесты FreeCoder Agent: чтение и правка файлов, откат, защита от опасных действий,
 устойчивость к «мусорным» ответам слабых моделей.
 
-Запуск:  python tests/test_agent.py
+Запуск:  python dev/tests/test_agent.py
 """
 
 import json
@@ -18,10 +18,10 @@ import unittest
 from unittest import mock
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(ROOT, "agent"))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(ROOT, "app"))
 
-import freecoder_agent as fca  # noqa: E402
+import agent as fca  # noqa: E402
 
 
 # --------------------------------------------------------------------------
@@ -280,7 +280,7 @@ class TestCLI(AgentTestBase):
             json.dumps({"tool": "final", "args": {"summary": "готово"}}),
         ]
         proc = subprocess.run(
-            [sys.executable, os.path.join(ROOT, "agent", "freecoder_agent.py"),
+            [sys.executable, os.path.join(ROOT, "app", "agent.py"),
              "--workspace", self.ws, "--api-base", self.api_base, "--yes",
              "создай файл from_cli.txt"],
             capture_output=True, text=True, timeout=120,
@@ -585,6 +585,152 @@ class TestConfirmCommand(unittest.TestCase):
         ag = self._agent()
         self._run(["/confirm", "/exit"], ag)
         self.assertFalse(ag.yes, "состояние не меняется без аргумента")
+
+
+class TestActionArgsCompaction(unittest.TestCase):
+    """Содержимое файлов в истории — главная статья расхода: оно пересылается на каждом шаге."""
+
+    def test_keeps_path_drops_content(self):
+        args = json.dumps({"path": "index.html", "content": "x" * 3000}, ensure_ascii=False)
+        out = json.loads(fca.compact_action_args(args))
+        self.assertEqual(out["path"], "index.html")
+        self.assertIn("убрано из контекста", out["content"])
+        self.assertIn("3000", out["content"])
+
+    def test_short_args_untouched(self):
+        args = json.dumps({"path": "a.py", "start": 1, "end": 40}, ensure_ascii=False)
+        self.assertEqual(json.loads(fca.compact_action_args(args)), {"path": "a.py", "start": 1, "end": 40})
+
+    def test_broken_json_is_truncated(self):
+        out = fca.compact_action_args("не json" * 500)
+        self.assertLess(len(out), 800)
+
+    def test_old_steps_lose_file_bodies_last_step_kept(self):
+        messages = [
+            {"role": "system", "content": "s"},
+            {"role": "user", "content": "сделай сайт"},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "1", "function": {"name": "write_file",
+                                         "arguments": json.dumps({"path": "index.html",
+                                                                  "content": "b" * 5000})}}]},
+            {"role": "tool", "tool_call_id": "1", "content": "Файл создан: index.html"},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "2", "function": {"name": "read_file",
+                                         "arguments": json.dumps({"path": "index.html"})}}]},
+            {"role": "tool", "tool_call_id": "2", "content": "код"},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "3", "function": {"name": "read_file",
+                                         "arguments": json.dumps({"path": "index.html"})}}]},
+            {"role": "tool", "tool_call_id": "3", "content": "код"},
+        ]
+        saved = fca.compact_history(messages, step_keep=1)
+        self.assertGreater(saved, 4000)
+        old_args = messages[2]["tool_calls"][0]["function"]["arguments"]
+        self.assertIn("убрано из контекста", old_args)
+        self.assertIn("index.html", old_args)
+        last_args = messages[6]["tool_calls"][0]["function"]["arguments"]
+        self.assertEqual(json.loads(last_args), {"path": "index.html"},
+                         "последний шаг должен остаться нетронутым")
+
+
+class TestContextReport(unittest.TestCase):
+    def _agent(self):
+        ws = tempfile.mkdtemp(prefix="fc-tokens-")
+        self.addCleanup(shutil.rmtree, ws, ignore_errors=True)
+        return fca.Agent(fca.Repo(ws), fca.LLM("http://127.0.0.1:1/v1", "k", "auto"))
+
+    def test_report_names_heavy_message_and_advice(self):
+        ag = self._agent()
+        ag.last_messages = [
+            {"role": "system", "content": "s" * 3500},
+            {"role": "user", "content": "сделай сайт"},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"function": {"name": "write_file",
+                              "arguments": json.dumps({"path": "index.html",
+                                                       "content": "a" * 4000})}}]},
+        ]
+        text = fca.context_report(ag)
+        self.assertIn("Следующий запрос", text)
+        self.assertIn("write_file", text)
+        self.assertIn("/clear", text)
+        self.assertIn("/steps", text)
+
+    def test_report_without_history(self):
+        self.assertIn("дешёвым", fca.context_report(self._agent()))
+
+
+class TestStepsAndClear(unittest.TestCase):
+    def _agent(self):
+        ws = tempfile.mkdtemp(prefix="fc-cmd-")
+        self.addCleanup(shutil.rmtree, ws, ignore_errors=True)
+        return fca.Agent(fca.Repo(ws), fca.LLM("http://127.0.0.1:1/v1", "k", "auto"))
+
+    def _run(self, lines, agent):
+        with mock.patch("builtins.input", side_effect=lines):
+            fca.repl(agent)
+
+    def test_default_steps_are_limited(self):
+        self.assertEqual(fca.DEFAULT_MAX_STEPS, 15)
+        self.assertEqual(self._agent().max_steps, fca.DEFAULT_MAX_STEPS)
+
+    def test_steps_command_changes_limit(self):
+        ag = self._agent()
+        self._run(["/steps 8", "/exit"], ag)
+        self.assertEqual(ag.max_steps, 8)
+
+    def test_clear_resets_history_and_counters(self):
+        ag = self._agent()
+        ag.llm.tokens_in = 900
+        ag.llm.tokens_out = 100
+        ag.last_messages = [{"role": "user", "content": "старое"}]
+        self._run(["/clear", "/exit"], ag)
+        self.assertEqual(ag.llm.tokens_in, 0)
+        self.assertEqual(ag.llm.tokens_out, 0)
+        self.assertEqual(ag.last_messages, [])
+
+
+class TestModelMenu(unittest.TestCase):
+    """В меню должны быть GPT и Codex, а не только Claude."""
+
+    CATALOG = [
+        {"id": "auto", "alias": True, "multiplier": 2, "description": "smartapi/claude-sonnet-4-6"},
+        {"id": "smartapi/claude-sonnet-4-6", "multiplier": 2},
+        {"id": "smartapi/codex-auto-review", "multiplier": 4},
+        {"id": "smartapi/gpt-5.6-luna", "multiplier": 1.7},
+    ]
+
+    def _agent(self):
+        ws = tempfile.mkdtemp(prefix="fc-menu-")
+        self.addCleanup(shutil.rmtree, ws, ignore_errors=True)
+        ag = fca.Agent(fca.Repo(ws), fca.LLM("http://127.0.0.1:1/v1", "k", "auto"))
+        ag.llm.catalog = lambda: self.CATALOG
+        return ag
+
+    def _menu(self, agent, answer=""):
+        printed = []
+        with mock.patch.object(fca, "log",
+                               side_effect=lambda *a: printed.append(" ".join(str(x) for x in a))), \
+             mock.patch("builtins.input", side_effect=[answer]):
+            fca.pick_model(agent)
+        return "\n".join(printed)
+
+    def test_menu_shows_all_vendors_and_prices(self):
+        text = self._menu(self._agent())
+        for expected in ("Claude", "GPT", "Codex", "gpt-5.6-luna", "×1,7", "×2"):
+            self.assertIn(expected, text)
+
+    def test_number_selects_gpt_and_clears_history(self):
+        ag = self._agent()
+        ag.history = [{"role": "user", "content": "старое"}]
+        text = self._menu(ag, "4")          # 1) auto, 2) Claude, 3) Codex, 4) GPT
+        self.assertIn("gpt-5.6-luna", text)
+        self.assertEqual(ag.llm.model, "smartapi/gpt-5.6-luna")
+        self.assertEqual(ag.history, [])
+
+    def test_enter_keeps_current_model(self):
+        ag = self._agent()
+        self._menu(ag, "")
+        self.assertEqual(ag.llm.model, "auto")
 
 
 if __name__ == "__main__":
