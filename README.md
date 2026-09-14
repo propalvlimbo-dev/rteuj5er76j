@@ -16,6 +16,11 @@
 - Релиз-философия: BS-AntiCheat (опасное ВЫКЛ по дефолту).
 - Тесты: как Intave — записи движений легитов как регресс.
 
+## Сборка
+- CI (GitHub Actions): `gradle build` против настоящего `spigot-api 1.16.5`.
+- Локально в песочнице: `./build-local.sh` → `ElytrixFuckCheats.jar`
+  (JDK качается сам, Bukkit API подменяется compile-only стабами из `stubs/`).
+
 ## Команды (билд №1)
 - `/efc alerts` — вкл/выкл алерты себе (`efc.alerts`)
 - `/efc verbose` — дебаг-флаги (`efc.admin`)
