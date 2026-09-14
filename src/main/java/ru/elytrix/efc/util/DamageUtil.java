@@ -1,18 +1,100 @@
 package ru.elytrix.efc.util;
 
+import java.lang.reflect.Method;
+import java.util.UUID;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.entity.DamageCause;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 
-/** Общие хелперы боевых проверок. */
+/**
+ * Доступ к методам damage-событий через рефлексию.
+ * Некоторые форки (замечен ShieldSpigot) ломают иерархию событий:
+ * унаследованные getCause/getDamage/getEntity отсутствуют и прямой вызов
+ * падает с NoSuchMethodError. Здесь всё с проверками и фолбэками.
+ */
 public final class DamageUtil {
+
+    private static final Method GET_CAUSE = find(EntityDamageByEntityEvent.class, "getCause");
+    private static final Method GET_DAMAGE = find(EntityDamageEvent.class, "getDamage");
+    private static final Method GET_ENTITY = find(EntityDamageEvent.class, "getEntity");
+    private static final Method GET_DAMAGER = find(EntityDamageByEntityEvent.class, "getDamager");
 
     private DamageUtil() {
     }
 
-    /** Настоящий удар мечом/рукой (не шипы, магия, стрелы, свип мимо). */
+    private static Method find(Class<?> owner, String name) {
+        try {
+            return owner.getMethod(name);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    /** Есть ли рабочий getDamage (нужен Velocity.A). */
+    public static boolean hasDamage() {
+        return GET_DAMAGE != null;
+    }
+
+    public static DamageCause causeOf(EntityDamageEvent event) {
+        if (GET_CAUSE == null) {
+            return null;
+        }
+        try {
+            return (DamageCause) GET_CAUSE.invoke(event);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    public static double damageOf(EntityDamageEvent event) {
+        if (GET_DAMAGE == null) {
+            return -1;
+        }
+        try {
+            Object value = GET_DAMAGE.invoke(event);
+            return value instanceof Number ? ((Number) value).doubleValue() : -1;
+        } catch (Throwable ignored) {
+            return -1;
+        }
+    }
+
+    public static Entity entityOf(EntityDamageEvent event) {
+        if (GET_ENTITY == null) {
+            return null;
+        }
+        try {
+            return (Entity) GET_ENTITY.invoke(event);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    public static UUID victimId(EntityDamageEvent event) {
+        Entity victim = entityOf(event);
+        return victim == null ? null : victim.getUniqueId();
+    }
+
+    public static Entity damagerOf(EntityDamageByEntityEvent event) {
+        if (GET_DAMAGER == null) {
+            return null;
+        }
+        try {
+            return (Entity) GET_DAMAGER.invoke(event);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    /** Настоящий удар мечом/рукой (не шипы, магия, стрелы). */
     public static boolean isMelee(EntityDamageByEntityEvent event) {
-        DamageCause cause = event.getCause();
+        DamageCause cause = causeOf(event);
+        if (cause == null) {
+            // Причина недоступна (кривой форк) — считаем ближним боем любой
+            // урон от игрока. Шипы дают редкий шум, VL с затуханием прощает.
+            return damagerOf(event) instanceof Player;
+        }
         return cause == DamageCause.ENTITY_ATTACK || cause == DamageCause.ENTITY_SWEEP_ATTACK;
     }
 
@@ -21,9 +103,7 @@ public final class DamageUtil {
         if (!isMelee(event)) {
             return null;
         }
-        if (!(event.getDamager() instanceof Player)) {
-            return null;
-        }
-        return (Player) event.getDamager();
+        Entity damager = damagerOf(event);
+        return damager instanceof Player ? (Player) damager : null;
     }
 }

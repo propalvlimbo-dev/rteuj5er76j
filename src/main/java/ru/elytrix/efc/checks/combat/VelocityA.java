@@ -41,13 +41,17 @@ public final class VelocityA extends Check {
 
     @EventHandler
     public void onDamage(EntityDamageByEntityEvent event) {
-        if (!(event.getEntity() instanceof Player)) {
+        if (!DamageUtil.hasDamage()) {
+            return; // кривой форк без getDamage — проверка самоотключается
+        }
+        Object rawVictim = DamageUtil.entityOf(event);
+        if (!(rawVictim instanceof Player)) {
             return;
         }
-        if (DamageUtil.meleeAttacker(event) == null || event.getDamage() < 1.0) {
+        if (DamageUtil.meleeAttacker(event) == null || DamageUtil.damageOf(event) < 1.0) {
             return;
         }
-        Player victim = (Player) event.getEntity();
+        Player victim = (Player) rawVictim;
         State state = states.computeIfAbsent(victim.getUniqueId(), key -> new State());
         Location location = victim.getLocation();
         state.pending = true;

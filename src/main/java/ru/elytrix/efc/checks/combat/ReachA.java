@@ -24,7 +24,10 @@ public final class ReachA extends Check {
         if (attacker == null) {
             return;
         }
-        Entity victim = event.getEntity();
+        Entity victim = ru.elytrix.efc.util.DamageUtil.entityOf(event);
+        if (victim == null) {
+            return;
+        }
         double distance = attacker.getLocation().distance(victim.getLocation());
         double max = cfg("max-reach", 3.6);
         if (distance > max) {

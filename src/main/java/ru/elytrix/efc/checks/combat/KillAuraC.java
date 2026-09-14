@@ -49,8 +49,12 @@ public final class KillAuraC extends Check {
             return;
         }
         long now = System.currentTimeMillis();
+        java.util.UUID victimId = DamageUtil.victimId(event);
+        if (victimId == null) {
+            return;
+        }
         ArrayDeque<Hit> recent = hits.computeIfAbsent(attacker.getUniqueId(), key -> new ArrayDeque<>());
-        recent.addLast(new Hit(event.getEntity().getUniqueId(), now));
+        recent.addLast(new Hit(victimId, now));
         while (!recent.isEmpty() && now - recent.peekFirst().time > 300) {
             recent.pollFirst();
         }

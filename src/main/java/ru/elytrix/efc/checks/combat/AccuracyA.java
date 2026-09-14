@@ -76,7 +76,8 @@ public final class AccuracyA extends Check {
     @EventHandler
     public void onDamage(EntityDamageByEntityEvent event) {
         Player attacker = DamageUtil.meleeAttacker(event);
-        if (attacker == null || !(event.getEntity() instanceof Player)) {
+        Object rawVictim = DamageUtil.entityOf(event);
+        if (attacker == null || !(rawVictim instanceof Player)) {
             return;
         }
         State state = states.computeIfAbsent(attacker.getUniqueId(), key -> new State());

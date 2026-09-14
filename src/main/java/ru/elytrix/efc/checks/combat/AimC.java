@@ -27,7 +27,10 @@ public final class AimC extends Check {
         if (attacker == null) {
             return;
         }
-        Entity victim = event.getEntity();
+        Entity victim = DamageUtil.entityOf(event);
+        if (victim == null) {
+            return;
+        }
         Location eye = attacker.getLocation();
         Location target = victim.getLocation();
 

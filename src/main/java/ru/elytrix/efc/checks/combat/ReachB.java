@@ -41,7 +41,10 @@ public final class ReachB extends Check {
         if (attacker == null) {
             return;
         }
-        Entity victim = event.getEntity();
+        Entity victim = DamageUtil.entityOf(event);
+        if (victim == null) {
+            return;
+        }
         double distance = attacker.getLocation().distance(victim.getLocation());
         if (distance > 5.5) {
             // Единичный глюк/телепорт — не портим статистику.
