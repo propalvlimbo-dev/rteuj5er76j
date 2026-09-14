@@ -34,7 +34,9 @@
       как у Grim), Reach.B, Aim.C (Hawk, луч→бокс), Aim.D (Medusa, замок оси),
       Aim.E (Medusa, круглые доводки), Criticals.A (NESS),
       KillAura.D KeepSprint (Medusa), KillAura.E паттерн угла (NESS),
-      AutoClicker.C (NESS MaxCPS 18), KillAura A/C, AutoClicker A/B,
+      KillAura.F синхронность ударов (Hawk — ответ SpookyTime),
+      AutoClicker.C (NESS MaxCPS 18), AutoClicker.D темп атак (Hawk),
+      KillAura A/C, AutoClicker A/B,
       Accuracy.A, Velocity.A, FastBow.A, FastEat.A.
       KillAura.B, Aim.A/B ВЫКЛЮЧЕНЫ: no-swing и GCD-ротация дают ложные
       на новых клиентах/мышах, вернутся с пакетным слоем (как у Grim).

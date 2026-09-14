@@ -2,6 +2,9 @@ package org.bukkit.util;
 
 /** LOCAL-BUILD STUB. Compile-only, never shaded into the jar. */
 public class Vector {
+    public Vector(double x, double y, double z) {
+    }
+
     public double getX() {
         return 0;
     }

@@ -10,20 +10,20 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import ru.elytrix.efc.ElytrixFuckCheats;
 import ru.elytrix.efc.check.Category;
 import ru.elytrix.efc.check.Check;
+import ru.elytrix.efc.util.DamageUtil;
 
 /**
- * KillAura.A: доворот-снап прямо перед ударом.
- * Аура дёргает голову на цель и тут же бьёт. Живой игрок так не умеет:
- * резкий доворот >150° за один пакет + удар в пределах 150 мс = чит.
+ * KillAura.A: доводка-рывок — разворот за один пакет + удар сразу после.
+ * Порог 200° за пакет (4000°/с): резкие, но человеческие флики не достают.
+ * Окно 120 мс: случайный хит после рывка прощается, системный — нет.
  */
 public final class KillAuraA extends Check {
 
     private static final class State {
-        double lastYaw;
-        double lastPitch;
-        boolean hasLast;
-        double lastSnap;
-        long lastSnapTime;
+        float lastYaw;
+        float lastPitch;
+        boolean has;
+        long lastSnap;
     }
 
     private final Map<UUID, State> states = new ConcurrentHashMap<>();
@@ -39,41 +39,38 @@ public final class KillAuraA extends Check {
 
     @EventHandler
     public void onMove(PlayerMoveEvent event) {
-        Player player = event.getPlayer();
-        State state = states.computeIfAbsent(player.getUniqueId(), key -> new State());
-        double yaw = event.getTo().getYaw();
-        double pitch = event.getTo().getPitch();
-        if (state.hasLast) {
-            double snap = Math.max(yawDelta(state.lastYaw, yaw), Math.abs(state.lastPitch - pitch));
-            state.lastSnap = snap;
-            state.lastSnapTime = System.currentTimeMillis();
+        State state = states.computeIfAbsent(event.getPlayer().getUniqueId(), key -> new State());
+        float yaw = event.getTo().getYaw();
+        float pitch = event.getTo().getPitch();
+        if (!state.has) {
+            state.has = true;
+            state.lastYaw = yaw;
+            state.lastPitch = pitch;
+            return;
+        }
+        double delta = Math.abs(yaw - state.lastYaw) % 360;
+        if (delta > 180) {
+            delta = 360 - delta;
+        }
+        if (delta > cfg("snap-degrees", 200)) {
+            state.lastSnap = System.currentTimeMillis();
         }
         state.lastYaw = yaw;
         state.lastPitch = pitch;
-        state.hasLast = true;
     }
 
     @EventHandler
     public void onDamage(EntityDamageByEntityEvent event) {
-        Player player = ru.elytrix.efc.util.DamageUtil.meleeAttacker(event);
-        if (player == null) {
+        Player attacker = DamageUtil.meleeAttacker(event);
+        if (attacker == null) {
             return;
         }
-        State state = states.get(player.getUniqueId());
-        if (state == null || !state.hasLast) {
+        State state = states.get(attacker.getUniqueId());
+        if (state == null) {
             return;
         }
-        // Снап должен быть прямо перед ударом, иначе это просто резкий поворот.
-        if (System.currentTimeMillis() - state.lastSnapTime > 150) {
-            return;
+        if (System.currentTimeMillis() - state.lastSnap < cfg("hit-window-ms", 120)) {
+            flag(plugin.getDataManager().get(attacker), "snap");
         }
-        if (state.lastSnap >= cfg("snap-degrees", 150.0)) {
-            flag(plugin.getDataManager().get(player), "snap " + Math.round(state.lastSnap) + "deg");
-        }
-    }
-
-    private static double yawDelta(double from, double to) {
-        double delta = Math.abs(from - to) % 360.0;
-        return delta > 180.0 ? 360.0 - delta : delta;
     }
 }
