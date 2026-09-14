@@ -53,8 +53,10 @@ checks:
     add-vl: 1.0
     max-vl: 30.0
     max-bps: 9.5
+  # ВЫКЛЮЧЕНА: новые клиенты не шлют взмах при ударе, форки едят событие.
+  # Вернётся с пакетным слоем (проверка версии клиента).
   killaura-b:
-    enabled: true
+    enabled: false
     add-vl: 2.0
     max-vl: 16.0
   killaura-c:
@@ -73,12 +75,15 @@ checks:
     add-vl: 3.0
     max-vl: 30.0
     blatant-cps: 30
+  # ВЫКЛЮЧЕНА: GCD-модуло флагает современные мыши (8К опрос, акселерация).
+  # Вернётся с пакетным слоем (предсказание как у Grim).
   aim-a:
-    enabled: true
+    enabled: false
     add-vl: 1.0
     max-vl: 6.0
+  # ВЫКЛЮЧЕНА: та же причина — GCD питча нестабилен на современном железе.
   aim-b:
-    enabled: true
+    enabled: false
     add-vl: 1.0
     max-vl: 10.0
   aim-c:

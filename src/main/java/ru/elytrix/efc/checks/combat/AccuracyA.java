@@ -15,8 +15,10 @@ import ru.elytrix.efc.util.DamageUtil;
 
 /**
  * Accuracy.A: процент попаданий (логика NESS KillauraHitMissRatio).
- * 60 взмахов, хит засчитывается только по той же цели подряд,
- * атакующий должен двигаться. Порог 95–100%. Плюс наше: только по игрокам.
+ * 60 взмахов, хит засчитывается только по той же цели подряд.
+ * Плюс наши гейты против ложных: атакующий должен двигаться (прочь от
+ * фермы на месте) И жертва должна двигаться (избиение стоящего друга
+ * с 95% — не чит). Порог 95–100%, только по игрокам.
  */
 public final class AccuracyA extends Check {
 
@@ -25,9 +27,12 @@ public final class AccuracyA extends Check {
         int hits;
         double moved;
         UUID lastVictim;
+        double victimStartOdo;
     }
 
     private final Map<UUID, State> states = new ConcurrentHashMap<>();
+    /** Одометр: сколько каждый игрок суммарно прошёл (для гейта по жертве). */
+    private final Map<UUID, Double> odometer = new ConcurrentHashMap<>();
 
     public AccuracyA(ElytrixFuckCheats plugin) {
         super(plugin, "Accuracy", "A", Category.COMBAT);
@@ -36,14 +41,17 @@ public final class AccuracyA extends Check {
     @Override
     public void onQuit(UUID uuid) {
         states.remove(uuid);
+        odometer.remove(uuid);
     }
 
     @EventHandler
     public void onMove(PlayerMoveEvent event) {
-        State state = states.computeIfAbsent(event.getPlayer().getUniqueId(), key -> new State());
         double dx = event.getTo().getX() - event.getFrom().getX();
         double dz = event.getTo().getZ() - event.getFrom().getZ();
-        state.moved += Math.sqrt(dx * dx + dz * dz);
+        double dist = Math.sqrt(dx * dx + dz * dz);
+        UUID uuid = event.getPlayer().getUniqueId();
+        states.computeIfAbsent(uuid, key -> new State()).moved += dist;
+        odometer.merge(uuid, dist, Double::sum);
     }
 
     @EventHandler
@@ -57,11 +65,15 @@ public final class AccuracyA extends Check {
         int swings = state.swings;
         int hits = state.hits;
         double moved = state.moved;
+        UUID victim = state.lastVictim;
+        double victimMoved = victim == null
+                ? 0 : odometer.getOrDefault(victim, 0.0) - state.victimStartOdo;
         state.swings = 0;
         state.hits = 0;
         state.moved = 0;
         state.lastVictim = null;
-        if (moved <= 3.0) {
+        state.victimStartOdo = 0;
+        if (moved <= 3.0 || victimMoved <= 2.0) {
             return;
         }
         double ratio = (double) hits / swings;
@@ -83,7 +95,9 @@ public final class AccuracyA extends Check {
         State state = states.computeIfAbsent(attacker.getUniqueId(), key -> new State());
         if (victim.equals(state.lastVictim)) {
             state.hits++;
+        } else {
+            state.lastVictim = victim;
+            state.victimStartOdo = odometer.getOrDefault(victim, 0.0);
         }
-        state.lastVictim = victim;
     }
 }
