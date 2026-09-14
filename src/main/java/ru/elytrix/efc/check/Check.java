@@ -1,6 +1,8 @@
 package ru.elytrix.efc.check;
 
+import java.util.UUID;
 import org.bukkit.entity.Player;
+import org.bukkit.event.Listener;
 import ru.elytrix.efc.ElytrixFuckCheats;
 import ru.elytrix.efc.config.ConfigManager;
 import ru.elytrix.efc.data.PlayerData;
@@ -8,8 +10,9 @@ import ru.elytrix.efc.data.PlayerData;
 /**
  * База всех проверок. Один флаг = +VL, алерт, возможное наказание.
  * Перед флагом всегда спрашиваем ExemptionManager — легит важнее детекта.
+ * Каждая проверка сама слушает нужные ей Bukkit-события.
  */
-public abstract class Check {
+public abstract class Check implements Listener {
 
     protected final ElytrixFuckCheats plugin;
     private final String name;

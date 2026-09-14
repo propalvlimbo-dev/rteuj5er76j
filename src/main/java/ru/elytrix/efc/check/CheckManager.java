@@ -3,11 +3,16 @@ package ru.elytrix.efc.check;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 import ru.elytrix.efc.ElytrixFuckCheats;
+import ru.elytrix.efc.checks.combat.AutoClickerA;
+import ru.elytrix.efc.checks.combat.KillAuraA;
+import ru.elytrix.efc.checks.combat.ReachA;
+import ru.elytrix.efc.checks.movement.FlyA;
+import ru.elytrix.efc.checks.movement.SpeedA;
 
 /**
- * Реестр проверок. Конкретные проверки регистрируются здесь.
- * Билд №1: реестр пуст, проверки едут следующим коммитом.
+ * Реестр проверок. Каждая проверка сама слушает Bukkit-события.
  */
 public final class CheckManager {
 
@@ -20,11 +25,16 @@ public final class CheckManager {
     }
 
     private void registerAll() {
-        // TODO билд №2: new KillAuraA(plugin), new ReachA(plugin), new AutoClickerA(plugin)
+        register(new KillAuraA(plugin));
+        register(new ReachA(plugin));
+        register(new AutoClickerA(plugin));
+        register(new FlyA(plugin));
+        register(new SpeedA(plugin));
     }
 
     public void register(Check check) {
         checks.add(check);
+        plugin.getServer().getPluginManager().registerEvents(check, plugin);
     }
 
     public List<Check> getChecks() {
