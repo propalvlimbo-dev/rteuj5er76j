@@ -77,12 +77,15 @@ def est_tokens(text: Any) -> int:
 
 
 LOG_FILE: List[str] = [""]          # путь к журналу задаётся ключом --log-file
+QUIET: List[bool] = [False]         # --quiet / запуск внутри launch.py: статистику печатает агент
 
 
-def log(*parts: Any) -> None:
+def log(*parts: Any, force: bool = False) -> None:
+    """Печатает строку. В тихом режиме в консоль идут только важные сообщения."""
     stamp = datetime.now().strftime("%H:%M:%S")
     line = " ".join(str(p) for p in parts)
-    print(f"[{stamp}]", line, flush=True)
+    if not QUIET[0] or force:
+        print(f"[{stamp}]", line, flush=True)
     path = LOG_FILE[0]
     if path:
         try:
@@ -416,7 +419,7 @@ class Router:
             else:
                 progress = f" · за сегодня {spent_now:,}"
             log(f"{mark} {p.name} · {name} x{mult:g} · токенов {tokens_in + tokens_out}"
-                f"{progress}{extra}".replace(",", " "))
+                f"{progress}{extra}".replace(",", " "), force=not QUIET[0])
 
     def _day_spend(self, p: Provider) -> int:
         """Сколько зачётных токенов уже израсходовано у провайдера за текущие сутки."""
@@ -1197,6 +1200,36 @@ def load_config(path: str, mock: bool) -> Dict[str, Any]:
         return json.load(f)
 
 
+def serve_forever_in_thread(config_path: str, host: str = "127.0.0.1", port: int = 8788,
+                            state_path: str = "", quiet: bool = True, log_file: str = ""):
+    """Поднимает роутер в текущем процессе, в фоновом потоке.
+
+    Нужна для запуска «в одном окне»: launch.py держит роутер у себя и печатает статистику
+    в ту же консоль, где работает агент. Возвращает (httpd, router).
+    """
+    from http.server import ThreadingHTTPServer
+
+    QUIET[0] = quiet
+    if log_file:
+        LOG_FILE[0] = log_file
+
+    cfg = load_config(config_path, mock=False)
+    router = Router(cfg, state_path or DEFAULT_STATE)
+    Handler.router = router
+
+    httpd = ThreadingHTTPServer((host, port), Handler)
+    httpd.daemon_threads = True
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+
+    log(f"роутер запущен на http://{host}:{port}", force=True)
+    try:
+        probe_model_catalog(router.providers)
+    except Exception as e:  # noqa: BLE001
+        log(f"⚠  Сверка моделей не удалась ({type(e).__name__}: {e}) — работаю как есть.")
+    return httpd, router
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="FreeCoder Router — шлюз к SmartAPI с дневным лимитом")
     ap.add_argument("--config", default=os.environ.get("FREECODER_CONFIG", DEFAULT_CONFIG))
@@ -1206,10 +1239,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--mock", action="store_true", help="добавить демо-провайдера (проверка без ключей)")
     ap.add_argument("--log-file", default=os.environ.get("FREECODER_LOG", ""),
                     help="дублировать журнал в файл (для разбора сбоев)")
+    ap.add_argument("--quiet", action="store_true",
+                    help="печатать только важное (расход в этом случае показывает агент)")
     ap.add_argument("--no-probe", action="store_true",
                     help="не сверять модели с каталогом шлюза при старте")
     args = ap.parse_args(argv)
 
+    QUIET[0] = bool(args.quiet)
     if args.log_file:
         LOG_FILE[0] = args.log_file
         try:
@@ -1232,14 +1268,12 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     print()
     log(f"FreeCoder Router v{VERSION} слушает http://{args.host}:{args.port}")
-    log(f"  журнал:  расход по каждому запросу печатается здесь же")
-    log(f"  API:     http://127.0.0.1:{args.port}/v1   (OpenAI-совместимо)")
-    for p in router.providers:
-        limit = int((p.limits or {}).get("tpd") or 0)
-        if limit:
-            log(f"  Лимит {p.name}: {limit:,} зачётных токенов в сутки — "
-                f"расход виден здесь после каждого запроса".replace(",", " "))
-    log("  Ctrl+C — остановить")
+    if not QUIET[0]:
+        log("  расход по каждому запросу печатается здесь же; Ctrl+C — остановить")
+        for p in router.providers:
+            limit = int((p.limits or {}).get("tpd") or 0)
+            if limit:
+                log(f"  Лимит {p.name}: {limit:,} зачётных токенов в сутки".replace(",", " "))
     print()
 
     def shutdown(*_: Any) -> None:

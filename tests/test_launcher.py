@@ -203,6 +203,70 @@ class TestMainDryRun(unittest.TestCase):
                                 "--config", "router/providers.smartapi.json"])
         self.assertEqual(code, 1, "без ключа работать нечем — понятная ошибка, а не зависание")
 
+class TestAgentCommand(unittest.TestCase):
+    """По умолчанию правки применяются сразу — подтверждения по желанию."""
+
+    def test_default_applies_edits(self):
+        cmd = launch.agent_command(ROOT, "/tmp/проект", "auto")
+        self.assertIn("--yes", cmd)
+        self.assertIn("--quiet", cmd, "шапку агента печатает запускатор, дублировать не нужно")
+        self.assertNotIn("--allow-cmd", cmd)
+
+    def test_confirm_mode_asks(self):
+        cmd = launch.agent_command(ROOT, "/tmp/проект", "smart", confirm=True)
+        self.assertNotIn("--yes", cmd)
+        self.assertIn("--allow-cmd", cmd)
+
+    def test_paths_and_model_are_passed(self):
+        cmd = launch.agent_command(ROOT, "C:/Мои проекты/сайт", "cheap")
+        self.assertIn("C:/Мои проекты/сайт", cmd)
+        self.assertIn("cheap", cmd)
+
+
+class TestRouterInProcess(unittest.TestCase):
+    """Роутер поднимается в том же процессе — второго окна командной строки нет."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="fc-inproc-")
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.config = os.path.join(self.tmp, "cfg.json")
+        with open(self.config, "w", encoding="utf-8") as f:
+            json.dump({
+                "default_alias": "auto",
+                "aliases": {"auto": ["smartapi/claude-sonnet-4-6"]},
+                "providers": [{
+                    "name": "smartapi", "kind": "mock", "base_url": "http://127.0.0.1:1",
+                    "keys": ["k"], "models": ["claude-sonnet-4-6"],
+                    "model_multipliers": {"claude-sonnet-4-6": 2}, "limits": {"tpd": 400000},
+                }],
+            }, f)
+
+    def test_starts_and_answers_health(self):
+        import socket
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        httpd = launch.start_router_in_process(ROOT, self.config, port)
+        self.assertIsNotNone(httpd, "роутер должен подниматься внутри процесса")
+        self.addCleanup(httpd.shutdown)
+        self.assertTrue(launch.health_ok(port))
+        self.assertTrue(launch.spend_summary(port) == "" or "зачётных" in launch.spend_summary(port))
+
+    def test_quiet_mode_prints_only_important(self):
+        import socket
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        log_file = os.path.join(self.tmp, "router.log")
+        httpd = launch.start_router_in_process(ROOT, self.config, port, log_file)
+        self.addCleanup(httpd.shutdown)
+        self.assertTrue(os.path.isfile(log_file), "журнал пишется в файл даже в тихом режиме")
+        text = open(log_file, encoding="utf-8").read()
+        self.assertIn("роутер запущен", text)
+
+    def test_missing_module_returns_none(self):
+        self.assertIsNone(launch.start_router_in_process("/tmp/нет-такого-проекта", self.config, 18495))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

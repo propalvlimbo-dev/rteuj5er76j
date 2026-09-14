@@ -458,6 +458,134 @@ class TestModelPicker(unittest.TestCase):
         self.assertEqual(ag.llm.model, "smart")
         self.assertEqual(ag.history, [], "после смены модели история не нужна")
 
+class TestCompactOutput(unittest.TestCase):
+    """Вывод агента: человекочитаемый, без JSON-дампов и без «Изменений нет»."""
+
+    def test_human_action_read(self):
+        txt = fca.human_action("read_file", {"path": "C:/Проект/index.html", "start": 1, "end": 20})
+        self.assertIn("читаю", txt)
+        self.assertIn("index.html", txt)
+        self.assertNotIn("{", txt, "никакого JSON в строке действия")
+
+    def test_human_action_write_and_search(self):
+        self.assertIn("пишу style.css",
+                      fca.human_action("write_file", {"path": "style.css", "content": "x" * 10}))
+        self.assertIn("ищу «header»", fca.human_action("search", {"query": "header"}))
+
+    def test_human_result_hides_empty_diff(self):
+        self.assertEqual(fca.human_result("diff", "Изменений в этой сессии нет."), "")
+
+    def test_human_result_read_is_short(self):
+        text = "# index.html (строки 1-20 из 60)\n  1 | <!DOCTYPE html>\n  2 | <html>"
+        self.assertEqual(fca.human_result("read_file", text), "index.html (строки 1-20 из 60)")
+
+    def test_human_result_list_files_counts(self):
+        self.assertEqual(fca.human_result("list_files", "a.py\nb.py\nc.py"), "файлов: 3")
+
+
+class TestHistoryCompaction(unittest.TestCase):
+    """Сжатие истории — главная экономия: старые простыни не уезжают в модель снова."""
+
+    def test_old_results_are_shortened(self):
+        messages = [{"role": "system", "content": "s"}]
+        for i in range(5):
+            messages.append({"role": "assistant", "content": "", "tool_calls": [{"id": f"c{i}"}]})
+            messages.append({"role": "tool", "tool_call_id": f"c{i}", "content": "X" * 5000})
+        saved = fca.compact_history(messages, keep=2, limit=400)
+        tools = [m for m in messages if m.get("role") == "tool"]
+        self.assertEqual(len(tools), 5, "сообщения не удаляем — только укорачиваем")
+        self.assertTrue(all(len(m["content"]) <= 450 for m in tools[:3]))
+        self.assertEqual(len(tools[3]["content"]), 5000, "два последних результата остаются целыми")
+        self.assertGreater(saved, 13000)
+
+    def test_short_results_untouched(self):
+        messages = [{"role": "tool", "content": "коротко"}]
+        self.assertEqual(fca.compact_history(messages, keep=0, limit=400), 0)
+        self.assertEqual(messages[0]["content"], "коротко")
+
+    def test_nothing_to_compact(self):
+        self.assertEqual(fca.compact_history([], keep=2), 0)
+
+
+class TestSpendLine(unittest.TestCase):
+    """Строка расхода берётся у роутера — второго окна для статистики не нужно."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.port = 18260
+        status = {"providers": [{
+            "name": "smartapi", "kind": "anthropic", "limits": {"tpd": 400000},
+            "keys": [{"index": 0, "tokens_day": 45000}], "stats": {"requests": 12}}]}
+
+        class StatusGW(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                if self.path.startswith("/status.json"):
+                    body = json.dumps(status).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+
+        cls.httpd = ThreadingHTTPServer(("127.0.0.1", cls.port), StatusGW)
+        threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+
+    def test_spend_line_text(self):
+        llm = fca.LLM(f"http://127.0.0.1:{self.port}/v1", "k", "auto")
+        self.assertEqual(llm.spend_line(), "сегодня 45.0K/400K")
+
+    def test_spend_line_cached(self):
+        llm = fca.LLM(f"http://127.0.0.1:{self.port}/v1", "k", "auto")
+        llm.spend_line()
+        first = llm._spend_cache
+        llm.spend_line()
+        self.assertEqual(llm._spend_cache, first, "повторный опрос — не чаще TTL")
+
+    def test_spend_line_survives_dead_router(self):
+        llm = fca.LLM("http://127.0.0.1:18299/v1", "k", "auto")
+        self.assertEqual(llm.spend_line(), "")
+
+
+class TestConfirmCommand(unittest.TestCase):
+    """/confirm переключает подтверждения, не выкидывая из диалога."""
+
+    def _agent(self):
+        ws = tempfile.mkdtemp(prefix="fc-conf-")
+        self.addCleanup(shutil.rmtree, ws, ignore_errors=True)
+        return fca.Agent(fca.Repo(ws), fca.LLM("http://127.0.0.1:1/v1", "k", "auto"))
+
+    def _run(self, lines, agent):
+        with mock.patch("builtins.input", side_effect=lines):
+            fca.repl(agent)
+
+    def test_confirm_off_enables_asks(self):
+        ag = self._agent()
+        ag.yes = True
+        self._run(["/confirm off", "/exit"], ag)
+        self.assertFalse(ag.yes)
+        self.assertFalse(ag.allow_cmd)
+
+    def test_confirm_on_disables_asks(self):
+        ag = self._agent()
+        self._run(["/confirm on", "/exit"], ag)
+        self.assertTrue(ag.yes)
+        self.assertTrue(ag.allow_cmd)
+
+    def test_confirm_without_arg_reports_state(self):
+        ag = self._agent()
+        self._run(["/confirm", "/exit"], ag)
+        self.assertFalse(ag.yes, "состояние не меняется без аргумента")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

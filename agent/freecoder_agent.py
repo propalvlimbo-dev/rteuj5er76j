@@ -58,7 +58,10 @@ IGNORE_EXT = {
     ".7z", ".rar", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".mp3",
     ".mp4", ".mov", ".woff", ".woff2", ".ttf", ".otf", ".lock", ".sqlite", ".db",
 }
-MAX_FILE_CHARS = 60000          # сколько символов файла отдаём модели целиком
+MAX_FILE_CHARS = 24000          # сколько символов файла отдаём модели целиком
+MAX_TREE_LINES = 150            # сколько строк дерева попадает в системный промпт
+HISTORY_TOOL_KEEP = 2           # сколько последних результатов инструментов держим целиком
+HISTORY_TOOL_CHARS = 400        # остальные сжимаются до этой длины (экономия контекста)
 TEXT_EXT_HINT = {
     ".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".md", ".txt", ".html", ".css",
     ".scss", ".vue", ".svelte", ".go", ".rs", ".java", ".kt", ".c", ".h", ".cpp",
@@ -124,7 +127,7 @@ class Repo:
 
     # --- чтение ---
 
-    def tree(self, limit: int = 400) -> str:
+    def tree(self, limit: int = MAX_TREE_LINES) -> str:
         lines: List[str] = []
         for dirpath, dirnames, filenames in os.walk(self.root):
             dirnames[:] = sorted(d for d in dirnames if d not in IGNORE_DIRS and not d.startswith("."))
@@ -360,6 +363,32 @@ class LLM:
         self.tokens_in = 0
         self.tokens_out = 0
         self.last_provider = "?"
+        self._spend_cache: Tuple[float, str] = (0.0, "")
+
+    def spend_line(self, ttl: float = 2.0) -> str:
+        """«сегодня 45 678/400 000 (11%)» — статистика прямо в строке шага, без второго окна."""
+        now = time.time()
+        if self._spend_cache and now - self._spend_cache[0] < ttl:
+            return self._spend_cache[1]
+        url = self.base[:-3].rstrip("/") + "/status.json" if self.base.endswith("/v1") \
+            else self.base.rstrip("/") + "/status.json"
+        line = ""
+        try:
+            with urllib.request.urlopen(url, timeout=2) as r:
+                data = json.loads(r.read().decode("utf-8", "replace"))
+            spent = 0
+            limit = 0
+            for prov in data.get("providers", []):
+                if prov.get("kind") == "mock" or not prov.get("keys"):
+                    continue
+                spent += sum(int(k.get("tokens_day") or 0) for k in prov.get("keys", []))
+                limit = max(limit, int((prov.get("limits") or {}).get("tpd") or 0))
+            if spent or limit:
+                line = f"сегодня {spent / 1000:.1f}K" + (f"/{limit / 1000:.0f}K" if limit else "")
+        except Exception:  # noqa: BLE001
+            line = ""
+        self._spend_cache = (now, line)
+        return line
 
     def catalog(self) -> List[Dict[str, Any]]:
         """Список моделей у роутера: алиасы и модели шлюза с коэффициентами расхода."""
@@ -531,6 +560,76 @@ def system_prompt(workspace: str, repo_tree: str, allow_cmd: bool, dry_run: bool
 СТРУКТУРА ПРОЕКТА (может быть обрезана)
 {repo_tree}
 """
+
+
+ACTION_ICONS = {
+    "read_file": "читаю",
+    "write_file": "пишу",
+    "replace_in_file": "правлю",
+    "delete_file": "удаляю",
+    "make_dir": "создаю папку",
+    "list_files": "смотрю файлы",
+    "search": "ищу",
+    "run_command": "запускаю",
+    "diff": "сверяю изменения",
+    "final": "готово",
+}
+
+
+def human_action(tool: str, args: Dict[str, Any]) -> str:
+    """Короткое описание действия вместо дампа JSON с путями."""
+    args = args or {}
+    name = ACTION_ICONS.get(tool, tool or "?")
+    path = str(args.get("path") or "").replace("\\", "/")
+    if tool == "read_file":
+        rng = ""
+        if args.get("start") or args.get("end"):
+            rng = f" строки {args.get('start') or 1}-{args.get('end') or '…'}"
+        return f"{name} {path}{rng}"
+    if tool == "write_file":
+        size = len(str(args.get("content") or ""))
+        return f"{name} {path} ({size} символов)"
+    if tool == "replace_in_file":
+        return f"{name} {path}"
+    if tool in ("make_dir", "delete_file"):
+        return f"{name} {path}"
+    if tool == "search":
+        return f"{name} «{args.get('query', '')}»"
+    if tool == "run_command":
+        return f"{name}: {str(args.get('command', ''))[:80]}"
+    if tool == "final":
+        return "готово"
+    return name
+
+
+def human_result(tool: str, text: str) -> str:
+    """Одна строка результата: без простыней и без «Изменений нет»."""
+    text = (text or "").strip()
+    if not text:
+        return ""
+    first = text.splitlines()[0].strip()
+    if tool == "read_file":
+        # «# index.html (строки 1-20 из 60)»
+        return first.lstrip("# ").strip()
+    if tool == "diff" and "Изменений" in first:
+        return ""                      # нечего показывать — молчим
+    if tool == "list_files":
+        return f"файлов: {len(text.splitlines())}"
+    return first[:140]
+
+
+def compact_history(messages: List[Dict[str, Any]], keep: int = HISTORY_TOOL_KEEP,
+                    limit: int = HISTORY_TOOL_CHARS) -> int:
+    """Сжимает старые результаты инструментов: длинные простыни больше не уезжают в модель
+    на каждом следующем шаге. Возвращает, сколько символов удалось сэкономить."""
+    tool_idx = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
+    saved = 0
+    for i in tool_idx[:-keep] if keep else tool_idx:
+        content = messages[i].get("content") or ""
+        if len(content) > limit:
+            saved += len(content) - limit
+            messages[i] = {**messages[i], "content": content[:limit] + "\n…(сокращено)"}
+    return saved
 
 
 def parse_action(text: str) -> Optional[Dict[str, Any]]:
@@ -728,7 +827,8 @@ class Agent:
         self.save_event({"type": "task", "task": task, "model": self.llm.model})
 
         for step in range(1, self.max_steps + 1):
-            log(f"── шаг {step}/{self.max_steps} " + "─" * 30)
+            if compact_history(messages):
+                self.save_event({"type": "compact"})
             try:
                 resp = self.llm.chat(messages, tools=TOOLS_SCHEMA)
             except RuntimeError as e:
@@ -738,9 +838,20 @@ class Agent:
             msg = (resp.get("choices") or [{}])[0].get("message") or {}
             content = msg.get("content") or ""
             tok = resp.get("usage") or {}
-            provider = resp.get("x_freecoder_provider") or resp.get("model") or self.llm.model
-            log(f"   модель: {provider} · {resp.get('_elapsed', 0):.1f}s · "
-                f"токенов: {tok.get('total_tokens', '?')}")
+            provider = (resp.get("x_freecoder_provider") or resp.get("model")
+                        or self.llm.model).split("/")[-1]
+            elapsed = resp.get("_elapsed", 0.0)
+
+            def step_line(what: str) -> None:
+                """Одна компактная строка: что делаю · время · токены · расход за сутки."""
+                parts = [f"[{step}/{self.max_steps}] {what}", f"{elapsed:.1f}с"]
+                total = tok.get("total_tokens")
+                if total:
+                    parts.append(f"{total / 1000:.1f}K")
+                spend = self.llm.spend_line()
+                if spend:
+                    parts.append(spend)
+                log("  " + " · ".join(p for p in parts if p))
 
             actions = actions_from_tool_calls(msg)
             if not actions:
@@ -751,7 +862,8 @@ class Agent:
             if not actions:
                 # модель ответила просто текстом — считаем это отчётом, но даём шанс продолжить
                 if content.strip():
-                    log(f"\n🤖 {content.strip()[:1500]}\n")
+                    step_line("ответ")
+                    log(f"     {content.strip()[:1500]}")
                     self.save_event({"type": "text", "content": content})
                     if step == 1 and len(content) < 1500:
                         return content.strip()
@@ -765,33 +877,37 @@ class Agent:
 
             results: List[Tuple[Dict[str, Any], str, bool]] = []
             final_result: Optional[str] = None
-            for act in actions[:5]:
-                thought = str(act.get("thought") or "")[:200]
-                if thought:
-                    log(f"   💭 {thought}")
+            actions = [a for a in actions if (a.get("tool") or "") != "diff"] or actions
+            for idx, act in enumerate(actions[:5]):
                 tool = act.get("tool")
-                shown_args = {k: (v[:60] + '…' if isinstance(v, str) and len(v) > 60 else v)
-                              for k, v in (act.get("args") or {}).items()}
-                log(f"   🔧 {tool} {json.dumps(shown_args, ensure_ascii=False)}")
+                args = act.get("args") or {}
+                if idx == 0:
+                    step_line(human_action(tool, args))
+                else:
+                    log(f"     {human_action(tool, args)}")
 
                 r_txt, is_final = self.execute(act)
                 results.append((act, r_txt, is_final))
-                self.save_event({"type": "tool", "tool": tool, "args": redact(act.get("args")),
+                self.save_event({"type": "tool", "tool": tool, "args": redact(args),
                                  "result": r_txt[:2000], "final": is_final})
 
                 if is_final:
                     final_result = r_txt
                     break
 
-                first_line = r_txt.splitlines()[0][:160] if r_txt else ""
-                extra_lines = len(r_txt.splitlines()) - 1
-                log(f"   ↳ {first_line}" + (f"  … (+{extra_lines} строк)" if extra_lines > 0 else ""))
+                line = human_result(tool, r_txt)
+                if line:
+                    log(f"       {line}")
 
             if final_result is not None:
-                log(f"\n✅ {final_result}\n")
-                log(f"📊 Итог сессии: токенов принято {human(self.llm.tokens_in)}, "
-                    f"сгенерировано {human(self.llm.tokens_out)}. "
-                    f"Изменённые файлы: {', '.join(sorted(set(self.repo.touched))) or 'нет'}")
+                log("")
+                log(f"✅ {final_result}")
+                files = ", ".join(sorted(set(self.repo.touched))) or "нет"
+                log(f"   файлы: {files}")
+                log(f"   токенов: принято {human(self.llm.tokens_in)}, "
+                    f"сгенерировано {human(self.llm.tokens_out)}"
+                    + (f" · {self.llm.spend_line()}" if self.llm.spend_line() else ""))
+                log("")
                 return final_result
 
             # Возвращаем результаты. Если модель использовала нативный tool calling —
@@ -926,9 +1042,11 @@ def pick_model(agent: Agent) -> None:
 
 
 def repl(agent: Agent) -> None:
-    log(f"Рабочая папка: {agent.repo.root}")
-    log("Пишите задачи обычным текстом, например: «исправь ошибку в api.py — падает на пустом ответе».")
-    log("Команды: /help, /tree, /diff, /undo, /model <имя>, /cd <папка>, /pwd, /yes, /exit\n")
+    mode = "правки применяются сразу (откат — /undo)" if agent.yes else "правки с подтверждением"
+    spend = agent.llm.spend_line()
+    log(f"папка: {agent.repo.root}")
+    log(f"модель: {agent.llm.model} · {mode}" + (f" · {spend}" if spend else ""))
+    log("пишите задачу словами · /help команды · /model сменить модель · /exit выход\n")
     while True:
         try:
             line = input("freecoder> ").strip()
@@ -946,24 +1064,41 @@ def repl(agent: Agent) -> None:
                 log("""Задачи пишутся обычным текстом, например:
   исправь ошибку в api.py — падает на пустом ответе
   добавь тесты для функции parse_date
-  перепиши README под текущий код
+  сделай в папке demo index.html и style.css
+
 Команды:
-  /tree   — дерево файлов      /diff   — что изменилось в этой сессии
-  /undo   — откатить правки    /model  — выбрать модель (покажет список с ценами)
-  /cd     — сменить рабочую папку (например /cd C:\Проекты\бот)
-  /pwd    — какая папка рабочая сейчас
-  /yes    — не спрашивать подтверждений (осторожно!)
-  /exit   — выход""")
+  /model            выбрать модель (список с коэффициентами расхода)
+  /undo             откатить правки этой сессии      /diff — что изменилось
+  /tree             файлы проекта
+  /confirm on|off   подтверждать правки или применять сразу
+  /cd <папка>       сменить рабочую папку            /pwd — где я сейчас
+  /exit             выход""")
             elif cmd == "/tree":
                 log(agent.repo.tree())
             elif cmd == "/diff":
                 log(agent.repo.diff())
             elif cmd == "/undo":
                 log(agent.repo.undo())
-            elif cmd == "/yes":
+            elif cmd in ("/yes", "/confirm"):
+                if cmd == "/confirm" and rest:
+                    arg = rest.lower()
+                    if arg in ("off", "выкл", "0", "нет", "no"):
+                        agent.yes = False
+                        agent.allow_cmd = False
+                        log("Подтверждения включены: правка показывается до применения.")
+                        continue
+                    if arg in ("on", "вкл", "1", "да", "yes"):
+                        agent.yes = True
+                        agent.allow_cmd = True
+                        log("Подтверждения выключены: правки применяются сразу (откат — /undo).")
+                        continue
+                if cmd == "/confirm":
+                    state = "выключены" if agent.yes else "включены"
+                    log(f"Подтверждения {state}. Переключить: /confirm on | /confirm off")
+                    continue
                 agent.yes = True
                 agent.allow_cmd = True
-                log("Подтверждения отключены.")
+                log("Подтверждения отключены: правки применяются сразу (откат — /undo).")
             elif cmd in ("/cd", "/pwd"):
                 if cmd == "/pwd":
                     log(f"Рабочая папка: {agent.repo.root}")
@@ -1011,6 +1146,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--dry-run", action="store_true", help="ничего не менять (только показать план)")
     ap.add_argument("--allow-cmd", action="store_true", help="разрешить запуск команд")
     ap.add_argument("--no-backup", action="store_true", help="не хранить резервные копии правок")
+    ap.add_argument("--quiet", action="store_true", help="без шапки (когда запускает launch.py)")
     ap.add_argument("--version", action="version", version=f"FreeCoder Agent {VERSION}")
     args = ap.parse_args(argv)
 
@@ -1023,13 +1159,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     llm = LLM(api_base, api_key, model)
     agent = Agent(repo, llm, yes=args.yes, max_steps=args.steps, allow_cmd=args.allow_cmd)
 
-    log(f"FreeCoder Agent {VERSION}")
-    log(f"  папка:  {repo.root}")
-    log(f"  модель: {model}  →  {api_base}")
-    if args.dry_run:
-        log("  режим:  ПРЕДПРОСМОТР (файлы не меняются)")
-    if not args.yes:
-        log("  правки и команды будут выполняться после подтверждения (--yes отключает)")
+    if not getattr(args, "quiet", False):
+        log(f"FreeCoder Agent {VERSION} · {repo.root}")
+        log(f"  модель: {model} → {api_base}"
+            + (" · ПРЕДПРОСМОТР (файлы не меняются)" if args.dry_run else "")
+            + ("" if args.yes else " · правки с подтверждением"))
 
     cluster = " ".join(args.task).strip()
     if cluster:

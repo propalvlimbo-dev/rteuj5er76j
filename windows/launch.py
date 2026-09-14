@@ -104,19 +104,45 @@ def router_command(root: str, config: str, port: int = PORT, log_file: str = "")
 
 def start_router(root: str, config: str, port: int = PORT, log_file: str = "",
                  spawn=None) -> object:
-    """Запускает роутер. На Windows — в отдельном окне, чтобы его было видно."""
+    """Запускает роутер отдельным процессом (для тех, кто работает в редакторе)."""
     spawn = spawn or subprocess.Popen
     cmd = router_command(root, config, port, log_file)
     kwargs = {"cwd": root}
     if os.name == "nt":
-        flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
-        kwargs["creationflags"] = flags
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
         kwargs["env"] = dict(os.environ)
     else:
         kwargs["stdout"] = subprocess.DEVNULL
         kwargs["stderr"] = subprocess.DEVNULL
         kwargs["start_new_session"] = True
     return spawn(cmd, **kwargs)
+
+
+def start_router_in_process(root: str, config: str, port: int = PORT, log_file: str = ""):
+    """Поднимает роутер в фоновом потоке этого же процесса.
+
+    Так получается одно окно: статистика агента и роутер живут в одной консоли.
+    Возвращает httpd (или None, если роутер недоступен как модуль).
+    """
+    router_dir = os.path.join(root, "router")
+    if router_dir not in sys.path:
+        sys.path.insert(0, router_dir)
+    try:
+        import freecoder_router as fcr
+    except Exception:  # noqa: BLE001
+        return None
+    state = os.path.join(state_dir(), "router-state.json")
+    httpd, _ = fcr.serve_forever_in_thread(config, host="127.0.0.1", port=port,
+                                           state_path=state, quiet=True, log_file=log_file)
+    return httpd
+
+
+def agent_command(root: str, workspace: str, model: str, confirm: bool = False) -> list:
+    """Команда запуска агента: правки применяются сразу, если не просили подтверждать."""
+    cmd = [sys.executable, os.path.join(root, "agent", "freecoder_agent.py"),
+           "--workspace", workspace, "--model", model, "--quiet"]
+    cmd += ["--allow-cmd"] if confirm else ["--yes"]
+    return cmd
 
 
 def log_tail(path: str, lines: int = 15) -> str:
@@ -292,6 +318,8 @@ def main(argv=None) -> int:
     ap.add_argument("--workspace", default="", help="папка проекта (иначе спросит)")
     ap.add_argument("--model", default="", help="модель (иначе спросит)")
     ap.add_argument("--no-agent", action="store_true", help="только поднять роутер")
+    ap.add_argument("--confirm", action="store_true",
+                    help="спрашивать подтверждение на каждую правку (по умолчанию правки сразу)")
     ap.add_argument("--version", action="version", version=f"FreeCoder launcher {VERSION}")
     args = ap.parse_args(argv)
 
@@ -328,7 +356,14 @@ def main(argv=None) -> int:
     else:
         out(f"  запускаю роутер (порт {args.port})…")
         try:
-            start_router(root, config, args.port, log_file)
+            if start_router_in_process(root, config, args.port, log_file) is None:
+                start_router(root, config, args.port, log_file)   # запасной путь
+        except OSError as e:
+            if "Address already in use" in str(e):
+                ok("роутер уже слушает этот порт (запущен ранее)")
+            else:
+                fail(f"не удалось запустить роутер: {type(e).__name__}: {e}")
+                return 2
         except Exception as e:  # noqa: BLE001
             fail(f"не удалось запустить роутер: {type(e).__name__}: {e}")
             return 2
@@ -373,14 +408,11 @@ def main(argv=None) -> int:
     out("Шаг 5. Агент. Пишите задачи словами, например:")
     out("  «в api.py падает get_user на пустом ответе — исправь»")
     out("  «сделай в папке demo index.html и style.css — тёмный адаптивный сайт»")
-    out("  Правки агент показывает и спрашивает подтверждение (y). Команды: /help, /model, /cd, /exit")
+    out("  Правки применяются сразу, откат — /undo. Подтверждения: /confirm on")
     out()
+    agent_cmd = agent_command(root, workspace, model, confirm=args.confirm)
     try:
-        code = subprocess.call(
-            [sys.executable, os.path.join(root, "agent", "freecoder_agent.py"),
-             "--workspace", workspace, "--model", model],
-            cwd=root,
-        )
+        code = subprocess.call(agent_cmd, cwd=root)
     except KeyboardInterrupt:
         code = 0
 
