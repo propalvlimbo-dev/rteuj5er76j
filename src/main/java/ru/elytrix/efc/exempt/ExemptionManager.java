@@ -72,9 +72,26 @@ public final class ExemptionManager implements Listener {
         timedBypass.put(uuid, System.currentTimeMillis() + seconds * 1000);
     }
 
+    // getTPS через рефлексию: метод есть не во всех API-версиях,
+    // а компилироваться мы должны под любой (paper/spigot, 1.16.5+).
+    private volatile java.lang.reflect.Method tpsMethod;
+    private volatile boolean tpsProbed;
+
     private double getTps() {
         try {
-            return Bukkit.getTPS()[0];
+            if (!tpsProbed) {
+                tpsProbed = true;
+                try {
+                    tpsMethod = Bukkit.class.getMethod("getTPS");
+                } catch (NoSuchMethodException ignored) {
+                    tpsMethod = null;
+                }
+            }
+            if (tpsMethod == null) {
+                return 20.0;
+            }
+            double[] tps = (double[]) tpsMethod.invoke(null);
+            return tps == null || tps.length == 0 ? 20.0 : tps[0];
         } catch (Throwable ignored) {
             return 20.0;
         }

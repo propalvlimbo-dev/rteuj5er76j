@@ -15,13 +15,16 @@ java {
 
 repositories {
     mavenCentral()
+    maven("https://hub.spigotmc.org/nexus/content/repositories/snapshots/")
     maven("https://repo.papermc.io/repository/maven-public/")
     maven("https://repo.codemc.io/repository/maven-public/")
 }
 
 dependencies {
-    // API сервера 1.16.5. На рантайме предоставляет сам ShieldSpigot.
-    compileOnly("io.papermc.paper:paper-api:1.16.5-R0.1-SNAPSHOT")
+    // API 1.16.5. Paper удалил древние снапшоты из своего репозитория,
+    // поэтому компилируемся под spigot-api (на рантайме всё равно ShieldSpigot).
+    // Paper-специфичное не используем, TPS читаем рефлексией.
+    compileOnly("org.spigotmc:spigot-api:1.16.5-R0.1-SNAPSHOT")
     // TODO билд №2: PacketEvents 1.x (Java 8, протокол 1.16.5).
     // Версию возьмём из метаданных репозитория перед написанием пакетного слоя.
 }
