@@ -144,6 +144,10 @@ checks:
     enabled: true
     add-vl: 2.0
     max-vl: 12.0
+  accuracy-c:
+    enabled: true
+    add-vl: 1.0
+    max-vl: 15.0
   criticals-a:
     enabled: true
     add-vl: 1.0

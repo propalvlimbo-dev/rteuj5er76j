@@ -7,6 +7,7 @@ import java.util.UUID;
 import ru.elytrix.efc.ElytrixFuckCheats;
 import ru.elytrix.efc.checks.combat.AccuracyA;
 import ru.elytrix.efc.checks.combat.AccuracyB;
+import ru.elytrix.efc.checks.combat.AccuracyC;
 import ru.elytrix.efc.checks.combat.AimA;
 import ru.elytrix.efc.checks.combat.AimB;
 import ru.elytrix.efc.checks.combat.AimC;
@@ -68,6 +69,7 @@ public final class CheckManager {
         register(new AimF(plugin));
         register(new AccuracyA(plugin));
         register(new AccuracyB(plugin));
+        register(new AccuracyC(plugin));
         register(new CriticalsA(plugin));
         register(new VelocityA(plugin));
         register(new FastBowA(plugin));
