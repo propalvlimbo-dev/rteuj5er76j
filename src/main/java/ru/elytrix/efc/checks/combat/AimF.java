@@ -18,10 +18,11 @@ import ru.elytrix.efc.util.DamageUtil;
 
 /**
  * Aim.F: прилипание к цели (порт Medusa AimAssistH).
- * Разница между взглядом и идеальным доводом на жертву, 25 замеров
- * при быстром повороте: у лока среднее &lt;7° и разброс &lt;12° окно за окном,
- * живая рука так не держит — у неё флики и срывы. Буфер 15 как у Medusa.
- * Только в бою (удар и жертва в последние 3 сек) + VL поверх.
+ * Разница между взглядом и идеальным доводом на жертву, 25 замеров:
+ * у лока среднее &lt;7° и разброс &lt;12° окно за окном, живая рука так
+ * не держит — у неё флики и срывы. Только в бою + VL поверх.
+ * Отличия от Medusa: гейт поворота 1.5° (smooth-lock крутится медленно),
+ * буфер 10, разница yaw с коррекцией перехода через 0°/360°.
  */
 public final class AimF extends Check {
 
@@ -62,14 +63,18 @@ public final class AimF extends Check {
             return;
         }
         float deltaYaw = Math.abs(wrap(event.getTo().getYaw() - event.getFrom().getYaw()));
-        if (deltaYaw > 3) {
+        if (deltaYaw > 1.5) {
             Location from = player.getLocation();
             Location to = target.getLocation();
             float optimal = (float) Math.toDegrees(
                     Math.atan2(-(to.getX() - from.getX()), to.getZ() - from.getZ()));
             float fixedRot = ((event.getTo().getYaw() % 360) + 360) % 360;
             float fixedOpt = ((optimal % 360) + 360) % 360;
-            state.diffs.add((double) Math.abs(fixedRot - fixedOpt));
+            double diff = Math.abs(fixedRot - fixedOpt);
+            if (diff > 180) {
+                diff = 360 - diff;
+            }
+            state.diffs.add(diff);
         }
         if (state.diffs.size() >= 25) {
             double mean = 0;
@@ -86,7 +91,7 @@ public final class AimF extends Check {
             double deviation = Math.sqrt(variance);
             state.diffs.clear();
             if (mean < 7 && deviation < 12) {
-                if (++state.buffer > 15) {
+                if (++state.buffer > 10) {
                     state.buffer = 0;
                     flag(plugin.getDataManager().get(player), "glue");
                 }

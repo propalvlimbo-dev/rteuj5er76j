@@ -38,7 +38,7 @@
       KillAura.F синхронность ударов (Hawk — ответ SpookyTime),
       AutoClicker.C (NESS MaxCPS 18), AutoClicker.D темп атак (Hawk),
       KillAura A/C, AutoClicker A/B,
-      Accuracy.A, Velocity.A, FastBow.A, FastEat.A.
+      Accuracy.A/B, Velocity.A, FastBow.A, FastEat.A.
       ВЫКЛЮЧЕНЫ: KillAura.B (no-swing мёртв на новых клиентах),
       KillAura.E (паттерн угла флагает скилловых легитов),
       Aim.A/B (GCD-ротация врёт на современных мышах).
