@@ -1,6 +1,5 @@
 package ru.elytrix.efc.checks.combat;
 
-import org.bukkit.Location;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -8,12 +7,15 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import ru.elytrix.efc.ElytrixFuckCheats;
 import ru.elytrix.efc.check.Category;
 import ru.elytrix.efc.check.Check;
+import ru.elytrix.efc.util.CombatGeometry;
 import ru.elytrix.efc.util.DamageUtil;
 
 /**
- * Aim.C: удар мимо взгляда — бьёт туда, куда не смотрит.
- * Угол между взглядом и жертвой >100° невозможен честно
- * (хитбоксы и сайлент-ауры палятся именно здесь).
+ * Aim.C: удар мимо взгляда (порт Hawk EntityInteractDirection).
+ * Луч из глаза должен пересекать хитбокс жертвы, иначе это доводка.
+ * У Hawk расширение бокса 0.2 + лаг-компенсация; у нас пока нет перемотки,
+ * поэтому расширение растёт с пингом (та же идея, что в Reach).
+ * Только игроки — по мобам нет точных боксов.
  */
 public final class AimC extends Check {
 
@@ -27,31 +29,19 @@ public final class AimC extends Check {
         if (attacker == null) {
             return;
         }
-        Entity victim = DamageUtil.entityOf(event);
-        if (victim == null) {
+        Entity rawVictim = DamageUtil.entityOf(event);
+        if (!(rawVictim instanceof Player)) {
             return;
         }
-        Location eye = attacker.getLocation();
-        Location target = victim.getLocation();
-
-        double yaw = Math.toRadians(eye.getYaw());
-        double pitch = Math.toRadians(eye.getPitch());
-        double lookX = -Math.sin(yaw) * Math.cos(pitch);
-        double lookY = -Math.sin(pitch);
-        double lookZ = Math.cos(yaw) * Math.cos(pitch);
-
-        double dx = target.getX() - eye.getX();
-        double dy = (target.getY() + 0.9) - (eye.getY() + 1.62);
-        double dz = target.getZ() - eye.getZ();
-        double length = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        if (length < 0.000001) {
+        Player victim = (Player) rawVictim;
+        if (CombatGeometry.eyeToBoxDistance(attacker, victim, 0.1) > 7.0) {
             return;
         }
-        double dot = (lookX * dx + lookY * dy + lookZ * dz) / length;
-        dot = Math.max(-1.0, Math.min(1.0, dot));
-        double angle = Math.toDegrees(Math.acos(dot));
-        if (angle > cfg("max-angle", 100.0)) {
-            flag(plugin.getDataManager().get(attacker), "angle " + Math.round(angle));
+        int ping = DamageUtil.pingOf(attacker) + DamageUtil.pingOf(victim);
+        double expand = Math.min(cfg("base-expand", 0.3) + ping * cfg("per-ms", 0.004),
+                cfg("cap-expand", 1.2));
+        if (!CombatGeometry.rayHitsBox(attacker, victim, expand, 7.0)) {
+            flag(plugin.getDataManager().get(attacker), "direction");
         }
     }
 }

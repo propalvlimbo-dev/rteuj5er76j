@@ -30,10 +30,13 @@
 
 ## Роадмап
 - [x] Ядро: PlayerData, VL, exemptions, алерты, наказания, команды
-- [x] Комбат-пакет: KillAura A/C, Reach A/B, AutoClicker A/B,
-      Aim.C (угол), Accuracy.A, Velocity.A, FastBow.A, FastEat.A.
+- [x] Комбат-пакет (порты топов): Reach A/B (Hawk, глаз→бокс, отмена ударов),
+      Aim.C (Hawk, луч→бокс), Criticals.A (NESS), KillAura.D KeepSprint (Medusa),
+      AutoClicker.C (NESS MaxCPS 18), KillAura A/C, AutoClicker A/B,
+      Accuracy.A, Velocity.A, FastBow.A, FastEat.A.
       KillAura.B, Aim.A/B ВЫКЛЮЧЕНЫ: no-swing и GCD-ротация дают ложные
-      на новых клиентах/мышах, вернутся с пакетным слоем (как у Grim)
+      на новых клиентах/мышах, вернутся с пакетным слоем (как у Grim).
+      VulcanOLD портировать нечего — весь на пакетах (тоже ждёт пакетный слой)
 - [x] Движение (2): Fly.A, Speed.A (консервативные)
 - [ ] Пакетный слой (PacketEvents): пинг, версии клиентов, точная ротация
 - [ ] Записи легитов как регресс-тесты

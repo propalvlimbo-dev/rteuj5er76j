@@ -16,4 +16,11 @@ public class EntityDamageEvent extends Event {
     public DamageCause getCause() {
         return null;
     }
+
+    public boolean isCancelled() {
+        return false;
+    }
+
+    public void setCancelled(boolean cancel) {
+    }
 }

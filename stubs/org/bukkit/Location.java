@@ -1,6 +1,7 @@
 package org.bukkit;
 
 import org.bukkit.block.Block;
+import org.bukkit.util.Vector;
 
 /** LOCAL-BUILD STUB. Compile-only, never shaded into the jar. */
 public class Location {
@@ -29,6 +30,14 @@ public class Location {
     }
 
     public Block getBlock() {
+        return null;
+    }
+
+    public Vector getDirection() {
+        return null;
+    }
+
+    public Vector toVector() {
         return null;
     }
 }

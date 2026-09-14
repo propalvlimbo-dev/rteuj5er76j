@@ -35,9 +35,11 @@ checks:
     enabled: true
     add-vl: 1.0
     max-vl: 25.0
-    base: 3.05
+    base: 3.1
     per-ms: 0.003
     cap: 4.6
+    cancel-vl: 8.0
+    cancel-reach: 5.0
   autoclicker-a:
     enabled: true
     add-vl: 2.0
@@ -63,6 +65,10 @@ checks:
     enabled: true
     add-vl: 1.0
     max-vl: 20.0
+  killaura-d:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 6.0
   reach-b:
     enabled: true
     add-vl: 2.0
@@ -75,6 +81,11 @@ checks:
     add-vl: 3.0
     max-vl: 30.0
     blatant-cps: 30
+  autoclicker-c:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 30.0
+    max-cps: 18
   # ВЫКЛЮЧЕНА: GCD-модуло флагает современные мыши (8К опрос, акселерация).
   # Вернётся с пакетным слоем (предсказание как у Grim).
   aim-a:
@@ -90,11 +101,17 @@ checks:
     enabled: true
     add-vl: 2.0
     max-vl: 12.0
-    max-angle: 100.0
+    base-expand: 0.3
+    per-ms: 0.004
+    cap-expand: 1.2
   accuracy-a:
     enabled: true
     add-vl: 1.0
     max-vl: 20.0
+  criticals-a:
+    enabled: true
+    add-vl: 1.0
+    max-vl: 8.0
   velocity-a:
     enabled: true
     add-vl: 3.0

@@ -10,12 +10,13 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import ru.elytrix.efc.ElytrixFuckCheats;
 import ru.elytrix.efc.check.Category;
 import ru.elytrix.efc.check.Check;
+import ru.elytrix.efc.util.CombatGeometry;
 import ru.elytrix.efc.util.DamageUtil;
 
 /**
- * Reach.B: средняя дистанция ударов за 25 попаданий.
- * Ловит аккуратный рич 3.1–3.5, который пропускает Reach.A.
- * Лаговые выбросы тонут в среднем — честный средний ~2.6–2.9.
+ * Reach.B: средняя дистанция за 25 ударов (та же метрика Hawk — глаз-&gt;бокс).
+ * Ловит «умный» рич 3.3–3.5, который прячется от разовых замеров.
+ * Только игроки, лимит с компенсацией пинга.
  */
 public final class ReachB extends Check {
 
@@ -41,18 +42,14 @@ public final class ReachB extends Check {
         if (attacker == null) {
             return;
         }
-        Entity victim = DamageUtil.entityOf(event);
-        if (victim == null) {
+        Entity rawVictim = DamageUtil.entityOf(event);
+        if (!(rawVictim instanceof Player)) {
             return;
         }
-        double distance = attacker.getLocation().distance(victim.getLocation());
-        if (distance > 5.5) {
-            // Единичный глюк/телепорт — не портим статистику.
-            return;
-        }
+        Player victim = (Player) rawVictim;
         State state = states.computeIfAbsent(attacker.getUniqueId(), key -> new State());
+        state.sum += CombatGeometry.eyeToBoxDistance(attacker, victim, 0.1);
         state.count++;
-        state.sum += distance;
         if (state.count < 25) {
             return;
         }
