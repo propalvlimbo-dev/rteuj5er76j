@@ -35,7 +35,7 @@
       Aim.E (Medusa, круглые доводки), Aim.F (Medusa, прилипание к цели),
       Criticals.A (NESS),
       KillAura.B (умный no-swing v2), KillAura.D KeepSprint (Medusa),
-      KillAura.F синхронность ударов (Hawk),
+      KillAura.F синхронность ударов (Hawk), KillAura.G ритм ударов,
       AutoClicker.C (NESS MaxCPS 18), AutoClicker.D темп атак (Hawk),
       KillAura A/C, AutoClicker A/B,
       Accuracy.A/B, Velocity.A, FastBow.A, FastEat.A.

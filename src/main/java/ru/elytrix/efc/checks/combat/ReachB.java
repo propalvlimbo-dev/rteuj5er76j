@@ -49,8 +49,7 @@ public final class ReachB extends Check {
         }
         Player victim = (Player) rawVictim;
         long now = System.currentTimeMillis();
-        long delay = Math.max(0, Math.min(1000,
-                (DamageUtil.pingOf(attacker) + DamageUtil.pingOf(victim)) / 2 + 50));
+        long delay = DamageUtil.rewindDelay(attacker, victim);
         Location eye = attacker.getEyeLocation();
         Location feet = plugin.getPositionHistory().locationAt(victim, now - delay);
         State state = states.computeIfAbsent(attacker.getUniqueId(), key -> new State());

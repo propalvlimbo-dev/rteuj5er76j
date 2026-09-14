@@ -18,11 +18,11 @@ import ru.elytrix.efc.util.DamageUtil;
 
 /**
  * Aim.F: прилипание к цели (порт Medusa AimAssistH).
- * Разница между взглядом и идеальным доводом на жертву, 25 замеров:
+ * Разница между взглядом и идеальным доводом на жертву, 20 замеров:
  * у лока среднее &lt;7° и разброс &lt;12° окно за окном, живая рука так
  * не держит — у неё флики и срывы. Только в бою + VL поверх.
- * Позиция жертвы берётся из перемотки (лаг-компенсация): атакующий
- * целится в то, что видит, а видит он прошлое на свой+чужой пинг.
+ * Позиция жертвы — из перемотки: атакующий целится в прошлое
+ * (пинг обоих пополам + интерполяция клиента).
  */
 public final class AimF extends Check {
 
@@ -65,8 +65,7 @@ public final class AimF extends Check {
         float deltaYaw = Math.abs(wrap(event.getTo().getYaw() - event.getFrom().getYaw()));
         if (deltaYaw > 1.5) {
             Location from = player.getLocation();
-            long delay = Math.max(0, Math.min(1000,
-                    (DamageUtil.pingOf(player) + DamageUtil.pingOf(target)) / 2 + 50));
+            long delay = DamageUtil.rewindDelay(player, target);
             Location to = plugin.getPositionHistory().locationAt(target, now - delay);
             float optimal = (float) Math.toDegrees(
                     Math.atan2(-(to.getX() - from.getX()), to.getZ() - from.getZ()));
@@ -78,7 +77,7 @@ public final class AimF extends Check {
             }
             state.diffs.add(diff);
         }
-        if (state.diffs.size() >= 25) {
+        if (state.diffs.size() >= 20) {
             double mean = 0;
             for (double diff : state.diffs) {
                 mean += diff;
@@ -93,7 +92,7 @@ public final class AimF extends Check {
             double deviation = Math.sqrt(variance);
             state.diffs.clear();
             if (mean < 7 && deviation < 12) {
-                if (++state.buffer > 10) {
+                if (++state.buffer > 6) {
                     state.buffer = 0;
                     flag(plugin.getDataManager().get(player), "glue");
                 }

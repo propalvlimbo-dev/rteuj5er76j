@@ -79,6 +79,11 @@ checks:
     enabled: true
     add-vl: 2.0
     max-vl: 8.0
+  killaura-g:
+    enabled: true
+    add-vl: 1.0
+    max-vl: 10.0
+    max-stddev-ms: 12.0
   reach-b:
     enabled: true
     add-vl: 2.0

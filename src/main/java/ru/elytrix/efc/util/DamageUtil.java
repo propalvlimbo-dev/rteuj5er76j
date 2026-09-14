@@ -139,4 +139,14 @@ public final class DamageUtil {
         int total = pingOf(attacker) + (victim instanceof Player ? pingOf((Player) victim) : 0);
         return Math.min(base + total * perMs, cap);
     }
+
+    /**
+     * На сколько мс в прошлое перематывать жертву: атакующий целится в то,
+     * что видит, а видит он прошлое (пинг обоих пополам + ~100 мс
+     * интерполяции сущностей на клиенте).
+     */
+    public static long rewindDelay(Player attacker, Entity victim) {
+        int total = pingOf(attacker) + (victim instanceof Player ? pingOf((Player) victim) : 0);
+        return Math.max(0, Math.min(1000, total / 2 + 100));
+    }
 }

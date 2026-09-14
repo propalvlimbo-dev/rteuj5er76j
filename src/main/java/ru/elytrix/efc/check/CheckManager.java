@@ -26,6 +26,7 @@ import ru.elytrix.efc.checks.combat.KillAuraC;
 import ru.elytrix.efc.checks.combat.KillAuraD;
 import ru.elytrix.efc.checks.combat.KillAuraE;
 import ru.elytrix.efc.checks.combat.KillAuraF;
+import ru.elytrix.efc.checks.combat.KillAuraG;
 import ru.elytrix.efc.checks.combat.ReachA;
 import ru.elytrix.efc.checks.combat.ReachB;
 import ru.elytrix.efc.checks.combat.VelocityA;
@@ -52,6 +53,7 @@ public final class CheckManager {
         register(new KillAuraD(plugin));
         register(new KillAuraE(plugin));
         register(new KillAuraF(plugin));
+        register(new KillAuraG(plugin));
         register(new ReachA(plugin));
         register(new ReachB(plugin));
         register(new AutoClickerA(plugin));
