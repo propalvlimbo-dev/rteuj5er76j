@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "ru.elytrix"
-version = "0.7.1-SNAPSHOT"
+version = "0.8.0-SNAPSHOT"
 
 // TODO: финальный Java-уровень после ответа о версии ShieldSpigot.
 // 1.16.5-сервер = Java 8..16 рантайм (таргет 8/11), 1.20.5+ = Java 21.

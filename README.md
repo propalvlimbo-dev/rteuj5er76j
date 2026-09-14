@@ -30,20 +30,20 @@
 
 ## Роадмап
 - [x] Ядро: PlayerData, VL, exemptions, алерты, наказания, команды
-- [x] Комбат-пакет (порты топов): Reach A (Hawk, глаз→бокс, отмена с 3.03
+- [x] Комбат-пакет (порты топов): Reach A (Hawk, глаз→бокс, отмена с 3.0
       как у Grim), Reach.B, Aim.C (Hawk, луч→бокс), Aim.D (Medusa, замок оси),
       Aim.E (Medusa, круглые доводки), Aim.F (Medusa, прилипание к цели),
       Criticals.A (NESS),
-      KillAura.D KeepSprint (Medusa),
-      KillAura.F синхронность ударов (Hawk — ответ SpookyTime),
+      KillAura.B (умный no-swing v2), KillAura.D KeepSprint (Medusa),
+      KillAura.F синхронность ударов (Hawk),
       AutoClicker.C (NESS MaxCPS 18), AutoClicker.D темп атак (Hawk),
       KillAura A/C, AutoClicker A/B,
       Accuracy.A/B, Velocity.A, FastBow.A, FastEat.A.
-      ВЫКЛЮЧЕНЫ: KillAura.B (no-swing мёртв на новых клиентах),
-      KillAura.E (паттерн угла флагает скилловых легитов),
+      Инфра: лаг-компенсация позиций (перемотка жертвы), /efc debug.
+      ВЫКЛЮЧЕНЫ: KillAura.E (паттерн угла флагает скилловых легитов),
       Aim.A/B (GCD-ротация врёт на современных мышах).
       Вернутся с пакетным слоем (как у Grim).
-      Обследованы: Hawk, NESS, Medusa, VulcanOLD, NCP, Grim, Artemis, MX.
+      Обследованы: Hawk, NESS, Medusa, VulcanOLD, NCP, Grim, Artemis, MX, Negativity.
 - [x] Движение (2): Fly.A, Speed.A (консервативные)
 - [ ] Пакетный слой (PacketEvents): пинг, версии клиентов, точная ротация
 - [ ] Записи легитов как регресс-тесты

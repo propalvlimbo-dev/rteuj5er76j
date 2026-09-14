@@ -36,9 +36,9 @@ checks:
     enabled: true
     add-vl: 1.0
     max-vl: 25.0
-    base: 3.03
-    per-ms: 0.0022
-    cap: 3.75
+    base: 3.0
+    per-ms: 0.002
+    cap: 3.6
   autoclicker-a:
     enabled: true
     add-vl: 2.0
@@ -54,10 +54,10 @@ checks:
     add-vl: 1.0
     max-vl: 30.0
     max-bps: 9.5
-  # ВЫКЛЮЧЕНА: новые клиенты не шлют взмах при ударе, форки едят событие.
-  # Вернётся с пакетным слоем (проверка версии клиента).
+  # v2: умный no-swing — флаг за 6 ударов подряд без взмаха.
+  # Сам отключается, если взмахов нет ни у кого (сломан форк).
   killaura-b:
-    enabled: false
+    enabled: true
     add-vl: 2.0
     max-vl: 16.0
   killaura-c:
@@ -84,8 +84,8 @@ checks:
     add-vl: 2.0
     max-vl: 20.0
     base: 3.0
-    per-ms: 0.0025
-    cap: 4.0
+    per-ms: 0.002
+    cap: 3.5
   autoclicker-b:
     enabled: true
     add-vl: 3.0

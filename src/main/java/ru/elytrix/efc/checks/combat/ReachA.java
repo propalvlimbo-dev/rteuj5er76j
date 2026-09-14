@@ -1,5 +1,6 @@
 package ru.elytrix.efc.checks.combat;
 
+import org.bukkit.Location;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -12,8 +13,8 @@ import ru.elytrix.efc.util.DamageUtil;
 
 /**
  * Reach.A: дистанция глаз-&gt;хитбокс (порт Hawk EntityInteractReach).
- * База 3.03 м + компенсация пинга. Удар за лимитом СРАЗУ отменяется,
- * как у Grim: запредельный хит не наносит урона. Только игроки.
+ * Позиция жертвы — из перемотки (лаг-компенсация), поэтому база 3.0
+ * как у Grim. Удар за лимитом СРАЗУ отменяется. Только игроки.
  */
 public final class ReachA extends Check {
 
@@ -42,9 +43,14 @@ public final class ReachA extends Check {
             return;
         }
         Player victim = (Player) rawVictim;
-        double distance = CombatGeometry.eyeToBoxDistance(attacker, victim, 0.1);
+        long now = System.currentTimeMillis();
+        long delay = Math.max(0, Math.min(1000,
+                (DamageUtil.pingOf(attacker) + DamageUtil.pingOf(victim)) / 2 + 50));
+        Location eye = attacker.getEyeLocation();
+        Location feet = plugin.getPositionHistory().locationAt(victim, now - delay);
+        double distance = CombatGeometry.eyeToBoxDistance(eye, feet, 0.1);
         double limit = DamageUtil.reachLimit(attacker, victim,
-                cfg("base", 3.03), cfg("per-ms", 0.0022), cfg("cap", 3.75));
+                cfg("base", 3.0), cfg("per-ms", 0.002), cfg("cap", 3.6));
         if (distance > limit) {
             flag(plugin.getDataManager().get(attacker),
                     "dist " + String.format("%.2f", distance)

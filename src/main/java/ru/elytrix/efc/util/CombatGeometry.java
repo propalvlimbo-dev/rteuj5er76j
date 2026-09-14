@@ -1,22 +1,20 @@
 package ru.elytrix.efc.util;
 
 import org.bukkit.Location;
-import org.bukkit.entity.Player;
 import org.bukkit.util.Vector;
 
 /**
  * Геометрия боя по образцу Hawk (AABB.distanceToPosition, EntityInteractDirection).
- * Хитбокс игрока 0.6 x 1.8. Своя арифметика — стандартная математика луча и бокса.
+ * Хитбокс игрока 0.6 x 1.8. Работает с локациями — вызыватель сам решает,
+ * брать текущие позиции или перемотанные из PositionHistory.
  */
 public final class CombatGeometry {
 
     private CombatGeometry() {
     }
 
-    /** Расстояние от глаза атакующего до хитбокса жертвы (Hawk: distanceToPosition). */
-    public static double eyeToBoxDistance(Player attacker, Player victim, double border) {
-        Location eye = attacker.getEyeLocation();
-        Location feet = victim.getLocation();
+    /** Расстояние от глаза до хитбокса (Hawk: distanceToPosition). */
+    public static double eyeToBoxDistance(Location eye, Location feet, double border) {
         double minX = feet.getX() - 0.3 - border;
         double maxX = feet.getX() + 0.3 + border;
         double minY = feet.getY() - border;
@@ -29,19 +27,12 @@ public final class CombatGeometry {
         return Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 
-    /** Луч из глаза по взгляду пересекает хитбокс жертвы? (Hawk: betweenRays, slab-метод). */
-    public static boolean rayHitsBox(Player attacker, Player victim, double expand, double maxDist) {
-        Location eye = attacker.getEyeLocation();
-        return rayHitsBoxDir(eye.toVector(), eye.getDirection(), victim, expand, maxDist);
-    }
-
-    /** Тот же тест, но луч задан явно (нужен для экстраполированного луча Hawk). */
-    public static boolean rayHitsBoxDir(Vector origin, Vector dir, Player victim,
+    /** Луч пересекает хитбокс? (Hawk: betweenRays, slab-метод). */
+    public static boolean rayHitsBoxDir(Vector origin, Vector dir, Location feet,
                                         double expand, double maxDist) {
         double ox = origin.getX();
         double oy = origin.getY();
         double oz = origin.getZ();
-        Location feet = victim.getLocation();
         double minX = feet.getX() - 0.3 - expand;
         double maxX = feet.getX() + 0.3 + expand;
         double minY = feet.getY() - expand;

@@ -18,9 +18,7 @@ import ru.elytrix.efc.util.DamageUtil;
 /**
  * Aim.C: удар мимо взгляда (порт Hawk EntityInteractDirection).
  * Луч из глаза должен пересекать хитбокс жертвы, иначе это доводка.
- * Как у Hawk проверяем ДВА луча: текущий и экстраполированный
- * (взгляд + последняя дельта) — удар в движении мимо не считается.
- * Расширение бокса растёт с пингом вместо лаг-компенсации Hawk.
+ * Два луча (текущий + экстраполированный), позиция жертвы — из перемотки.
  * Только игроки — по мобам нет точных боксов.
  */
 public final class AimC extends Check {
@@ -61,22 +59,26 @@ public final class AimC extends Check {
             return;
         }
         Player victim = (Player) rawVictim;
-        if (CombatGeometry.eyeToBoxDistance(attacker, victim, 0.1) > 7.0) {
+        long now = System.currentTimeMillis();
+        long delay = Math.max(0, Math.min(1000,
+                (DamageUtil.pingOf(attacker) + DamageUtil.pingOf(victim)) / 2 + 50));
+        Location eye = attacker.getEyeLocation();
+        Location feet = plugin.getPositionHistory().locationAt(victim, now - delay);
+        if (CombatGeometry.eyeToBoxDistance(eye, feet, 0.1) > 7.0) {
             return;
         }
         int ping = DamageUtil.pingOf(attacker) + DamageUtil.pingOf(victim);
         double expand = Math.min(cfg("base-expand", 0.3) + ping * cfg("per-ms", 0.004),
                 cfg("cap-expand", 1.2));
-        Location eye = attacker.getEyeLocation();
         boolean hit = CombatGeometry.rayHitsBoxDir(eye.toVector(), eye.getDirection(),
-                victim, expand, 7.0);
+                feet, expand, 7.0);
         if (!hit) {
             State state = states.get(attacker.getUniqueId());
             if (state != null && state.has) {
                 float yaw = eye.getYaw() + state.lastDeltaYaw;
                 float pitch = Math.max(-90, Math.min(90, eye.getPitch() + state.lastDeltaPitch));
                 hit = CombatGeometry.rayHitsBoxDir(eye.toVector(),
-                        CombatGeometry.dirFromYawPitch(yaw, pitch), victim, expand, 7.0);
+                        CombatGeometry.dirFromYawPitch(yaw, pitch), feet, expand, 7.0);
             }
         }
         if (!hit) {

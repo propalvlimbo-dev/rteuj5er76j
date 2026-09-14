@@ -7,6 +7,8 @@ import ru.elytrix.efc.command.EfcCommand;
 import ru.elytrix.efc.config.ConfigManager;
 import ru.elytrix.efc.data.CombatTracker;
 import ru.elytrix.efc.data.DataManager;
+import ru.elytrix.efc.data.DebugCounters;
+import ru.elytrix.efc.data.PositionHistory;
 import ru.elytrix.efc.exempt.ExemptionManager;
 import ru.elytrix.efc.punish.PunishmentManager;
 
@@ -22,6 +24,8 @@ public final class ElytrixFuckCheats extends JavaPlugin {
     private AlertManager alertManager;
     private PunishmentManager punishmentManager;
     private CheckManager checkManager;
+    private PositionHistory positionHistory;
+    private DebugCounters debugCounters;
 
     @Override
     public void onEnable() {
@@ -33,11 +37,15 @@ public final class ElytrixFuckCheats extends JavaPlugin {
         this.alertManager = new AlertManager(this);
         this.punishmentManager = new PunishmentManager(this);
         this.checkManager = new CheckManager(this);
+        this.positionHistory = new PositionHistory(this);
+        this.debugCounters = new DebugCounters(this);
 
         getServer().getPluginManager().registerEvents(dataManager, this);
         getServer().getPluginManager().registerEvents(exemptionManager, this);
         getServer().getPluginManager().registerEvents(alertManager, this);
         getServer().getPluginManager().registerEvents(new CombatTracker(this), this);
+        getServer().getPluginManager().registerEvents(positionHistory, this);
+        getServer().getPluginManager().registerEvents(debugCounters, this);
 
         EfcCommand command = new EfcCommand(this);
         getCommand("efc").setExecutor(command);
@@ -75,5 +83,13 @@ public final class ElytrixFuckCheats extends JavaPlugin {
 
     public CheckManager getCheckManager() {
         return checkManager;
+    }
+
+    public PositionHistory getPositionHistory() {
+        return positionHistory;
+    }
+
+    public DebugCounters getDebugCounters() {
+        return debugCounters;
     }
 }

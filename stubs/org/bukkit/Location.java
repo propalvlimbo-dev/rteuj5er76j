@@ -5,6 +5,16 @@ import org.bukkit.util.Vector;
 
 /** LOCAL-BUILD STUB. Compile-only, never shaded into the jar. */
 public class Location {
+    public Location(World world, double x, double y, double z) {
+    }
+
+    public Location(World world, double x, double y, double z, float yaw, float pitch) {
+    }
+
+    public World getWorld() {
+        return null;
+    }
+
     public double getX() {
         return 0;
     }

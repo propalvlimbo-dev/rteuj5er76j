@@ -14,7 +14,7 @@ import org.bukkit.entity.Player;
 import ru.elytrix.efc.ElytrixFuckCheats;
 import ru.elytrix.efc.data.PlayerData;
 
-/** /efc — alerts, verbose, info, exempt, reload, check(скоро). */
+/** /efc — alerts, verbose, info, exempt, reload, debug, check(скоро). */
 public final class EfcCommand implements CommandExecutor, TabCompleter {
 
     private final ElytrixFuckCheats plugin;
@@ -40,6 +40,8 @@ public final class EfcCommand implements CommandExecutor, TabCompleter {
                 return handleInfo(sender, args);
             case "exempt":
                 return handleExempt(sender, args);
+            case "debug":
+                return handleDebug(sender, args);
             case "check":
                 sender.sendMessage(color("&8[&cEFC&8] &7Ручные проверки — со второго билда."));
                 return true;
@@ -83,7 +85,7 @@ public final class EfcCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         plugin.getConfigManager().reload();
-        sender.sendMessage(color("&8[&cEFC&8] &aКонфиг перезагружен."));
+        sender.sendMessage(color("&8[&cEFC&8] &7Конфиг перезагружен."));
         return true;
     }
 
@@ -144,6 +146,25 @@ public final class EfcCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
+    private boolean handleDebug(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("efc.admin")) {
+            sender.sendMessage(color("&cНет прав."));
+            return true;
+        }
+        if (args.length < 2) {
+            sender.sendMessage(color("&cИспользование: /efc debug <ник>"));
+            return true;
+        }
+        Player target = plugin.getServer().getPlayerExact(args[1]);
+        if (target == null) {
+            sender.sendMessage(color("&cИгрок не в сети."));
+            return true;
+        }
+        sender.sendMessage(color("&8[&cEFC&8] &7События &e" + target.getName() + "&7: "
+                + plugin.getDebugCounters().report(target)));
+        return true;
+    }
+
     private void sendHelp(CommandSender sender) {
         sender.sendMessage(color("&8[&cEFC&8] &7ElytrixFuckCheats v"
                 + plugin.getDescription().getVersion()));
@@ -151,6 +172,7 @@ public final class EfcCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(color(" &e/efc verbose &8- &7дебаг-флаги"));
         sender.sendMessage(color(" &e/efc info <ник> &8- &7VL игрока"));
         sender.sendMessage(color(" &e/efc exempt <ник> <сек> &8- &7временный байпас"));
+        sender.sendMessage(color(" &e/efc debug <ник> &8- &7счётчики событий (сброс)"));
         sender.sendMessage(color(" &e/efc reload &8- &7перезагрузка конфига"));
     }
 
@@ -162,11 +184,12 @@ public final class EfcCommand implements CommandExecutor, TabCompleter {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
             List<String> subs = new ArrayList<>(Arrays.asList(
-                    "alerts", "verbose", "info", "exempt", "reload", "check"));
+                    "alerts", "verbose", "info", "exempt", "reload", "check", "debug"));
             subs.removeIf(s -> !s.startsWith(args[0].toLowerCase()));
             return subs;
         }
-        if (args.length == 2 && (args[0].equalsIgnoreCase("info") || args[0].equalsIgnoreCase("exempt"))) {
+        if (args.length == 2 && (args[0].equalsIgnoreCase("info") || args[0].equalsIgnoreCase("exempt")
+                || args[0].equalsIgnoreCase("debug"))) {
             List<String> names = new ArrayList<>();
             for (Player player : plugin.getServer().getOnlinePlayers()) {
                 if (player.getName().toLowerCase().startsWith(args[1].toLowerCase())) {

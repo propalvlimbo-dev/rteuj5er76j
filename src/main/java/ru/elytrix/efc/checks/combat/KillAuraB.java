@@ -14,16 +14,17 @@ import ru.elytrix.efc.check.Check;
 import ru.elytrix.efc.util.DamageUtil;
 
 /**
- * KillAura.B: удар без взмаха рукой (silent / no-swing аура).
- * Окно 550 мс — как у NESS KillauraNoSwing (570 мс).
- * Самозащита от кривых форков: если взмахов нет НИ У КОГО на сервере —
- * значит событие сломано и проверка молча расслабляется (лог в консоль).
- * Если машет весь сервер, кроме одного — это сайлент, флаговать.
+ * KillAura.B v2: удар без взмаха (silent-аура).
+ * Окно 550 мс как у NESS. Умные гейты: разовый пропуск прощаем (лаг),
+ * флаг только за 6 ударов подряд без взмаха у того, кто вообще машет.
+ * Кто не махал ни разу, а сервер машет — сайлент после 10 ударов.
+ * Если взмахов нет НИ У КОГО — событие сломано на форке, молчим.
  */
 public final class KillAuraB extends Check {
 
     private final Map<UUID, Long> lastSwing = new ConcurrentHashMap<>();
-    private final Map<UUID, Integer> hitsWithoutSwing = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer> grace = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer> streak = new ConcurrentHashMap<>();
     private final Set<UUID> swingers = ConcurrentHashMap.newKeySet();
     private boolean relaxedLogged;
 
@@ -34,7 +35,8 @@ public final class KillAuraB extends Check {
     @Override
     public void onQuit(UUID uuid) {
         lastSwing.remove(uuid);
-        hitsWithoutSwing.remove(uuid);
+        grace.remove(uuid);
+        streak.remove(uuid);
         swingers.remove(uuid);
     }
 
@@ -43,7 +45,8 @@ public final class KillAuraB extends Check {
         UUID uuid = event.getPlayer().getUniqueId();
         lastSwing.put(uuid, System.currentTimeMillis());
         swingers.add(uuid);
-        hitsWithoutSwing.remove(uuid);
+        grace.remove(uuid);
+        streak.remove(uuid);
     }
 
     @EventHandler
@@ -62,32 +65,29 @@ public final class KillAuraB extends Check {
                     return;
                 }
             }
-            // На таких форках дополнительно требуем: взмахи вообще должны
-            // существовать на сервере, иначе событие тоже сломано.
-            if (swingers.isEmpty()) {
-                logRelaxed();
-                return;
-            }
+        }
+        if (swingers.isEmpty()) {
+            logRelaxed();
+            return;
         }
         long now = System.currentTimeMillis();
         UUID uuid = attacker.getUniqueId();
         Long swing = lastSwing.get(uuid);
-        if (swing != null) {
-            if (now - swing > 550) {
-                flag(plugin.getDataManager().get(attacker), "no-swing");
+        if (swing != null && now - swing <= 550) {
+            streak.remove(uuid);
+            return;
+        }
+        if (!swingers.contains(uuid)) {
+            int count = grace.merge(uuid, 1, Integer::sum);
+            if (count >= 10) {
+                flag(plugin.getDataManager().get(attacker), "no-swing silent");
             }
             return;
         }
-        // Взмахов не было ни разу за сессию.
-        int count = hitsWithoutSwing.merge(uuid, 1, Integer::sum);
-        if (count < 10) {
-            return;
-        }
-        if (!swingers.isEmpty()) {
-            // Весь сервер машет, а этот — нет. Сайлент-аура.
-            flag(plugin.getDataManager().get(attacker), "no-swing silent");
-        } else {
-            logRelaxed();
+        int count = streak.merge(uuid, 1, Integer::sum);
+        if (count >= 6) {
+            streak.remove(uuid);
+            flag(plugin.getDataManager().get(attacker), "no-swing");
         }
     }
 

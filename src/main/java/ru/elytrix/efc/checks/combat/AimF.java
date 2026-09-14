@@ -21,8 +21,8 @@ import ru.elytrix.efc.util.DamageUtil;
  * Разница между взглядом и идеальным доводом на жертву, 25 замеров:
  * у лока среднее &lt;7° и разброс &lt;12° окно за окном, живая рука так
  * не держит — у неё флики и срывы. Только в бою + VL поверх.
- * Отличия от Medusa: гейт поворота 1.5° (smooth-lock крутится медленно),
- * буфер 10, разница yaw с коррекцией перехода через 0°/360°.
+ * Позиция жертвы берётся из перемотки (лаг-компенсация): атакующий
+ * целится в то, что видит, а видит он прошлое на свой+чужой пинг.
  */
 public final class AimF extends Check {
 
@@ -65,7 +65,9 @@ public final class AimF extends Check {
         float deltaYaw = Math.abs(wrap(event.getTo().getYaw() - event.getFrom().getYaw()));
         if (deltaYaw > 1.5) {
             Location from = player.getLocation();
-            Location to = target.getLocation();
+            long delay = Math.max(0, Math.min(1000,
+                    (DamageUtil.pingOf(player) + DamageUtil.pingOf(target)) / 2 + 50));
+            Location to = plugin.getPositionHistory().locationAt(target, now - delay);
             float optimal = (float) Math.toDegrees(
                     Math.atan2(-(to.getX() - from.getX()), to.getZ() - from.getZ()));
             float fixedRot = ((event.getTo().getYaw() % 360) + 360) % 360;
