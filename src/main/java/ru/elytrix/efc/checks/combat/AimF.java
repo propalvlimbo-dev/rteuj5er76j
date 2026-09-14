@@ -20,14 +20,19 @@ import ru.elytrix.efc.util.DamageUtil;
  * Aim.F: прилипание к цели (порт Medusa AimAssistH).
  * Разница между взглядом и идеальным доводом на жертву, 20 замеров:
  * у лока среднее &lt;7° и разброс &lt;12° окно за окном. Только в бою + VL.
- * Позиция жертвы — из перемотки. Гейт 0.3° видит и медленный лок,
- * буфер асимметричный (+1/-0.5): лок копит, живая рука со срывами — нет.
+ * Замер — минимум по 3 точкам пути жертвы (±50 мс от перемотки):
+ * убирает ошибку перемотки, на которой джиттер-лок сидел ровно
+ * на планке. Гейт 0.3° видит медленный лок, буфер +1/-0.5.
  */
 public final class AimF extends Check {
 
     private static final class State {
         final List<Double> diffs = new ArrayList<>();
         double buffer;
+        double lastMean;
+        double lastStd;
+        int invalid;
+        int valid;
         UUID victim;
         long victimTime;
     }
@@ -41,6 +46,17 @@ public final class AimF extends Check {
     @Override
     public void onQuit(UUID uuid) {
         states.remove(uuid);
+    }
+
+    /** Живые внутренности для /efc debug: последнее окно и счёт. */
+    public String status(UUID uuid) {
+        State state = states.get(uuid);
+        if (state == null) {
+            return "нет данных";
+        }
+        return "mean=" + round1(state.lastMean) + " std=" + round1(state.lastStd)
+                + " buf=" + round1(state.buffer)
+                + " inv=" + state.invalid + " val=" + state.valid;
     }
 
     @EventHandler
@@ -64,15 +80,19 @@ public final class AimF extends Check {
         float deltaYaw = Math.abs(wrap(event.getTo().getYaw() - event.getFrom().getYaw()));
         if (deltaYaw > 0.3) {
             Location from = player.getLocation();
-            long delay = DamageUtil.rewindDelay(player, target);
-            Location to = plugin.getPositionHistory().locationAt(target, now - delay);
-            float optimal = (float) Math.toDegrees(
-                    Math.atan2(-(to.getX() - from.getX()), to.getZ() - from.getZ()));
-            float fixedRot = ((event.getTo().getYaw() % 360) + 360) % 360;
-            float fixedOpt = ((optimal % 360) + 360) % 360;
-            double diff = Math.abs(fixedRot - fixedOpt);
-            if (diff > 180) {
-                diff = 360 - diff;
+            long base = DamageUtil.rewindDelay(player, target);
+            double diff = Double.MAX_VALUE;
+            for (long shift : new long[] {50, 0, -50}) {
+                Location to = plugin.getPositionHistory().locationAt(target, now - base + shift);
+                float optimal = (float) Math.toDegrees(
+                        Math.atan2(-(to.getX() - from.getX()), to.getZ() - from.getZ()));
+                float fixedRot = ((event.getTo().getYaw() % 360) + 360) % 360;
+                float fixedOpt = ((optimal % 360) + 360) % 360;
+                double point = Math.abs(fixedRot - fixedOpt);
+                if (point > 180) {
+                    point = 360 - point;
+                }
+                diff = Math.min(diff, point);
             }
             state.diffs.add(diff);
         }
@@ -90,13 +110,17 @@ public final class AimF extends Check {
             variance /= state.diffs.size();
             double deviation = Math.sqrt(variance);
             state.diffs.clear();
+            state.lastMean = mean;
+            state.lastStd = deviation;
             if (mean < 7 && deviation < 12) {
+                state.invalid++;
                 state.buffer += 1;
                 if (state.buffer > 6) {
                     state.buffer = 0;
                     flag(plugin.getDataManager().get(player), "glue");
                 }
             } else {
+                state.valid++;
                 state.buffer = Math.max(0, state.buffer - 0.5);
             }
         }
@@ -114,6 +138,10 @@ public final class AimF extends Check {
             state.victim = victim.getUniqueId();
             state.victimTime = System.currentTimeMillis();
         }
+    }
+
+    private static double round1(double value) {
+        return Math.round(value * 10) / 10.0;
     }
 
     private static float wrap(float delta) {
