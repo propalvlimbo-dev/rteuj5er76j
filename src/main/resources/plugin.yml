@@ -1,0 +1,24 @@
+name: ElytrixFuckCheats
+version: 0.1.0-SNAPSHOT
+main: ru.elytrix.efc.ElytrixFuckCheats
+api-version: 1.16
+author: Elytrix
+description: Cyborg anticheat. Honest players never suffer.
+# PacketEvents 1.x обязателен со второго билда (пинг, версии клиентов, ротация).
+# Пока ядро работает и без него, но ставьте заранее.
+softdepend: [PacketEvents, ViaVersion]
+commands:
+  efc:
+    description: ElytrixFuckCheats control command
+    usage: /efc <alerts|verbose|info|exempt|reload|check>
+    permission: efc.alerts
+permissions:
+  efc.alerts:
+    description: Receive anticheat alerts
+    default: op
+  efc.admin:
+    description: Manage anticheat (reload, exempt, verbose)
+    default: op
+  efc.bypass:
+    description: Bypass all checks
+    default: false

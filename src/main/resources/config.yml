@@ -1,0 +1,45 @@
+# ElytrixFuckCheats — конфиг
+# Правило: любая новая проверка добавляется ВЫКЛЮЧЕННОЙ,
+# включается только после тестов на живых игроках.
+
+prefix: "&8[&cEFC&8]"
+
+alerts:
+  format: "%prefix% &c%player% &7флагнут &e%check% &7(VL: &c%vl%&7) &8%details%"
+  console: true
+
+# На сколько VL в секунду "отмывается" игрок.
+vl-decay-per-second: 1.0
+
+grace:
+  join-seconds: 5
+  teleport-seconds: 3
+
+# Ниже этого TPS проверки не работают — лаги сервера не вина игрока.
+min-tps: 18.5
+
+# Креатив и спектатор не проверяются.
+creative-bypass: true
+
+# Пауза между наказаниями одного игрока по одной проверке.
+punish-cooldown-seconds: 60
+
+# Проверки. add-vl — сколько VL даёт один флаг, max-vl — порог наказания.
+checks:
+  killaura-a:
+    enabled: false
+    add-vl: 1.0
+    max-vl: 20.0
+  reach-a:
+    enabled: false
+    add-vl: 1.0
+    max-vl: 25.0
+  autoclicker-a:
+    enabled: false
+    add-vl: 1.0
+    max-vl: 30.0
+
+punishments:
+  # Команды консоли. Плейсхолдеры: %player% %check% %vl%
+  default:
+    - "kick %player% Elytrix: читы запрещены (%check%)"
