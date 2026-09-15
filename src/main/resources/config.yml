@@ -28,21 +28,21 @@ punish-cooldown-seconds: 60
 checks:
   killaura-a:
     enabled: true
-    add-vl: 2.0
-    max-vl: 16.0
+    add-vl: 3.0
+    max-vl: 9.0
     snap-degrees: 200.0
     hit-window-ms: 120.0
   reach-a:
     enabled: true
-    add-vl: 1.0
-    max-vl: 25.0
+    add-vl: 2.0
+    max-vl: 12.0
     base: 3.0
     per-ms: 0.002
     cap: 3.6
   autoclicker-a:
     enabled: true
-    add-vl: 2.0
-    max-vl: 30.0
+    add-vl: 3.0
+    max-vl: 15.0
     max-cps: 20
     max-stddev-ms: 10.0
   fly-a:
@@ -59,7 +59,7 @@ checks:
   killaura-b:
     enabled: true
     add-vl: 2.0
-    max-vl: 16.0
+    max-vl: 8.0
   killaura-c:
     enabled: true
     add-vl: 1.0
@@ -82,7 +82,7 @@ checks:
   killaura-g:
     enabled: true
     add-vl: 1.0
-    max-vl: 10.0
+    max-vl: 6.0
     max-stddev-ms: 12.0
   reach-b:
     enabled: true
@@ -94,7 +94,7 @@ checks:
   autoclicker-b:
     enabled: true
     add-vl: 3.0
-    max-vl: 30.0
+    max-vl: 15.0
     blatant-cps: 30
   autoclicker-c:
     enabled: true
@@ -134,20 +134,20 @@ checks:
     max-vl: 10.0
   aim-f:
     enabled: true
-    add-vl: 2.0
+    add-vl: 3.0
     max-vl: 10.0
   accuracy-a:
     enabled: true
     add-vl: 1.0
-    max-vl: 20.0
+    max-vl: 5.0
   accuracy-b:
     enabled: true
     add-vl: 2.0
-    max-vl: 12.0
+    max-vl: 10.0
   accuracy-c:
     enabled: true
     add-vl: 1.0
-    max-vl: 15.0
+    max-vl: 5.0
   criticals-a:
     enabled: true
     add-vl: 1.0
@@ -166,6 +166,66 @@ checks:
     max-vl: 16.0
 
 punishments:
-  # Команды консоли. Плейсхолдеры: %player% %check% %vl%
+  # Легенда секретных кодов (только для админа, игрок видит лишь код):
+  # SNP снап KA.A, NSW взмахи KA.B, KC KA.C, MPT точки KA.D, KE KA.E,
+  # SYN синхронность KA.F, RTM ритм KA.G, RCH/RHB рич, CKA-D кликеры,
+  # AA/AB GCD, AIM мимо, PCH питч, AME Aim.E, GLU клей, PRA/B/C точность,
+  # CRT криты, VEL велосити, BOW лук, EAT еда, FLY флай, SPD спид.
   default:
-    - "kick %player% Elytrix: читы запрещены (%check%)"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-GEN]"
+  killaura-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-SNP]"
+  killaura-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-NSW]"
+  killaura-c:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-KC]"
+  killaura-d:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-MPT]"
+  killaura-e:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-KE]"
+  killaura-f:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-SYN]"
+  killaura-g:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-RTM]"
+  reach-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-RCH]"
+  reach-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-RHB]"
+  autoclicker-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-CKA]"
+  autoclicker-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-CKB]"
+  autoclicker-c:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-CKC]"
+  autoclicker-d:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-CKD]"
+  aim-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-AA]"
+  aim-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-AB]"
+  aim-c:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-AIM]"
+  aim-d:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-PCH]"
+  aim-e:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-AME]"
+  aim-f:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-GLU]"
+  accuracy-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-PRA]"
+  accuracy-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-PRB]"
+  accuracy-c:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-PRC]"
+  criticals-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-CRT]"
+  velocity-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-VEL]"
+  fastbow-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-BOW]"
+  fasteat-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-EAT]"
+  fly-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-FLY]"
+  speed-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-SPD]"
