@@ -17,15 +17,23 @@ import ru.elytrix.efc.check.Check;
 import ru.elytrix.efc.util.DamageUtil;
 
 /**
- * Aim.F: прилипание к цели (порт Medusa AimAssistH).
- * Разница между взглядом и идеальным доводом на жертву, 20 замеров:
- * у лока среднее &lt;5° и разброс &lt;9° окно за окном (хороший легит держит
- * 5–7°). Только в бою + VL, флаг с 8 плохих окон.
- * Замер — минимум по 3 точкам пути жертвы (±50 мс от перемотки):
- * убирает ошибку перемотки, на которой джиттер-лок сидел ровно
- * на планке. Гейт 0.3° видит медленный лок, буфер +1/-0.5.
+ * Aim.F v2: роботизированный лок (идея Medusa AimAssistH).
+ * v1 мерила «как близко прицел» — честный игрок в комбо тоже
+ * близко, разделить нельзя: и легита цепляло, и ботов пропускало.
+ * v2 мерит «как ровно держится»: у бота ошибка почти константа
+ * (разброс &lt;3° при любом среднем до 8°), у человека рука гуляет —
+ * микрокоррекции дают разброс 3–8° даже при точной наводке.
+ * Окно оценивается, только если жертва стрейфится (угол на неё
+ * проехал &gt;15° за окно): по идущему в лоб судить нельзя.
+ * Флаг — 6 плохих окон подряд. Только в бою.
  */
 public final class AimF extends Check {
+
+    private static final int WINDOW = 20;
+    private static final double MEAN_LIMIT = 8.0;
+    private static final double STD_LIMIT = 3.0;
+    private static final double TRAVEL_LIMIT = 15.0;
+    private static final double BUFFER_LIMIT = 6.0;
 
     private static final class State {
         final List<Double> diffs = new ArrayList<>();
@@ -36,6 +44,9 @@ public final class AimF extends Check {
         int valid;
         UUID victim;
         long victimTime;
+        double optTravel;
+        float lastOpt;
+        boolean hasOpt;
     }
 
     private final Map<UUID, State> states = new ConcurrentHashMap<>();
@@ -71,11 +82,15 @@ public final class AimF extends Check {
         if (now - plugin.getDataManager().get(player).getLastAttack() > 3000
                 || now - state.victimTime > 3000) {
             state.diffs.clear();
+            state.optTravel = 0;
+            state.hasOpt = false;
             return;
         }
         Player target = plugin.getServer().getPlayer(state.victim);
         if (target == null || !target.isOnline() || target.isDead()) {
             state.diffs.clear();
+            state.optTravel = 0;
+            state.hasOpt = false;
             return;
         }
         float deltaYaw = Math.abs(wrap(event.getTo().getYaw() - event.getFrom().getYaw()));
@@ -83,10 +98,14 @@ public final class AimF extends Check {
             Location from = player.getLocation();
             long base = DamageUtil.rewindDelay(player, target);
             double diff = Double.MAX_VALUE;
+            float optNow = 0;
             for (long shift : new long[] {50, 0, -50}) {
                 Location to = plugin.getPositionHistory().locationAt(target, now - base + shift);
                 float optimal = (float) Math.toDegrees(
                         Math.atan2(-(to.getX() - from.getX()), to.getZ() - from.getZ()));
+                if (shift == 0) {
+                    optNow = optimal;
+                }
                 float fixedRot = ((event.getTo().getYaw() % 360) + 360) % 360;
                 float fixedOpt = ((optimal % 360) + 360) % 360;
                 double point = Math.abs(fixedRot - fixedOpt);
@@ -95,9 +114,17 @@ public final class AimF extends Check {
                 }
                 diff = Math.min(diff, point);
             }
+            if (state.hasOpt) {
+                state.optTravel += Math.abs(wrap(optNow - state.lastOpt));
+            }
+            state.lastOpt = optNow;
+            state.hasOpt = true;
             state.diffs.add(diff);
         }
-        if (state.diffs.size() >= 20) {
+        if (state.diffs.size() >= WINDOW) {
+            double travel = state.optTravel;
+            state.optTravel = 0;
+            state.hasOpt = false;
             double mean = 0;
             for (double diff : state.diffs) {
                 mean += diff;
@@ -113,12 +140,19 @@ public final class AimF extends Check {
             state.diffs.clear();
             state.lastMean = mean;
             state.lastStd = deviation;
-            if (mean < 5 && deviation < 9) {
+            if (travel < TRAVEL_LIMIT) {
+                // Жертва не стрейфится — судить нечего, окно в утиль.
+                state.valid++;
+                state.buffer = Math.max(0, state.buffer - 0.5);
+                return;
+            }
+            if (mean < MEAN_LIMIT && deviation < STD_LIMIT) {
                 state.invalid++;
                 state.buffer += 1;
-                if (state.buffer > 8) {
+                if (state.buffer > BUFFER_LIMIT) {
                     state.buffer = 0;
-                    flag(plugin.getDataManager().get(player), "glue");
+                    flag(plugin.getDataManager().get(player),
+                            "lock mean=" + round1(mean) + " std=" + round1(deviation));
                 }
             } else {
                 state.valid++;
