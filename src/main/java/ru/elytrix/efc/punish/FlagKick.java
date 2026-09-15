@@ -46,6 +46,11 @@ public final class FlagKick {
         this.plugin = plugin;
     }
 
+    /** Accuracy A/B/C — один сигнал точности на разных окнах, а не три разных. */
+    private static String family(String id) {
+        return id.startsWith("Accuracy.") ? "Accuracy" : id;
+    }
+
     public void onFlag(Player player, Check check) {
         if (check.getCategory() != Category.COMBAT) {
             return;
@@ -69,7 +74,7 @@ public final class FlagKick {
             Set<String> distinct = new HashSet<>();
             int same = 0;
             for (Entry old : queue) {
-                distinct.add(old.check);
+                distinct.add(family(old.check));
                 if (old.check.equals(check.id())) {
                     same++;
                 }

@@ -15,7 +15,7 @@ import ru.elytrix.efc.util.DamageUtil;
 
 /**
  * Accuracy.C: быстрая точность (та же идея NESS KillauraHitMissRatio).
- * 20 взмахов, все в цель — первый ответ уже через ~15 сек боя.
+ * 40 взмахов, все в цель — первый ответ уже через ~15 сек боя.
  * Окно живёт 60 сек: рваное пвп (2 удара тут, 2 там) считается
  * взмахами, а не позицией, старые взмахи протухают.
  * Уверенность — только серией: 3 окна подряд = x5, 5 = x20 (кик).
@@ -73,7 +73,7 @@ public final class AccuracyC extends Check {
             state.windowStart = now;
         }
         state.swings++;
-        if (state.swings < 20) {
+        if (state.swings < 40) {
             return;
         }
         int swings = state.swings;
@@ -91,11 +91,11 @@ public final class AccuracyC extends Check {
             state.streak = 0;
         }
         state.lastEval = now;
-        if (moved <= 3.0 || victimMoved <= 2.0) {
+        if (moved <= 6.0 || victimMoved <= 4.0) {
             state.streak = 0;
             return;
         }
-        if (hits >= swings - 1) {
+        if (hits == swings) {
             streakFlag(player, state, hits + "/" + swings);
         } else {
             state.streak = 0;

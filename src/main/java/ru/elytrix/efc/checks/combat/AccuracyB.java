@@ -15,7 +15,7 @@ import ru.elytrix.efc.util.DamageUtil;
 
 /**
  * Accuracy.B: длинная точность (расширение идеи NESS KillauraHitMissRatio).
- * 90 взмахов, хит только по той же цели подряд, планка 88%.
+ * 120 взмахов, хит только по той же цели подряд, планка 95%.
  * Рабочая зона джиттер-аур (SpookyTime и ко): мажут чаще грубых,
  * но точнее любой живой руки на дистанции. Оба двигаются, только игроки.
  * Уверенность — только серией: 3 окна подряд = x5, 5 = x20 (кик).
@@ -61,7 +61,7 @@ public final class AccuracyB extends Check {
         Player player = event.getPlayer();
         State state = states.computeIfAbsent(player.getUniqueId(), key -> new State());
         state.swings++;
-        if (state.swings < 90) {
+        if (state.swings < 120) {
             return;
         }
         long now = System.currentTimeMillis();
@@ -80,12 +80,12 @@ public final class AccuracyB extends Check {
             state.streak = 0;
         }
         state.lastEval = now;
-        if (moved <= 4.0 || victimMoved <= 2.5) {
+        if (moved <= 8.0 || victimMoved <= 5.0) {
             state.streak = 0;
             return;
         }
         double ratio = (double) hits / swings;
-        if (ratio >= 0.88 && ratio <= 1.0) {
+        if (ratio >= 0.95 && ratio <= 1.0) {
             streakFlag(player, state, Math.round(ratio * 100) + "% " + swings);
         } else {
             state.streak = 0;
