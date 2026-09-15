@@ -24,7 +24,12 @@ public final class PacketType {
             PLAYER_DIGGING,
             ENTITY_ACTION,
             PLAYER_BLOCK_PLACEMENT,
-            USE_ITEM
+            USE_ITEM,
+            CREATIVE_INVENTORY_ACTION,
+            CLIENT_SETTINGS,
+            CLICK_WINDOW,
+            TAB_COMPLETE,
+            NAME_ITEM
         }
     }
 }

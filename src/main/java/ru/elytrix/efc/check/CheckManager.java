@@ -32,6 +32,14 @@ import ru.elytrix.efc.checks.combat.KillAuraG;
 import ru.elytrix.efc.checks.combat.ReachA;
 import ru.elytrix.efc.checks.combat.ReachB;
 import ru.elytrix.efc.checks.combat.VelocityA;
+import ru.elytrix.efc.checks.exploit.CrashA;
+import ru.elytrix.efc.checks.exploit.CrashB;
+import ru.elytrix.efc.checks.exploit.CrashC;
+import ru.elytrix.efc.checks.exploit.CrashD;
+import ru.elytrix.efc.checks.exploit.CrashE;
+import ru.elytrix.efc.checks.exploit.CrashF;
+import ru.elytrix.efc.checks.exploit.CrashH;
+import ru.elytrix.efc.checks.exploit.ExploitA;
 import ru.elytrix.efc.checks.movement.FlyA;
 import ru.elytrix.efc.checks.movement.FlyB;
 import ru.elytrix.efc.checks.movement.GroundSpoofA;
@@ -41,17 +49,25 @@ import ru.elytrix.efc.checks.movement.NoSlowA;
 import ru.elytrix.efc.checks.movement.PhaseA;
 import ru.elytrix.efc.checks.movement.SpeedA;
 import ru.elytrix.efc.checks.movement.SpeedB;
+import ru.elytrix.efc.checks.movement.SprintA;
+import ru.elytrix.efc.checks.movement.SprintC;
+import ru.elytrix.efc.checks.movement.SprintD;
 import ru.elytrix.efc.checks.movement.StepA;
 import ru.elytrix.efc.checks.movement.TimerA;
+import ru.elytrix.efc.checks.movement.TimerB;
+import ru.elytrix.efc.checks.movement.TimerC;
 import ru.elytrix.efc.checks.world.FarBreakA;
 import ru.elytrix.efc.checks.world.FarPlaceA;
 import ru.elytrix.efc.checks.world.FastBreakA;
+import ru.elytrix.efc.checks.world.FastBreakB;
 import ru.elytrix.efc.checks.world.InvalidPlaceA;
+import ru.elytrix.efc.checks.world.NoSwingBreak;
 import ru.elytrix.efc.checks.world.NukerA;
 import ru.elytrix.efc.checks.world.PositionPlaceA;
 import ru.elytrix.efc.checks.world.RotationBreakA;
 import ru.elytrix.efc.checks.world.RotationPlaceA;
 import ru.elytrix.efc.checks.world.ScaffoldA;
+import ru.elytrix.efc.checks.world.ScaffoldB;
 
 /**
  * Реестр проверок. Каждая проверка сама слушает Bukkit-события.
@@ -114,6 +130,22 @@ public final class CheckManager {
         register(new PhaseA(plugin));
         register(new GroundSpoofA(plugin));
         register(new FastBreakA(plugin));
+        register(new TimerB(plugin));
+        register(new TimerC(plugin));
+        register(new SprintA(plugin));
+        register(new SprintC(plugin));
+        register(new SprintD(plugin));
+        register(new CrashA(plugin));
+        register(new CrashB(plugin));
+        register(new CrashC(plugin));
+        register(new CrashD(plugin));
+        register(new CrashE(plugin));
+        register(new CrashF(plugin));
+        register(new CrashH(plugin));
+        register(new ExploitA(plugin));
+        register(new FastBreakB(plugin));
+        register(new NoSwingBreak(plugin));
+        register(new ScaffoldB(plugin));
     }
 
     public void register(Check check) {

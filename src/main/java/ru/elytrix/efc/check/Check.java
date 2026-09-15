@@ -88,6 +88,14 @@ public abstract class Check implements Listener {
         data.addVl(id(), -Math.abs(amount));
     }
 
+    /**
+     * Нарушение из netty-потока. PacketManager вызывает в главном потоке.
+     * По умолчанию — обычный флаг; проверки с контекстом переопределяют.
+     */
+    public void onPacketViolation(PlayerData data, String details) {
+        flag(data, details);
+    }
+
     /** Вызывается при выходе игрока — почистить своё состояние. */
     public void onQuit(UUID uuid) {
     }

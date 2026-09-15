@@ -12,4 +12,11 @@ public class PacketReceiveEvent {
     public PacketTypeCommon getPacketType() {
         return null;
     }
+
+    public void setCancelled(boolean cancelled) {
+    }
+
+    public boolean isCancelled() {
+        return false;
+    }
 }

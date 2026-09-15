@@ -16,6 +16,8 @@ public final class PacketData {
     volatile double lastZ;
     volatile float lastYaw;
     volatile float lastPitch;
+    volatile float prevYaw;
+    volatile float prevPitch;
     volatile boolean lastGround;
     volatile long lastFlyingMs;
     volatile long lastAttackMs;
@@ -31,6 +33,8 @@ public final class PacketData {
             lastZ = z;
         }
         if (rotating) {
+            prevYaw = lastYaw;
+            prevPitch = lastPitch;
             lastYaw = yaw;
             lastPitch = pitch;
         }
@@ -70,6 +74,14 @@ public final class PacketData {
 
     public float getLastPitch() {
         return lastPitch;
+    }
+
+    public float getPrevYaw() {
+        return prevYaw;
+    }
+
+    public float getPrevPitch() {
+        return prevPitch;
     }
 
     public long getLastFlyingMs() {

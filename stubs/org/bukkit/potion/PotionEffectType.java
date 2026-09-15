@@ -6,6 +6,7 @@ public class PotionEffectType {
     public static final PotionEffectType JUMP = new PotionEffectType();
     public static final PotionEffectType LEVITATION = new PotionEffectType();
     public static final PotionEffectType SLOW_FALLING = new PotionEffectType();
+    public static final PotionEffectType BLINDNESS = new PotionEffectType();
 
     public PotionEffectType() {
     }

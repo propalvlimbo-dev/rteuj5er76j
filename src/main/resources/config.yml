@@ -240,6 +240,70 @@ checks:
     enabled: true
     add-vl: 3.0
     max-vl: 9.0
+  timer-b:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  timer-c:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  sprint-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  sprint-c:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  sprint-d:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 9.0
+  crash-a:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 6.0
+  crash-b:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 6.0
+  crash-c:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 6.0
+  crash-d:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 6.0
+  crash-e:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 6.0
+  crash-f:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 6.0
+  crash-h:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 6.0
+  exploit-a:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 6.0
+  fastbreak-b:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  noswingbreak-a:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 9.0
+  scaffold-b:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 9.0
 
 punishments:
   # Легенда кодов (только админ; игрок видит лишь код):
@@ -253,6 +317,8 @@ punishments:
   # X4S9PDB спид кинематика, F7L2YBX флай, N3F8LLB нофолл.
   # Q8N4KRA нукер, W5S7CFD скаффолд, E2F9BRK/R6F3PLC дальность, T4R8BRB/Y1R5PLR взгляд, U7I2PLN воздух, I3P6PSN грань.
   # N7S2LOW нослоу, J4E9SUS джизус, S6T3TEP степ, P8H4HAS фаза, G3R7SPF граундспуф, F5B1RKZ фастбрейк.
+  # T9B2MRT/T4C7MRT таймер, S8P1RNT/S3C6RNT/S5D9RNT спринт, C1A4RSH-C7H7RSH крашеры, E8X2PLT наковальня,
+  # F9B4RKX задержка копания, N1S6WNG взмах, S2B8CFD повтор поворота.
   default:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [KQ8D2MN]"
   killaura-a:
@@ -349,3 +415,35 @@ punishments:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [G3R7SPF]"
   fastbreak-a:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [F5B1RKZ]"
+  timer-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [T9B2MRT]"
+  timer-c:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [T4C7MRT]"
+  sprint-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [S8P1RNT]"
+  sprint-c:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [S3C6RNT]"
+  sprint-d:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [S5D9RNT]"
+  crash-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [C1A4RSH]"
+  crash-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [C2B6RSH]"
+  crash-c:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [C3C8RSH]"
+  crash-d:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [C4D1RSH]"
+  crash-e:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [C5E3RSH]"
+  crash-f:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [C6F5RSH]"
+  crash-h:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [C7H7RSH]"
+  exploit-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [E8X2PLT]"
+  fastbreak-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [F9B4RKX]"
+  noswingbreak-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [N1S6WNG]"
+  scaffold-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [S2B8CFD]"

@@ -42,4 +42,8 @@ public interface Player extends CommandSender, LivingEntity {
     boolean isSneaking();
 
     boolean isBlocking();
+
+    int getFoodLevel();
+
+    boolean isOp();
 }

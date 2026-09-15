@@ -80,6 +80,26 @@ public final class PacketManager {
         plugin.getDebugCounters().recordPacketSwing(uuid);
     }
 
+    /**
+     * Netty-поток: нарушение пакетной проверки. Сам флаг — в главном потоке
+     * через шедулер, exemptions внутри Check.flag работают как обычно.
+     */
+    public void reportViolation(UUID uuid, String checkId, String details) {
+        try {
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                try {
+                    Check check = plugin.getCheckManager().get(checkId);
+                    PlayerData data = plugin.getDataManager().get(uuid);
+                    if (check != null && data != null && data.getPlayer() != null) {
+                        check.onPacketViolation(data, details);
+                    }
+                } catch (Throwable ignored) {
+                }
+            });
+        } catch (Throwable ignored) {
+        }
+    }
+
     /** Главный поток, раз в секунду: точный Timer по счёту Flying. */
     private void evaluate() {
         long now = System.currentTimeMillis();
