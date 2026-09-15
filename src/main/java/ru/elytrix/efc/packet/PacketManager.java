@@ -28,7 +28,7 @@ public final class PacketManager {
 
     public void init() {
         try {
-            Class.forName("io.github.retrooper.packetevents.PacketEvents");
+            Class.forName("com.github.retrooper.packetevents.PacketEvents");
         } catch (Throwable missing) {
             plugin.getLogger().info("PacketEvents not found, packet layer disabled.");
             return;

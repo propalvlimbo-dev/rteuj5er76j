@@ -24,7 +24,7 @@ rm -rf "$CLASSES" && mkdir -p "$CLASSES"
   $(find "$ROOT/stubs" "$ROOT/stubs-pe" "$ROOT/src/main/java" -name '*.java')
 
 # Стабы в jar не кладём — на сервере их дают ShieldSpigot и PacketEvents.
-rm -rf "$CLASSES/org" "$CLASSES/io"
+rm -rf "$CLASSES/org" "$CLASSES/io" "$CLASSES/com"
 cp "$ROOT/src/main/resources/plugin.yml" "$ROOT/src/main/resources/config.yml" "$CLASSES/"
 
 echo "[local-build] packing jar..."

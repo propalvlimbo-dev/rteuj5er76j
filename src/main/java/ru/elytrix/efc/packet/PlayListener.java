@@ -1,16 +1,16 @@
 package ru.elytrix.efc.packet;
 
-import io.github.retrooper.packetevents.event.PacketListenerAbstract;
-import io.github.retrooper.packetevents.event.impl.PacketPlayReceiveEvent;
-import io.github.retrooper.packetevents.packettype.PacketType;
-import io.github.retrooper.packetevents.packetwrappers.play.in.flying.WrappedPacketInFlying;
-import io.github.retrooper.packetevents.packetwrappers.play.in.useentity.WrappedPacketInUseEntity;
-import io.github.retrooper.packetevents.packetwrappers.play.in.useentity.WrappedPacketInUseEntity.EntityUseAction;
-import io.github.retrooper.packetevents.utils.vector.Vector3d;
+import com.github.retrooper.packetevents.event.PacketListenerAbstract;
+import com.github.retrooper.packetevents.event.PacketReceiveEvent;
+import com.github.retrooper.packetevents.protocol.packettype.PacketType;
+import com.github.retrooper.packetevents.protocol.world.Location;
+import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientInteractEntity;
+import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientInteractEntity.InteractAction;
+import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientPlayerFlying;
 import org.bukkit.entity.Player;
 
 /**
- * Слушатель входящих пакетов (API packetevents 1.8.x).
+ * Слушатель входящих пакетов (API packetevents 2.x).
  * Только записывает: Flying-поток, атаки, взмахи. Всё в try/catch —
  * netty-поток умирать не должен. Флаги — только из главного потока.
  */
@@ -23,28 +23,35 @@ public final class PlayListener extends PacketListenerAbstract {
     }
 
     @Override
-    public void onPacketPlayReceive(PacketPlayReceiveEvent event) {
+    public void onPacketReceive(PacketReceiveEvent event) {
         try {
-            Player player = event.getPlayer();
-            if (player == null) {
-                return;
-            }
-            byte id = event.getPacketId();
-            if (id == PacketType.Play.Client.POSITION
-                    || id == PacketType.Play.Client.POSITION_LOOK
-                    || id == PacketType.Play.Client.LOOK
-                    || id == PacketType.Play.Client.FLYING) {
-                WrappedPacketInFlying flying = new WrappedPacketInFlying(event.getNMSPacket());
-                Vector3d position = flying.getPosition();
-                manager.flying(player, position.x, position.y, position.z,
-                        flying.getYaw(), flying.getPitch(), flying.isOnGround(),
-                        flying.isMoving(), flying.isRotating());
-            } else if (id == PacketType.Play.Client.USE_ENTITY) {
-                WrappedPacketInUseEntity use = new WrappedPacketInUseEntity(event.getNMSPacket());
-                if (use.getAction() == EntityUseAction.ATTACK) {
+            if (event.getPacketType() == PacketType.Play.Client.PLAYER_FLYING
+                    || event.getPacketType() == PacketType.Play.Client.PLAYER_POSITION
+                    || event.getPacketType() == PacketType.Play.Client.PLAYER_ROTATION
+                    || event.getPacketType() == PacketType.Play.Client.PLAYER_POSITION_AND_ROTATION) {
+                Player player = event.getPlayer();
+                if (player == null) {
+                    return;
+                }
+                WrapperPlayClientPlayerFlying flying = new WrapperPlayClientPlayerFlying(event);
+                Location location = flying.getLocation();
+                manager.flying(player, location.getX(), location.getY(), location.getZ(),
+                        location.getYaw(), location.getPitch(), flying.isOnGround(),
+                        flying.hasPositionChanged(), flying.hasRotationChanged());
+            } else if (event.getPacketType() == PacketType.Play.Client.INTERACT_ENTITY) {
+                Player player = event.getPlayer();
+                if (player == null) {
+                    return;
+                }
+                WrapperPlayClientInteractEntity use = new WrapperPlayClientInteractEntity(event);
+                if (use.getAction() == InteractAction.ATTACK) {
                     manager.attack(player, use.getEntityId());
                 }
-            } else if (id == PacketType.Play.Client.ARM_ANIMATION) {
+            } else if (event.getPacketType() == PacketType.Play.Client.ANIMATION) {
+                Player player = event.getPlayer();
+                if (player == null) {
+                    return;
+                }
                 manager.swing(player);
             }
         } catch (Throwable ignored) {
