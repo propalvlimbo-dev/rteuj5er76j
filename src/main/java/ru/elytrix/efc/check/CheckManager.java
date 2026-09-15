@@ -33,7 +33,10 @@ import ru.elytrix.efc.checks.combat.ReachA;
 import ru.elytrix.efc.checks.combat.ReachB;
 import ru.elytrix.efc.checks.combat.VelocityA;
 import ru.elytrix.efc.checks.movement.FlyA;
+import ru.elytrix.efc.checks.movement.FlyB;
+import ru.elytrix.efc.checks.movement.NoFallB;
 import ru.elytrix.efc.checks.movement.SpeedA;
+import ru.elytrix.efc.checks.movement.SpeedB;
 import ru.elytrix.efc.checks.movement.TimerA;
 
 /**
@@ -80,6 +83,9 @@ public final class CheckManager {
         register(new FlyA(plugin));
         register(new SpeedA(plugin));
         register(new TimerA(plugin));
+        register(new SpeedB(plugin));
+        register(new FlyB(plugin));
+        register(new NoFallB(plugin));
     }
 
     public void register(Check check) {

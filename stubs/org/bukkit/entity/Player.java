@@ -34,4 +34,8 @@ public interface Player extends CommandSender, LivingEntity {
     Location getLocation();
 
     Collection<PotionEffect> getActivePotionEffects();
+
+    int getNoDamageTicks();
+
+    boolean isRiptiding();
 }

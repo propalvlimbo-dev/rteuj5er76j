@@ -172,6 +172,18 @@ checks:
     enabled: true
     add-vl: 2.0
     max-vl: 8.0
+  speed-b:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 12.0
+  fly-b:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  nofall-b:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
 
 punishments:
   # Легенда кодов (только админ; игрок видит лишь код):
@@ -182,6 +194,7 @@ punishments:
   # N8C5JZP/V4V1RKD/G9P6MXS точность, C7T2AHW криты, X5Y8NQF велосити,
   # J3K4DVB лук, M1Z6SGH еда, W2A9KXC флай, H4E7PWN спид.
   # Q4H7BXM хитбокс, K2T6MRN таймер.
+  # X4S9PDB спид кинематика, F7L2YBX флай, N3F8LLB нофолл.
   default:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [KQ8D2MN]"
   killaura-a:
@@ -244,3 +257,9 @@ punishments:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [Q4H7BXM]"
   timer-a:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [K2T6MRN]"
+  speed-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [X4S9PDB]"
+  fly-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [F7L2YBX]"
+  nofall-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [N3F8LLB]"

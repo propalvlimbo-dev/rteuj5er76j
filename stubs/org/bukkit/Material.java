@@ -12,7 +12,14 @@ public enum Material {
     WATER,
     LAVA,
     COBWEB,
-    BOW;
+    BOW,
+    ICE,
+    PACKED_ICE,
+    BLUE_ICE,
+    SLIME_BLOCK,
+    SOUL_SAND,
+    SOUL_SOIL,
+    HONEY_BLOCK;
 
     public boolean isEdible() {
         return false;
