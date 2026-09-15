@@ -7,6 +7,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.entity.DamageCause;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import ru.elytrix.efc.packet.PacketManager;
 
 /**
  * Доступ к методам damage-событий через рефлексию + пинг + лимиты рича.
@@ -23,8 +24,14 @@ public final class DamageUtil {
 
     private static Method pingMethod;
     private static Class<?> pingClass;
+    private static volatile PacketManager packetManager;
 
     private DamageUtil() {
+    }
+
+    /** Пакетный слой ставит себя сюда, если PacketEvents на сервере. */
+    public static void setPacketManager(PacketManager manager) {
+        packetManager = manager;
     }
 
     private static Method find(Class<?> owner, String name) {
@@ -115,8 +122,18 @@ public final class DamageUtil {
         return damager instanceof Player ? (Player) damager : null;
     }
 
-    /** Пинг через CraftPlayer.getPing (в API 1.16 его нет, дёргаем рефлексией). */
+    /**
+     * Пинг: сначала точный от PacketEvents (если слой активен),
+     * иначе CraftPlayer.getPing рефлексией (в API 1.16 его нет).
+     */
     public static int pingOf(Player player) {
+        PacketManager packets = packetManager;
+        if (packets != null && packets.isAvailable()) {
+            int pePing = packets.ping(player);
+            if (pePing >= 0) {
+                return Math.min(2000, pePing);
+            }
+        }
         try {
             if (pingMethod == null || pingClass != player.getClass()) {
                 pingClass = player.getClass();

@@ -5,16 +5,19 @@ import java.util.Deque;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.player.PlayerMoveEvent;
 import ru.elytrix.efc.ElytrixFuckCheats;
 import ru.elytrix.efc.check.Category;
 import ru.elytrix.efc.check.Check;
+import ru.elytrix.efc.data.PlayerData;
 
 /**
  * Timer.A: больше 20 движений в секунду (спидер пакетов).
- * Легитный клиент шлёт максимум 1 движение в тик = 20/с; планка 60/2с
- * ловит таймер от x1.5. Лаги сервера дают меньше событий, не больше.
+ * С пакетным слоем считает точные Flying (флаг при &gt;25/с),
+ * без него — события движения (флаг при &gt;60/2с). Лаги сервера
+ * дают меньше событий, не больше, — ложным взяться неоткуда.
  */
 public final class TimerA extends Check {
 
@@ -33,8 +36,21 @@ public final class TimerA extends Check {
         states.remove(uuid);
     }
 
+    /** Флаг из пакетного слоя (точный счёт Flying). */
+    public void packetFlag(UUID uuid, String details) {
+        PlayerData data = plugin.getDataManager().get(uuid);
+        Player player = data.getPlayer();
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+        flag(data, details);
+    }
+
     @EventHandler
     public void onMove(PlayerMoveEvent event) {
+        if (plugin.getPacketManager().isAvailable()) {
+            return;
+        }
         State state = states.computeIfAbsent(
                 event.getPlayer().getUniqueId(), key -> new State());
         long now = System.currentTimeMillis();

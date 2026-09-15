@@ -17,12 +17,13 @@ import ru.elytrix.efc.util.DamageUtil;
 
 /**
  * Счётчики событий для /efc debug: показывают, какие сигналы вообще
- * долетают от игрока (движение, удары, взмахи, клики). Ответ на вопрос
- * «форк ест события или аура сайлентная». Почти бесплатные.
+ * долетают от игрока (движение, удары, взмахи, клики + пакетные
+ * взмахи/удары, если активен пакетный слой). Почти бесплатные.
  */
 public final class DebugCounters implements Listener {
 
-    // 0 — движение, 1 — удары, 2 — взмахи, 3 — клики в воздух.
+    // 0 — движение, 1 — удары, 2 — взмахи, 3 — клики в воздух,
+    // 4 — пакетные взмахи, 5 — пакетные удары.
     private final Map<UUID, long[]> counts = new ConcurrentHashMap<>();
 
     public DebugCounters(ElytrixFuckCheats plugin) {
@@ -58,8 +59,18 @@ public final class DebugCounters implements Listener {
         counts.remove(event.getPlayer().getUniqueId());
     }
 
+    /** Netty-поток: пакет взмаха. */
+    public void recordPacketSwing(UUID uuid) {
+        bump(uuid, 4);
+    }
+
+    /** Netty-поток: пакет атаки. */
+    public void recordPacketAttack(UUID uuid) {
+        bump(uuid, 5);
+    }
+
     private void bump(UUID uuid, int index) {
-        counts.computeIfAbsent(uuid, key -> new long[4])[index]++;
+        counts.computeIfAbsent(uuid, key -> new long[6])[index]++;
     }
 
     /** Сводка по игроку со сбросом (дельта между запросами). */
@@ -68,7 +79,11 @@ public final class DebugCounters implements Listener {
         if (counters == null) {
             return "нет данных (игрок неактивен)";
         }
-        return "движ=" + counters[0] + " удары=" + counters[1]
+        String report = "движ=" + counters[0] + " удары=" + counters[1]
                 + " взмахи=" + counters[2] + " клики=" + counters[3];
+        if (counters[4] + counters[5] > 0) {
+            report += " пвзмахи=" + counters[4] + " пудары=" + counters[5];
+        }
+        return report;
     }
 }

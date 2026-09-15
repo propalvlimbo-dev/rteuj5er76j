@@ -10,6 +10,7 @@ import ru.elytrix.efc.data.DataManager;
 import ru.elytrix.efc.data.DebugCounters;
 import ru.elytrix.efc.data.PositionHistory;
 import ru.elytrix.efc.exempt.ExemptionManager;
+import ru.elytrix.efc.packet.PacketManager;
 import ru.elytrix.efc.punish.FlagKick;
 import ru.elytrix.efc.punish.PunishmentManager;
 
@@ -28,6 +29,7 @@ public final class ElytrixFuckCheats extends JavaPlugin {
     private CheckManager checkManager;
     private PositionHistory positionHistory;
     private DebugCounters debugCounters;
+    private PacketManager packetManager;
 
     @Override
     public void onEnable() {
@@ -42,6 +44,8 @@ public final class ElytrixFuckCheats extends JavaPlugin {
         this.checkManager = new CheckManager(this);
         this.positionHistory = new PositionHistory(this);
         this.debugCounters = new DebugCounters(this);
+        this.packetManager = new PacketManager(this);
+        this.packetManager.init();
 
         getServer().getPluginManager().registerEvents(dataManager, this);
         getServer().getPluginManager().registerEvents(exemptionManager, this);
@@ -98,5 +102,9 @@ public final class ElytrixFuckCheats extends JavaPlugin {
 
     public DebugCounters getDebugCounters() {
         return debugCounters;
+    }
+
+    public PacketManager getPacketManager() {
+        return packetManager;
     }
 }
