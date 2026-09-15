@@ -17,4 +17,7 @@ public class BlockDamageEvent extends Event {
     public boolean getInstaBreak() {
         return false;
     }
+
+    public void setCancelled(boolean cancel) {
+    }
 }

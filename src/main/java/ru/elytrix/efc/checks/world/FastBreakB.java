@@ -61,6 +61,7 @@ public final class FastBreakB extends Check {
             }
             delayBalance.put(id, bal);
             if (bal > 1000) {
+                event.setCancelled(true);
                 flag(plugin.getDataManager().get(player), "delay=" + delay + "ms");
             }
         }

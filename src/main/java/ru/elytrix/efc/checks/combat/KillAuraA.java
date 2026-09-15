@@ -71,6 +71,10 @@ public final class KillAuraA extends Check {
         }
         if (System.currentTimeMillis() - state.lastSnap < cfg("hit-window-ms", 120)) {
             flag(plugin.getDataManager().get(attacker), "snap");
+            try {
+                event.setCancelled(true);
+            } catch (Throwable ignored) {
+            }
         }
     }
 }

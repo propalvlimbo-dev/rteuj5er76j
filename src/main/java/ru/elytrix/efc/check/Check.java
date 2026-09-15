@@ -80,6 +80,13 @@ public abstract class Check implements Listener {
         plugin.getAlertManager().alert(data, this, details, vl);
         plugin.getPunishmentManager().onFlag(data, this, vl);
         plugin.getFlagKick().onFlag(player, this);
+        if (category == Category.MOVEMENT) {
+            // Grim-сетбэк: читер резинится на точку вместо свободного движения.
+            try {
+                plugin.getSetbackManager().setback(player);
+            } catch (Throwable ignored) {
+            }
+        }
         return vl;
     }
 

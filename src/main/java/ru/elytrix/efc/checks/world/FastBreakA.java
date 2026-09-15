@@ -61,6 +61,7 @@ public final class FastBreakA extends Check {
         if (positions != null && positions.containsKey(key(block))) {
             return;
         }
+        event.setCancelled(true);
         flag(plugin.getDataManager().get(player), "no-dig break");
     }
 

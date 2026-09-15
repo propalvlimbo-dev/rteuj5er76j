@@ -46,4 +46,6 @@ public interface Player extends CommandSender, LivingEntity {
     int getFoodLevel();
 
     boolean isOp();
+
+    boolean teleport(Location location);
 }

@@ -13,6 +13,7 @@ import ru.elytrix.efc.exempt.ExemptionManager;
 import ru.elytrix.efc.packet.PacketManager;
 import ru.elytrix.efc.punish.FlagKick;
 import ru.elytrix.efc.punish.PunishmentManager;
+import ru.elytrix.efc.punish.SetbackManager;
 
 /**
  * ElytrixFuckCheats — киборг-античит.
@@ -26,6 +27,7 @@ public final class ElytrixFuckCheats extends JavaPlugin {
     private AlertManager alertManager;
     private PunishmentManager punishmentManager;
     private FlagKick flagKick;
+    private SetbackManager setbackManager;
     private CheckManager checkManager;
     private PositionHistory positionHistory;
     private DebugCounters debugCounters;
@@ -41,6 +43,7 @@ public final class ElytrixFuckCheats extends JavaPlugin {
         this.alertManager = new AlertManager(this);
         this.punishmentManager = new PunishmentManager(this);
         this.flagKick = new FlagKick(this);
+        this.setbackManager = new SetbackManager(this);
         this.checkManager = new CheckManager(this);
         this.positionHistory = new PositionHistory(this);
         this.debugCounters = new DebugCounters(this);
@@ -53,6 +56,7 @@ public final class ElytrixFuckCheats extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new CombatTracker(this), this);
         getServer().getPluginManager().registerEvents(positionHistory, this);
         getServer().getPluginManager().registerEvents(debugCounters, this);
+        getServer().getPluginManager().registerEvents(setbackManager, this);
 
         EfcCommand command = new EfcCommand(this);
         getCommand("efc").setExecutor(command);
@@ -90,6 +94,10 @@ public final class ElytrixFuckCheats extends JavaPlugin {
 
     public FlagKick getFlagKick() {
         return flagKick;
+    }
+
+    public SetbackManager getSetbackManager() {
+        return setbackManager;
     }
 
     public CheckManager getCheckManager() {

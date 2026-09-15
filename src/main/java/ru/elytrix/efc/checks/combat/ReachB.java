@@ -68,6 +68,10 @@ public final class ReachB extends Check {
                 cfg("base", 3.0), cfg("per-ms", 0.002), cfg("cap", 3.5));
         if (average > max) {
             flag(plugin.getDataManager().get(attacker), "avg " + String.format("%.2f", average));
+            try {
+                event.setCancelled(true);
+            } catch (Throwable ignored) {
+            }
         }
     }
 }

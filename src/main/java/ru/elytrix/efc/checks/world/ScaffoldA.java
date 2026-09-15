@@ -46,6 +46,7 @@ public final class ScaffoldA extends Check {
         if (times.size() >= 4) {
             long span = now - times.peekFirst();
             times.clear();
+            event.setCancelled(true);
             flag(plugin.getDataManager().get(player), "4 places in " + span + "ms");
         }
     }

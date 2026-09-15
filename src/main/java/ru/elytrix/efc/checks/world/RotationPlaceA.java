@@ -68,6 +68,7 @@ public final class RotationPlaceA extends Check {
                 return;
             }
         }
+        event.setCancelled(true);
         flag(plugin.getDataManager().get(player), "no-look place");
     }
 }

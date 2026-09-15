@@ -62,6 +62,7 @@ public final class ScaffoldB extends Check {
             dups.put(id, count);
             if (count >= 2) {
                 dups.remove(id);
+                event.setCancelled(true);
                 flag(plugin.getDataManager().get(player), "dup-rot");
             }
             return;

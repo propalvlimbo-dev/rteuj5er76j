@@ -46,6 +46,7 @@ public final class NoSwingBreak extends Check {
         }
         long swing = swings.getOrDefault(player.getUniqueId(), 0L);
         if (System.currentTimeMillis() - swing > 150) {
+            event.setCancelled(true);
             flag(plugin.getDataManager().get(player), "no-swing dig");
         }
     }

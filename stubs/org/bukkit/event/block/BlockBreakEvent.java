@@ -13,4 +13,7 @@ public class BlockBreakEvent extends Event {
     public Block getBlock() {
         return null;
     }
+
+    public void setCancelled(boolean cancel) {
+    }
 }

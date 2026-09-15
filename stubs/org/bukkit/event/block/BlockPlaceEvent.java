@@ -26,4 +26,7 @@ public class BlockPlaceEvent extends Event {
     public BlockFace getBlockFace() {
         return null;
     }
+
+    public void setCancelled(boolean cancel) {
+    }
 }

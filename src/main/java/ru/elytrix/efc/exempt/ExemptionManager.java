@@ -99,7 +99,14 @@ public final class ExemptionManager implements Listener {
 
     @EventHandler
     public void onTeleport(PlayerTeleportEvent event) {
-        lastTeleport.put(event.getPlayer().getUniqueId(), System.currentTimeMillis());
+        UUID uuid = event.getPlayer().getUniqueId();
+        try {
+            if (plugin.getSetbackManager().consumeOwnTeleport(uuid)) {
+                return;
+            }
+        } catch (Throwable ignored) {
+        }
+        lastTeleport.put(uuid, System.currentTimeMillis());
     }
 
     @EventHandler

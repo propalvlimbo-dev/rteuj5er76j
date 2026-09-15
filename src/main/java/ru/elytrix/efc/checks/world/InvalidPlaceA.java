@@ -45,6 +45,7 @@ public final class InvalidPlaceA extends Check {
         if (MovementUtil.cantCheck(player)) {
             return;
         }
+        event.setCancelled(true);
         flag(plugin.getDataManager().get(player), "against=air");
     }
 }

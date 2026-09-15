@@ -38,6 +38,7 @@ public final class FarBreakA extends Check {
             return;
         }
         if (dist > 6.0) {
+            event.setCancelled(true);
             flag(plugin.getDataManager().get(player), String.format("dist=%.2f", dist));
         }
     }

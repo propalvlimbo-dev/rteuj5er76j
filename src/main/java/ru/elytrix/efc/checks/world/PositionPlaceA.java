@@ -53,6 +53,7 @@ public final class PositionPlaceA extends Check {
             return;
         }
         if (!BlockUtil.faceReachable(feet, against, face, 0.25)) {
+            event.setCancelled(true);
             flag(plugin.getDataManager().get(player), "face=" + face);
         }
     }
