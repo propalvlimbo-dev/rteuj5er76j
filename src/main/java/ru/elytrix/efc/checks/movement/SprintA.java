@@ -12,17 +12,23 @@ import ru.elytrix.efc.check.Category;
 import ru.elytrix.efc.check.Check;
 
 /**
- * Sprint.A: невозможные состояния спринта (набор NCP/Grim).
+ * Sprint.A v2: невозможные состояния спринта (набор NCP/Grim).
  * Ванилла запрещает спринтовать: присев, с поднятым щитом,
  * с натянутым луком/едой в руках, с голодом 6 и ниже.
  * Читы KeepSprint/OmniSprint/NoSlow эти запреты снимают.
- * Буфер 4 движения (~200 мс) перекрывает рассинхрон 1-3 тика,
- * поэтому честный игрок с лагами сюда не попадает.
- * Полёт/транспорт исключены вручную, кик — своим max-vl.
+ *
+ * Анти-легит защита: буфер 20 движений (~1 сек НЕПРЕРЫВНОГО
+ * невозможного спринта). Честное «ем яблоко на бегу» даёт
+ * рассинхрон в пару тиков — серверный флаг спринта гаснет сам,
+ * буфер тает и флага нет. Чит держит состояние секундами — флаг.
+ * Категория PLAYER: сетбэка нет, никого никуда не тепает,
+ * кик — своим max-vl после ~2 сек blatant-нарушения.
+ * Полёт/элитра/транспорт исключены вручную.
  */
 public final class SprintA extends Check {
 
-    private static final int BUFFER = 4;
+    /** ~1 сек непрерывного нарушения (~20 движений). */
+    private static final int BUFFER = 20;
 
     private static final class State {
         int sneak;
@@ -41,7 +47,7 @@ public final class SprintA extends Check {
     private volatile boolean glidingProbed;
 
     public SprintA(ElytrixFuckCheats plugin) {
-        super(plugin, "Sprint", "A", Category.MOVEMENT);
+        super(plugin, "Sprint", "A", Category.PLAYER);
     }
 
     @Override
@@ -123,18 +129,18 @@ public final class SprintA extends Check {
     }
 
     private boolean isFlying(Player player) {
-        return callBoolean(player, "isFlying", true) || callBoolean(player, "isGliding", false);
+        return callBoolean(player, "isFlying") || callBoolean(player, "isGliding");
     }
 
     private boolean isHandRaised(Player player) {
-        return callBoolean(player, "isHandRaised", false);
+        return callBoolean(player, "isHandRaised");
     }
 
     /**
      * Методы есть в API не везде одинаково — дергаем рефлексией,
      * при неудаче возвращаем безопасное значение.
      */
-    private boolean callBoolean(Player player, String name, boolean slot) {
+    private boolean callBoolean(Player player, String name) {
         try {
             Method cached;
             if ("isHandRaised".equals(name)) {

@@ -21,6 +21,7 @@ public final class DamageUtil {
     private static final Method GET_DAMAGE = find(EntityDamageEvent.class, "getDamage");
     private static final Method GET_ENTITY = find(EntityDamageEvent.class, "getEntity");
     private static final Method GET_DAMAGER = find(EntityDamageByEntityEvent.class, "getDamager");
+    private static final Method SET_DAMAGE = findDamage();
 
     private static Method pingMethod;
     private static Class<?> pingClass;
@@ -47,6 +48,14 @@ public final class DamageUtil {
         return GET_CAUSE != null;
     }
 
+    private static Method findDamage() {
+        try {
+            return EntityDamageEvent.class.getMethod("setDamage", double.class);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
     /** Есть ли рабочий getDamage (нужен Velocity.A). */
     public static boolean hasDamage() {
         return GET_DAMAGE != null;
@@ -60,6 +69,19 @@ public final class DamageUtil {
             return (DamageCause) GET_CAUSE.invoke(event);
         } catch (Throwable ignored) {
             return null;
+        }
+    }
+
+    /** Обнулить урон (форки иногда игнорируют cancel). true — вышло. */
+    public static boolean setDamage(EntityDamageEvent event, double value) {
+        if (SET_DAMAGE == null) {
+            return false;
+        }
+        try {
+            SET_DAMAGE.invoke(event, value);
+            return true;
+        } catch (Throwable ignored) {
+            return false;
         }
     }
 

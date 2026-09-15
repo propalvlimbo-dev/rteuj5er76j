@@ -12,10 +12,13 @@ import ru.elytrix.efc.util.CombatGeometry;
 import ru.elytrix.efc.util.DamageUtil;
 
 /**
- * HitBox.A: удар мимо настоящего бокса (блок расширенных хитбоксов).
- * Луч обязан пересекать бокс +0.5 м (строго, как Grim): промах —
- * только чит (лаг и перемотка дают максимум ~0.3 м ошибки).
- * Урон отменяется сразу, флаг — в довесок. Только игроки.
+ * HitBox.A: тихий блок расширенных хитбоксов.
+ * Луч обязан пересекать бокс +0.3 м: промах — удар в воздух,
+ * который дошёл только благодаря расширителю. Алертов, VL и кика
+ * нет (хитбоксы отданы Intave) — только отмена урона.
+ * Отмена двойная: флаг cancel + урон в 0 через рефлексию,
+ * так как кривые форки иногда игнорируют cancel.
+ * Полный аналог Grim — отмена пакета атаки; здесь уровень Bukkit.
  */
 public final class HitBoxA extends Check {
 
@@ -25,6 +28,9 @@ public final class HitBoxA extends Check {
 
     @EventHandler
     public void onDamage(EntityDamageByEntityEvent event) {
+        if (!isEnabled()) {
+            return;
+        }
         Player attacker = DamageUtil.meleeAttacker(event);
         if (attacker == null) {
             return;
@@ -45,10 +51,10 @@ public final class HitBoxA extends Check {
             return;
         }
         boolean hit = CombatGeometry.rayHitsBoxDir(
-                eye.toVector(), eye.getDirection(), feet, 0.5, 8.0);
+                eye.toVector(), eye.getDirection(), feet, 0.3, 8.0);
         if (!hit) {
             event.setCancelled(true);
-            flag(plugin.getDataManager().get(attacker), "blatant");
+            DamageUtil.setDamage(event, 0.0);
         }
     }
 }

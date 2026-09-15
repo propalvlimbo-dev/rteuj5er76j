@@ -15,9 +15,10 @@ import ru.elytrix.efc.check.Category;
 import ru.elytrix.efc.check.Check;
 
 /**
- * Быстрый кик от флагов. Две полосы:
+ * Быстрый кик от флагов. Три полосы:
  * 1) связка: 3+ РАЗНЫХ проверки боя за 90 сек — кик;
- * 2) повтор: 4 флага ОДНОЙ точной проверки за 90 сек — кик.
+ * 2) приговор: 2 флага проверки-приговора за 90 сек — кик;
+ * 3) повтор: 4 флага ОДНОЙ точной проверки за 90 сек — кик.
  * Один и тот же флаг дважды может дёрнуться на лагере, два разных —
  * уже нет; повтор разрешён только точным проверкам (рич и прочие
  * лагозависимые идут своими порогами). Одиночки тают как раньше.
@@ -28,7 +29,12 @@ public final class FlagKick {
 
     private static final long WINDOW_MS = 90000;
 
-    /** Проверки, чей тройной повтор за 90 сек — уже приговор. */
+    /** Проверки-приговоры: два флага за 90 сек — читер почти наверняка. */
+    private static final Set<String> TWO = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
+            "KillAura.A", "KillAura.D", "KillAura.F", "KillAura.G",
+            "Aim.F", "Aim.G", "AutoClicker.A")));
+
+    /** Проверки, чей повтор 4 раза за 90 сек — уже приговор. */
     private static final Set<String> REPEAT = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
             "KillAura.A", "KillAura.B", "KillAura.D", "KillAura.F", "KillAura.G",
             "Aim.C", "Aim.F", "Accuracy.A", "Accuracy.B", "Accuracy.C",
@@ -84,6 +90,7 @@ public final class FlagKick {
                 }
             }
             fire = distinct.size() >= 3
+                    || (TWO.contains(check.id()) && same >= 2)
                     || (REPEAT.contains(check.id()) && same >= 4);
         }
         if (fire) {

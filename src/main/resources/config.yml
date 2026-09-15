@@ -21,8 +21,8 @@ min-tps: 18.5
 # Креатив и спектатор не проверяются.
 creative-bypass: true
 
-# Пауза между наказаниями одного игрока по одной проверке.
-punish-cooldown-seconds: 15
+# Пауза между наказаниями: 0 — кикать сразу при каждом нарушении.
+punish-cooldown-seconds: 0
 
 # Проверки. add-vl — сколько VL даёт один флаг, max-vl — порог наказания.
 checks:
@@ -162,7 +162,7 @@ checks:
     max-vl: 8.0
   sprint-a:
     enabled: true
-    add-vl: 1.0
+    add-vl: 2.0
     max-vl: 4.0
 
 punishments:
