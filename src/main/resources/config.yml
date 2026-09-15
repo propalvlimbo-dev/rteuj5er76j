@@ -164,6 +164,14 @@ checks:
     enabled: true
     add-vl: 2.0
     max-vl: 16.0
+  hitbox-a:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 9.0
+  timer-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
 
 punishments:
   # Легенда кодов (только админ; игрок видит лишь код):
@@ -173,6 +181,7 @@ punishments:
   # JKASF231 мимо, O5G7VNK питч, L2M9QBX Aim.E, B6F3WHT клей,
   # N8C5JZP/V4V1RKD/G9P6MXS точность, C7T2AHW криты, X5Y8NQF велосити,
   # J3K4DVB лук, M1Z6SGH еда, W2A9KXC флай, H4E7PWN спид.
+  # Q4H7BXM хитбокс, K2T6MRN таймер.
   default:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [KQ8D2MN]"
   killaura-a:
@@ -231,3 +240,7 @@ punishments:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [W2A9KXC]"
   speed-a:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [H4E7PWN]"
+  hitbox-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [Q4H7BXM]"
+  timer-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [K2T6MRN]"
