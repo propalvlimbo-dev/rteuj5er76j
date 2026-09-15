@@ -58,4 +58,21 @@ public final class PacketData {
         }
         return flying.size();
     }
+
+    /** Главный поток: есть ли свежие пакетные данные? */
+    public boolean hasRecentFlying(long now, long maxAgeMs) {
+        return lastFlyingMs != 0 && now - lastFlyingMs <= maxAgeMs;
+    }
+
+    public float getLastYaw() {
+        return lastYaw;
+    }
+
+    public float getLastPitch() {
+        return lastPitch;
+    }
+
+    public long getLastFlyingMs() {
+        return lastFlyingMs;
+    }
 }

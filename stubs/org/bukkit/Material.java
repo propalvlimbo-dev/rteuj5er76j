@@ -19,7 +19,9 @@ public enum Material {
     SLIME_BLOCK,
     SOUL_SAND,
     SOUL_SOIL,
-    HONEY_BLOCK;
+    HONEY_BLOCK,
+    CAVE_AIR,
+    VOID_AIR;
 
     public boolean isEdible() {
         return false;

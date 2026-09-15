@@ -184,6 +184,38 @@ checks:
     enabled: true
     add-vl: 2.0
     max-vl: 8.0
+  nuker-a:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 9.0
+  scaffold-a:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 9.0
+  farbreak-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  farplace-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  rotationbreak-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  rotationplace-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  invalidplace-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  positionplace-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
 
 punishments:
   # Легенда кодов (только админ; игрок видит лишь код):
@@ -195,6 +227,7 @@ punishments:
   # J3K4DVB лук, M1Z6SGH еда, W2A9KXC флай, H4E7PWN спид.
   # Q4H7BXM хитбокс, K2T6MRN таймер.
   # X4S9PDB спид кинематика, F7L2YBX флай, N3F8LLB нофолл.
+  # Q8N4KRA нукер, W5S7CFD скаффолд, E2F9BRK/R6F3PLC дальность, T4R8BRB/Y1R5PLR взгляд, U7I2PLN воздух, I3P6PSN грань.
   default:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [KQ8D2MN]"
   killaura-a:
@@ -263,3 +296,19 @@ punishments:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [F7L2YBX]"
   nofall-b:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [N3F8LLB]"
+  nuker-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [Q8N4KRA]"
+  scaffold-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [W5S7CFD]"
+  farbreak-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [E2F9BRK]"
+  farplace-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [R6F3PLC]"
+  rotationbreak-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [T4R8BRB]"
+  rotationplace-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [Y1R5PLR]"
+  invalidplace-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [U7I2PLN]"
+  positionplace-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [I3P6PSN]"

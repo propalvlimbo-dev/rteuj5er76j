@@ -38,6 +38,14 @@ import ru.elytrix.efc.checks.movement.NoFallB;
 import ru.elytrix.efc.checks.movement.SpeedA;
 import ru.elytrix.efc.checks.movement.SpeedB;
 import ru.elytrix.efc.checks.movement.TimerA;
+import ru.elytrix.efc.checks.world.FarBreakA;
+import ru.elytrix.efc.checks.world.FarPlaceA;
+import ru.elytrix.efc.checks.world.InvalidPlaceA;
+import ru.elytrix.efc.checks.world.NukerA;
+import ru.elytrix.efc.checks.world.PositionPlaceA;
+import ru.elytrix.efc.checks.world.RotationBreakA;
+import ru.elytrix.efc.checks.world.RotationPlaceA;
+import ru.elytrix.efc.checks.world.ScaffoldA;
 
 /**
  * Реестр проверок. Каждая проверка сама слушает Bukkit-события.
