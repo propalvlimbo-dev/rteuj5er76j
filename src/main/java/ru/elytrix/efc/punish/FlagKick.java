@@ -1,6 +1,8 @@
 package ru.elytrix.efc.punish;
 
 import java.util.ArrayDeque;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.Map;
@@ -13,18 +15,22 @@ import ru.elytrix.efc.check.Category;
 import ru.elytrix.efc.check.Check;
 
 /**
- * Быстрый кик от связки флагов: 6+ флагов боя от 2+ разных проверок
- * за 90 секунд — это уже не везение, а читер. Одиночные проверки со
- * своими порогами не тронуты; связка — добивающий удар по тем, кто
- * размазывает слабые сигналы (джиттер-лок без ритма и снапов).
- * Кикает командой триггерной проверки (её секретный код).
- * Пустые очереди вычищаются сами; остаток после выхода ничтожен.
+ * Быстрый кик от флагов. Две полосы:
+ * 1) связка: 2+ РАЗНЫХ проверки боя за 90 сек — кик;
+ * 2) повтор: 3 флага ОДНОЙ точной проверки за 90 сек — кик.
+ * Один и тот же флаг дважды может дёрнуться на лагере, два разных —
+ * уже нет; повтор разрешён только точным проверкам (рич и прочие
+ * лагозависимые идут своими порогами). Одиночки тают как раньше.
  */
 public final class FlagKick {
 
-    private static final int COUNT = 6;
-    private static final int DISTINCT = 2;
     private static final long WINDOW_MS = 90000;
+
+    /** Проверки, чей тройной повтор за 90 сек — уже приговор. */
+    private static final Set<String> REPEAT = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
+            "KillAura.A", "KillAura.B", "KillAura.D", "KillAura.F", "KillAura.G",
+            "Aim.C", "Aim.F", "Accuracy.A", "Accuracy.B", "Accuracy.C",
+            "AutoClicker.A", "AutoClicker.B")));
 
     private static final class Entry {
         long time;
@@ -45,6 +51,7 @@ public final class FlagKick {
         long now = System.currentTimeMillis();
         UUID uuid = player.getUniqueId();
         Deque<Entry> queue = flags.computeIfAbsent(uuid, key -> new ArrayDeque<>());
+        boolean kick;
         synchronized (queue) {
             Entry entry = new Entry();
             entry.time = now;
@@ -57,19 +64,23 @@ public final class FlagKick {
                 flags.remove(uuid);
                 return;
             }
-            if (queue.size() < COUNT) {
-                return;
-            }
             Set<String> distinct = new HashSet<>();
+            int same = 0;
             for (Entry old : queue) {
                 distinct.add(old.check);
+                if (old.check.equals(check.id())) {
+                    same++;
+                }
             }
-            if (distinct.size() < DISTINCT) {
-                return;
+            kick = distinct.size() >= 2
+                    || (REPEAT.contains(check.id()) && same >= 3);
+            if (kick) {
+                queue.clear();
             }
-            queue.clear();
         }
-        plugin.getPunishmentManager().onFlag(
-                plugin.getDataManager().get(player), check, check.getMaxVl());
+        if (kick) {
+            plugin.getPunishmentManager().onFlag(
+                    plugin.getDataManager().get(player), check, check.getMaxVl());
+        }
     }
 }
