@@ -17,7 +17,7 @@ import ru.elytrix.efc.check.Check;
 /**
  * Быстрый кик от флагов. Три полосы:
  * 1) связка: 3+ РАЗНЫХ проверки боя за 90 сек — кик;
- * 2) приговор: 2 флага проверки-приговора за 90 сек — кик;
+ * 2) приговор: 2 флага проверки-приговора за 30 сек — кик;
  * 3) повтор: 4 флага ОДНОЙ точной проверки за 90 сек — кик.
  * Один и тот же флаг дважды может дёрнуться на лагере, два разных —
  * уже нет; повтор разрешён только точным проверкам (рич и прочие
@@ -28,6 +28,8 @@ import ru.elytrix.efc.check.Check;
 public final class FlagKick {
 
     private static final long WINDOW_MS = 90000;
+    /** Приговоры: два флага должны лечь плотно, иначе это шум. */
+    private static final long TWO_WINDOW_MS = 30000;
 
     /** Проверки-приговоры: два флага за 90 сек — читер почти наверняка. */
     private static final Set<String> TWO = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
@@ -83,14 +85,18 @@ public final class FlagKick {
             }
             Set<String> distinct = new HashSet<>();
             int same = 0;
+            int sameShort = 0;
             for (Entry old : queue) {
                 distinct.add(family(old.check));
                 if (old.check.equals(check.id())) {
                     same++;
+                    if (now - old.time <= TWO_WINDOW_MS) {
+                        sameShort++;
+                    }
                 }
             }
             fire = distinct.size() >= 3
-                    || (TWO.contains(check.id()) && same >= 2)
+                    || (TWO.contains(check.id()) && sameShort >= 2)
                     || (REPEAT.contains(check.id()) && same >= 4);
         }
         if (fire) {
