@@ -26,4 +26,8 @@ public enum Material {
     public boolean isEdible() {
         return false;
     }
+
+    public boolean isSolid() {
+        return false;
+    }
 }

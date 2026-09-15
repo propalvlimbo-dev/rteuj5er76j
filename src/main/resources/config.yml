@@ -216,6 +216,30 @@ checks:
     enabled: true
     add-vl: 2.0
     max-vl: 8.0
+  noslow-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  jesus-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  step-a:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 9.0
+  phase-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  groundspoof-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  fastbreak-a:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 9.0
 
 punishments:
   # Легенда кодов (только админ; игрок видит лишь код):
@@ -228,6 +252,7 @@ punishments:
   # Q4H7BXM хитбокс, K2T6MRN таймер.
   # X4S9PDB спид кинематика, F7L2YBX флай, N3F8LLB нофолл.
   # Q8N4KRA нукер, W5S7CFD скаффолд, E2F9BRK/R6F3PLC дальность, T4R8BRB/Y1R5PLR взгляд, U7I2PLN воздух, I3P6PSN грань.
+  # N7S2LOW нослоу, J4E9SUS джизус, S6T3TEP степ, P8H4HAS фаза, G3R7SPF граундспуф, F5B1RKZ фастбрейк.
   default:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [KQ8D2MN]"
   killaura-a:
@@ -312,3 +337,15 @@ punishments:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [U7I2PLN]"
   positionplace-a:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [I3P6PSN]"
+  noslow-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [N7S2LOW]"
+  jesus-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [J4E9SUS]"
+  step-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [S6T3TEP]"
+  phase-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [P8H4HAS]"
+  groundspoof-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [G3R7SPF]"
+  fastbreak-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [F5B1RKZ]"

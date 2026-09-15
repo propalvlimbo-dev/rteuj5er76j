@@ -75,4 +75,8 @@ public final class PacketData {
     public long getLastFlyingMs() {
         return lastFlyingMs;
     }
+
+    public boolean getLastGround() {
+        return lastGround;
+    }
 }

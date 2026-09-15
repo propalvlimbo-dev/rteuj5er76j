@@ -34,12 +34,18 @@ import ru.elytrix.efc.checks.combat.ReachB;
 import ru.elytrix.efc.checks.combat.VelocityA;
 import ru.elytrix.efc.checks.movement.FlyA;
 import ru.elytrix.efc.checks.movement.FlyB;
+import ru.elytrix.efc.checks.movement.GroundSpoofA;
+import ru.elytrix.efc.checks.movement.JesusA;
 import ru.elytrix.efc.checks.movement.NoFallB;
+import ru.elytrix.efc.checks.movement.NoSlowA;
+import ru.elytrix.efc.checks.movement.PhaseA;
 import ru.elytrix.efc.checks.movement.SpeedA;
 import ru.elytrix.efc.checks.movement.SpeedB;
+import ru.elytrix.efc.checks.movement.StepA;
 import ru.elytrix.efc.checks.movement.TimerA;
 import ru.elytrix.efc.checks.world.FarBreakA;
 import ru.elytrix.efc.checks.world.FarPlaceA;
+import ru.elytrix.efc.checks.world.FastBreakA;
 import ru.elytrix.efc.checks.world.InvalidPlaceA;
 import ru.elytrix.efc.checks.world.NukerA;
 import ru.elytrix.efc.checks.world.PositionPlaceA;
@@ -94,6 +100,20 @@ public final class CheckManager {
         register(new SpeedB(plugin));
         register(new FlyB(plugin));
         register(new NoFallB(plugin));
+        register(new NukerA(plugin));
+        register(new ScaffoldA(plugin));
+        register(new FarBreakA(plugin));
+        register(new FarPlaceA(plugin));
+        register(new RotationBreakA(plugin));
+        register(new RotationPlaceA(plugin));
+        register(new InvalidPlaceA(plugin));
+        register(new PositionPlaceA(plugin));
+        register(new NoSlowA(plugin));
+        register(new JesusA(plugin));
+        register(new StepA(plugin));
+        register(new PhaseA(plugin));
+        register(new GroundSpoofA(plugin));
+        register(new FastBreakA(plugin));
     }
 
     public void register(Check check) {

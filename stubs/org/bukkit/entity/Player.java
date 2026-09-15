@@ -38,4 +38,8 @@ public interface Player extends CommandSender, LivingEntity {
     int getNoDamageTicks();
 
     boolean isRiptiding();
+
+    boolean isSneaking();
+
+    boolean isBlocking();
 }
