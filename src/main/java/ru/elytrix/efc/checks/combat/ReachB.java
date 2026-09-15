@@ -65,9 +65,11 @@ public final class ReachB extends Check {
         state.count = 0;
         state.sum = 0;
         double max = DamageUtil.reachLimit(attacker, victim,
-                cfg("base", 3.0), cfg("per-ms", 0.002), cfg("cap", 3.5));
+                cfg("base", 3.0), cfg("per-ms", 0.001), cfg("cap", 3.05));
         if (average > max) {
-            flag(plugin.getDataManager().get(attacker), "avg " + String.format("%.2f", average));
+            int total = DamageUtil.pingOf(attacker) + DamageUtil.pingOf(victim);
+            flag(plugin.getDataManager().get(attacker), "avg " + String.format("%.2f", average)
+                    + " ping " + total);
             try {
                 event.setCancelled(true);
             } catch (Throwable ignored) {

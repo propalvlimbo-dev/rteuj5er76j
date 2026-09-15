@@ -63,10 +63,6 @@ public final class FlagKick {
         if (check.getCategory() != Category.COMBAT) {
             return;
         }
-        if ("HitBox.A".equals(check.id())) {
-            // Хитбокс: только блок удара + алерты, в кик-логике не участвует.
-            return;
-        }
         long now = System.currentTimeMillis();
         UUID uuid = player.getUniqueId();
         Deque<Entry> queue = flags.computeIfAbsent(uuid, key -> new ArrayDeque<>());

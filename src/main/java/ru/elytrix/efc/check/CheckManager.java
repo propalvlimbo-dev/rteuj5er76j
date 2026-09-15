@@ -24,7 +24,6 @@ import ru.elytrix.efc.checks.combat.AutoClickerD;
 import ru.elytrix.efc.checks.combat.CriticalsA;
 import ru.elytrix.efc.checks.combat.FastBowA;
 import ru.elytrix.efc.checks.combat.FastEatA;
-import ru.elytrix.efc.checks.combat.HitBoxA;
 import ru.elytrix.efc.checks.combat.KillAuraA;
 import ru.elytrix.efc.checks.combat.KillAuraB;
 import ru.elytrix.efc.checks.combat.KillAuraC;
@@ -78,7 +77,6 @@ public final class CheckManager {
         register(new VelocityA(plugin));
         register(new FastBowA(plugin));
         register(new FastEatA(plugin));
-        register(new HitBoxA(plugin));
         register(new SprintA(plugin));
     }
 

@@ -52,11 +52,13 @@ public final class ReachA extends Check {
         Location feet = plugin.getPositionHistory().locationAt(victim, now - delay);
         double distance = CombatGeometry.eyeToBoxDistance(eye, feet, 0.1);
         double limit = DamageUtil.reachLimit(attacker, victim,
-                cfg("base", 3.0), cfg("per-ms", 0.002), cfg("cap", 3.6));
+                cfg("base", 3.05), cfg("per-ms", 0.001), cfg("cap", 3.1));
         if (distance > limit) {
+            int total = DamageUtil.pingOf(attacker) + DamageUtil.pingOf(victim);
             flag(plugin.getDataManager().get(attacker),
                     "dist " + String.format("%.2f", distance)
-                            + ">" + String.format("%.2f", limit) + " blocked");
+                            + ">" + String.format("%.2f", limit)
+                            + " ping " + total + " blocked");
             try {
                 event.setCancelled(true);
             } catch (Throwable ignored) {

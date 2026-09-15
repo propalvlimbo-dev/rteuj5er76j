@@ -10,18 +10,21 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import ru.elytrix.efc.ElytrixFuckCheats;
-import ru.elytrix.efc.util.MovementUtil;
 
 /**
- * Сетбэк как у Grim: возврат на последнюю твёрдую точку.
+ * Сетбэк как у Grim: резина на предыдущую свежую точку.
  * Check.flag дёргает setback за любое движение-нарушение —
- * читер резинится вместо свободного полёта.
- * Портировано из Grim (GPL-3.0), адаптировано под Bukkit.
+ * читер стоит на месте, пока не выключит функцию или не кикнет.
+ * Точка только свежее 3 сек и в том же мире: «не пойми куда»
+ * тепать больше не может. Предыдущая (а не текущая), чтобы резина
+ * работала при любом порядке слушателей движения.
  */
 public final class SetbackManager implements Listener {
 
     private final ElytrixFuckCheats plugin;
-    private final Map<UUID, Location> safe = new ConcurrentHashMap<>();
+    private final Map<UUID, Location> last = new ConcurrentHashMap<>();
+    private final Map<UUID, Location> prev = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> lastTime = new ConcurrentHashMap<>();
     private final Map<UUID, Long> ownTeleport = new ConcurrentHashMap<>();
 
     public SetbackManager(ElytrixFuckCheats plugin) {
@@ -34,19 +37,15 @@ public final class SetbackManager implements Listener {
         if (player == null || event.getTo() == null) {
             return;
         }
-        boolean ground;
-        try {
-            ground = player.isOnGround();
-        } catch (Throwable ignored) {
-            return;
-        }
-        if (!ground || MovementUtil.cantCheck(player)) {
-            return;
-        }
         Location to = event.getTo();
         try {
-            safe.put(player.getUniqueId(),
-                    new Location(to.getWorld(), to.getX(), to.getY(), to.getZ()));
+            UUID uuid = player.getUniqueId();
+            Location old = last.get(uuid);
+            if (old != null) {
+                prev.put(uuid, old);
+            }
+            last.put(uuid, new Location(to.getWorld(), to.getX(), to.getY(), to.getZ()));
+            lastTime.put(uuid, System.currentTimeMillis());
         } catch (Throwable ignored) {
         }
     }
@@ -55,7 +54,9 @@ public final class SetbackManager implements Listener {
     public void onQuit(PlayerQuitEvent event) {
         try {
             UUID uuid = event.getPlayer().getUniqueId();
-            safe.remove(uuid);
+            last.remove(uuid);
+            prev.remove(uuid);
+            lastTime.remove(uuid);
             ownTeleport.remove(uuid);
         } catch (Throwable ignored) {
         }
@@ -67,11 +68,18 @@ public final class SetbackManager implements Listener {
             return;
         }
         try {
-            Location point = safe.get(player.getUniqueId());
+            UUID uuid = player.getUniqueId();
+            Location point = prev.get(uuid);
             if (point == null) {
+                point = last.get(uuid);
+            }
+            Long time = lastTime.get(uuid);
+            if (point == null || point.getWorld() == null || time == null
+                    || System.currentTimeMillis() - time > 3000
+                    || !point.getWorld().equals(player.getLocation().getWorld())) {
                 return;
             }
-            ownTeleport.put(player.getUniqueId(), System.currentTimeMillis());
+            ownTeleport.put(uuid, System.currentTimeMillis());
             player.teleport(point);
         } catch (Throwable ignored) {
             try {

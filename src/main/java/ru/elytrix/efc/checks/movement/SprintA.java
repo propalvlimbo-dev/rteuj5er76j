@@ -12,23 +12,26 @@ import ru.elytrix.efc.check.Category;
 import ru.elytrix.efc.check.Check;
 
 /**
- * Sprint.A v2: невозможные состояния спринта (набор NCP/Grim).
+ * Sprint.A v3: невозможные состояния спринта (набор NCP/Grim).
  * Ванилла запрещает спринтовать: присев, с поднятым щитом,
  * с натянутым луком/едой в руках, с голодом 6 и ниже.
  * Читы KeepSprint/OmniSprint/NoSlow эти запреты снимают.
  *
- * Анти-легит защита: буфер 20 движений (~1 сек НЕПРЕРЫВНОГО
- * невозможного спринта). Честное «ем яблоко на бегу» даёт
- * рассинхрон в пару тиков — серверный флаг спринта гаснет сам,
- * буфер тает и флага нет. Чит держит состояние секундами — флаг.
- * Категория PLAYER: сетбэка нет, никого никуда не тепает,
- * кик — своим max-vl после ~2 сек blatant-нарушения.
+ * Анти-легит защита:
+ * - буфер 30 движений (~1.5 сек НЕПРЕРЫВНОГО нарушения) перекрывает
+ *   подвисший серверный флаг спринта на лагах;
+ * - «еда/лук» дополнительно требует скорость &gt;0.18/движение:
+ *   честный жует медленно (~0.06), NoSlow несётся на скорости спринта.
+ * Категория MOVEMENT: каждый флаг = сетбэк (резина назад), как у Grim:
+ * читер стоит на месте, пока не выключит функцию или не прилетит кик.
  * Полёт/элитра/транспорт исключены вручную.
  */
 public final class SprintA extends Check {
 
-    /** ~1 сек непрерывного нарушения (~20 движений). */
-    private static final int BUFFER = 20;
+    /** ~1.5 сек непрерывного нарушения (~30 движений). */
+    private static final int BUFFER = 30;
+    /** Скорость жующего честного ~0.06, спринт ~0.28: порог между. */
+    private static final double USE_SPEED = 0.18;
 
     private static final class State {
         int sneak;
@@ -47,7 +50,7 @@ public final class SprintA extends Check {
     private volatile boolean glidingProbed;
 
     public SprintA(ElytrixFuckCheats plugin) {
-        super(plugin, "Sprint", "A", Category.PLAYER);
+        super(plugin, "Sprint", "A", Category.MOVEMENT);
     }
 
     @Override
@@ -63,9 +66,12 @@ public final class SprintA extends Check {
             decay(state);
             return;
         }
+        double dx = event.getTo().getX() - event.getFrom().getX();
+        double dz = event.getTo().getZ() - event.getFrom().getZ();
+        double speed = Math.sqrt(dx * dx + dz * dz);
         check(player, state, "sneak", player.isSneaking(), 0);
         check(player, state, "block", player.isBlocking(), 1);
-        check(player, state, "use", isHandRaised(player), 2);
+        check(player, state, "use", isHandRaised(player) && speed > USE_SPEED, 2);
         check(player, state, "hunger", player.getFoodLevel() <= 6, 3);
     }
 
