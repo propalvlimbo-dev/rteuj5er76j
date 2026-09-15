@@ -19,6 +19,7 @@ import ru.elytrix.efc.util.DamageUtil;
  * Живая рука так не может — джиттер 25+ мс даже у топов, серверный
  * лаг только добавляет разброса (ложным взяться неоткуда).
  * Мульти-урон в один тик пропускаем, пауза &gt;3 с сбрасывает серию.
+ * Удар в прыжке сбрасывает серию: джамп-криты легита — метроном физики.
  */
 public final class KillAuraG extends Check {
 
@@ -46,6 +47,18 @@ public final class KillAuraG extends Check {
         }
         State state = states.computeIfAbsent(attacker.getUniqueId(), key -> new State());
         long now = System.currentTimeMillis();
+        boolean airborne;
+        try {
+            airborne = !attacker.isOnGround();
+        } catch (Throwable ignored) {
+            airborne = false;
+        }
+        if (airborne) {
+            // Крит/удар в прыжке: ритм задаёт физика прыжка, а не аура.
+            state.intervals.clear();
+            state.lastHit = now;
+            return;
+        }
         if (state.lastHit > 0) {
             long dt = now - state.lastHit;
             if (dt > 3000) {

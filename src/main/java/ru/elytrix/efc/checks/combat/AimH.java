@@ -5,6 +5,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import kireiko.dev.millennium.math.Euler;
+import kireiko.dev.millennium.math.Statistics;
+import kireiko.dev.millennium.vectors.Vec2f;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.player.PlayerMoveEvent;
@@ -13,9 +16,10 @@ import ru.elytrix.efc.check.Category;
 import ru.elytrix.efc.check.Check;
 
 /**
- * Aim.H: портировано из MX-Project AimSmoothCheck (Unlicense).
- * Стек из 20 углов поворота (atan2 по дельтам, mod 90).
- * Три подряд нулевые первые разности — невалидное сглаживание аима.
+ * Aim.H: MX-Project AimSmoothCheck (Unlicense), логика 1:1.
+ * Стек из 20 углов поворота (оригинальный MX Euler + Vec2f, mod 90).
+ * Три подряд нулевые первые разности (оригинальный MX Statistics) —
+ * невалидное сглаживание аима.
  */
 public final class AimH extends Check {
 
@@ -43,13 +47,13 @@ public final class AimH extends Check {
         }
         float adx = Math.abs(dx);
         float ady = Math.abs(dy);
-        double angle = angleInDegrees(dx, dy) % 90.0D;
+        double angle = Euler.getAngleInDegrees(new Vec2f(dx, dy)) % 90.0D;
         State state = states.computeIfAbsent(event.getPlayer().getUniqueId(), key -> new State());
         if ((ady > 1.5 && adx > 0.32) || adx > 1.5) {
             state.stack.add(angle);
         }
         if (state.stack.size() >= 20) {
-            List<Float> jiff = jiffDelta(state.stack, 1);
+            List<Float> jiff = Statistics.getJiffDelta(state.stack, 1);
             float prev = 999.0F;
             float prePrev = 999.0F;
             for (float value : jiff) {
@@ -62,37 +66,6 @@ public final class AimH extends Check {
             }
             state.stack.clear();
         }
-    }
-
-    /** MX Euler.getAngleInDegrees. */
-    private static double angleInDegrees(float x, float y) {
-        double degrees = Math.toDegrees(Math.atan2(x, y));
-        if (degrees < 0) {
-            degrees += 360.0D;
-        }
-        return degrees;
-    }
-
-    /** MX Statistics.getJiffDelta. */
-    private static List<Float> jiffDelta(List<Double> data, int depth) {
-        List<Float> result = new ArrayList<>();
-        for (Double value : data) {
-            result.add(value.floatValue());
-        }
-        for (int i = 0; i < depth; i++) {
-            List<Float> calculate = new ArrayList<>();
-            float old = Float.MIN_VALUE;
-            for (float value : result) {
-                if (old == Float.MIN_VALUE) {
-                    old = value;
-                    continue;
-                }
-                calculate.add(Math.abs(Math.abs(value) - Math.abs(old)));
-                old = value;
-            }
-            result = new ArrayList<>(calculate);
-        }
-        return result;
     }
 
     private static float wrap(float yaw) {

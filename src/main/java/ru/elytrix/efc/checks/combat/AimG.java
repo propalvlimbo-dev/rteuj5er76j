@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import kireiko.dev.millennium.vectors.Vec2f;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.player.PlayerMoveEvent;
@@ -13,11 +14,12 @@ import ru.elytrix.efc.check.Category;
 import ru.elytrix.efc.check.Check;
 
 /**
- * Aim.G: портировано из MX-Project AimPatternCheck (Unlicense).
+ * Aim.G: MX-Project AimPatternCheck (Unlicense), логика 1:1.
  * Выборка 100 вторых разностей поворота. Флаг: больше 3 совпадений
  * |x_i - y_{i-1}| точнее 1e-4, либо повтор тройки поворотов
  * (|x|&gt;1 или |y|&gt;1, обе &gt;0.26). Буфер 2.5, затухание 0.3.
- * Блокировка атак MX (5 сек) не портирована — только флаг.
+ * Вектора — оригинальный MX Vec2f. Блокировка атак MX (5 сек)
+ * не портирована — только флаг.
  */
 public final class AimG extends Check {
 
@@ -27,39 +29,10 @@ public final class AimG extends Check {
     private static final float VL_LIMIT = 2.5F;
     private static final float VL_FADE = 0.3F;
 
-    private static final class XY {
-        final float x;
-        final float y;
-
-        XY(float x, float y) {
-            this.x = x;
-            this.y = y;
-        }
-
-        @Override
-        public boolean equals(Object other) {
-            if (!(other instanceof XY)) {
-                return false;
-            }
-            XY that = (XY) other;
-            return Float.compare(x, that.x) == 0 && Float.compare(y, that.y) == 0;
-        }
-
-        @Override
-        public int hashCode() {
-            return Float.hashCode(x) * 31 + Float.hashCode(y);
-        }
-
-        @Override
-        public String toString() {
-            return x + "," + y;
-        }
-    }
-
     private static final class State {
         float oldDx;
         float oldDy;
-        final List<XY> sample = new ArrayList<>();
+        final List<Vec2f> sample = new ArrayList<>();
         float buffer;
         int longTermRating;
         int toCheck;
@@ -87,7 +60,7 @@ public final class AimG extends Check {
         State state = states.computeIfAbsent(player.getUniqueId(), key -> new State());
         float yawFactor = dx - state.oldDx;
         float pitchFactor = dy - state.oldDy;
-        state.sample.add(new XY(yawFactor, pitchFactor));
+        state.sample.add(new Vec2f(yawFactor, pitchFactor));
         if (state.sample.size() >= SAMPLE_SIZE) {
             processSample(player, state);
             state.sample.clear();
@@ -101,8 +74,8 @@ public final class AimG extends Check {
         List<Float> rawPatterns = new ArrayList<>();
         List<Float> filteredPatterns = new ArrayList<>();
         for (int i = 0; i < SAMPLE_SIZE; i++) {
-            if (i > 0 && Math.abs(state.sample.get(i).x) > 1.0) {
-                rawPatterns.add(Math.abs(state.sample.get(i).x - state.sample.get(i - 1).y));
+            if (i > 0 && Math.abs(state.sample.get(i).getX()) > 1.0) {
+                rawPatterns.add(Math.abs(state.sample.get(i).getX() - state.sample.get(i - 1).getY()));
             }
         }
         for (float x : rawPatterns) {
@@ -118,14 +91,14 @@ public final class AimG extends Check {
             }
         }
         if (!flagged) {
-            List<XY> patterns = new ArrayList<>();
+            List<Vec2f> patterns = new ArrayList<>();
             int currentSampleSize = state.sample.size();
             for (int i = 0; i <= currentSampleSize - PATTERN_LENGTH; ++i) {
                 for (int j = i + MIN_START_INDEX_GAP; j <= currentSampleSize - PATTERN_LENGTH; ++j) {
-                    XY pattern = null;
+                    Vec2f pattern = null;
                     for (int k = 0; k < PATTERN_LENGTH; ++k) {
-                        XY first = state.sample.get(i + k);
-                        XY second = state.sample.get(j + k);
+                        Vec2f first = state.sample.get(i + k);
+                        Vec2f second = state.sample.get(j + k);
                         if (first.equals(second)) {
                             pattern = first;
                             break;
@@ -142,13 +115,13 @@ public final class AimG extends Check {
                 state.toCheck = 0;
                 state.longTermRating = 0;
             }
-            for (XY vec : patterns) {
-                float x = Math.abs(vec.x);
-                float y = Math.abs(vec.y);
+            for (Vec2f vec : patterns) {
+                float x = Math.abs(vec.getX());
+                float y = Math.abs(vec.getY());
                 if ((x > 1.0 || y > 1.0) && (x > 0.26 && y > 0.26)) {
                     flagged = true;
                     if (state.buffer++ >= VL_LIMIT) {
-                        flag(player, "pattern=" + vec);
+                        flag(player, "pattern=" + vec.getX() + "," + vec.getY());
                         state.buffer -= 1.0F;
                     }
                     break;
