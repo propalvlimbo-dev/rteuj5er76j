@@ -240,11 +240,11 @@ checks:
     enabled: true
     add-vl: 3.0
     max-vl: 9.0
-  timer-b:
+  timer-grim:
     enabled: true
     add-vl: 2.0
     max-vl: 8.0
-  timer-c:
+  timer-limit:
     enabled: true
     add-vl: 2.0
     max-vl: 8.0
@@ -304,6 +304,48 @@ checks:
     enabled: true
     add-vl: 3.0
     max-vl: 9.0
+  nuker-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [N3B8UKR]"
+  farbreak-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [F4B2RKX]"
+  rotationbreak-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [R5B6RTT]"
+  multiplace-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [M6P1LCE]"
+  farplace-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [F7P3LCE]"
+  rotationplace-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [R8P5LCE]"
+  invalidplace-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [I9P7LCE]"
+  nuker-b:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  farbreak-b:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  rotationbreak-b:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  multiplace-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  farplace-b:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  rotationplace-b:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  invalidplace-b:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
 
 punishments:
   # Легенда кодов (только админ; игрок видит лишь код):
@@ -415,10 +457,10 @@ punishments:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [G3R7SPF]"
   fastbreak-a:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [F5B1RKZ]"
-  timer-b:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [T9B2MRT]"
-  timer-c:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [T4C7MRT]"
+  timer-grim:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [T1G7MRT]"
+  timer-limit:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [T2L4MRT]"
   sprint-a:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [S8P1RNT]"
   sprint-c:
