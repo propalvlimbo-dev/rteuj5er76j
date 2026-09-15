@@ -8,6 +8,4 @@ public interface Entity {
     Location getLocation();
 
     UUID getUniqueId();
-
-    int getEntityId();
 }

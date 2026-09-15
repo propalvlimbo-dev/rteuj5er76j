@@ -7,7 +7,6 @@ import org.bukkit.entity.Player;
 import ru.elytrix.efc.ElytrixFuckCheats;
 import ru.elytrix.efc.check.Check;
 import ru.elytrix.efc.data.PlayerData;
-import ru.elytrix.efc.grim.GrimBridge;
 import ru.elytrix.efc.util.DamageUtil;
 
 /**
@@ -35,8 +34,6 @@ public final class PacketManager {
         }
         try {
             PeHook.register(this);
-            GrimBridge.setPacketManager(this);
-            GrimBridge.setPacketLayer(true);
             DamageUtil.setPacketManager(this);
             plugin.getServer().getScheduler().runTaskTimer(plugin, this::evaluate, 20L, 20L);
             available = true;

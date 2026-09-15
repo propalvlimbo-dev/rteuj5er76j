@@ -1,23 +1,20 @@
 package ru.elytrix.efc.checks.combat;
 
-import org.bukkit.GameMode;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
-import org.bukkit.potion.PotionEffectType;
 import ru.elytrix.efc.ElytrixFuckCheats;
 import ru.elytrix.efc.check.Category;
 import ru.elytrix.efc.check.Check;
+import ru.elytrix.efc.util.DamageUtil;
 
 /**
- * Criticals.A: ядро из NoCheatPlus Fight.Critical (GPL-3.0).
- * Легитный крит требует реального падения. Дистанция падения
- * в (0, 0.06251) вне воды/транспорта/полёта/слепоты —
- * поддельный крит. Нарушение гасит урон.
+ * Criticals.A: фейковые криты (порт NESS Criticals).
+ * Чит подменяет флаг «на земле», чтобы каждый удар был критом.
+ * Сигнатура NESS: клиент говорит «в воздухе», а Y ровно целый.
+ * Паутина, вода и полёт исключены — там Y врёт и у честных.
  */
 public final class CriticalsA extends Check {
-
-    private static final double FALL_DISTANCE = 0.06251D;
 
     public CriticalsA(ElytrixFuckCheats plugin) {
         super(plugin, "Criticals", "A", Category.COMBAT);
@@ -25,20 +22,25 @@ public final class CriticalsA extends Check {
 
     @EventHandler
     public void onDamage(EntityDamageByEntityEvent event) {
-        if (!(event.getDamager() instanceof Player)) {
+        Player attacker = DamageUtil.meleeAttacker(event);
+        if (attacker == null || attacker.getAllowFlight()) {
             return;
         }
-        Player player = (Player) event.getDamager();
-        if (player.getGameMode() == GameMode.CREATIVE || player.getAllowFlight()) {
+        if (inLiquidOrWeb(attacker)) {
             return;
         }
-        double fallDistance = player.getFallDistance();
-        if (fallDistance > 0.0D && !player.isInsideVehicle()
-                && !player.hasPotionEffect(PotionEffectType.BLINDNESS)
-                && !player.isInWater() && !player.isGliding()
-                && fallDistance < FALL_DISTANCE) {
-            event.setCancelled(true);
-            flag(plugin.getDataManager().get(player), "fd=" + fallDistance);
+        if (!attacker.isOnGround() && attacker.getLocation().getY() % 1.0 == 0.0) {
+            flag(plugin.getDataManager().get(attacker), "noground");
         }
+    }
+
+    private static boolean inLiquidOrWeb(Player player) {
+        String feet = player.getLocation().getBlock().getType().name();
+        String head = player.getEyeLocation().getBlock().getType().name();
+        return isBad(feet) || isBad(head);
+    }
+
+    private static boolean isBad(String material) {
+        return material.contains("WATER") || material.contains("LAVA") || material.contains("WEB");
     }
 }

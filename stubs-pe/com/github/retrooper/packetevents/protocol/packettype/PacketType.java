@@ -29,11 +29,7 @@ public final class PacketType {
             CLIENT_SETTINGS,
             CLICK_WINDOW,
             TAB_COMPLETE,
-            NAME_ITEM,
-            PONG,
-            WINDOW_CONFIRMATION,
-            ATTACK,
-            SPECTATE_ENTITY
+            NAME_ITEM
         }
     }
 }

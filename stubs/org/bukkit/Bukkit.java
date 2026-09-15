@@ -4,8 +4,4 @@ package org.bukkit;
 public final class Bukkit {
     private Bukkit() {
     }
-
-    public static boolean isPrimaryThread() {
-        return true;
-    }
 }
