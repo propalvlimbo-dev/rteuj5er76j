@@ -32,7 +32,7 @@ public final class FlagKick {
     private static final Set<String> REPEAT = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
             "KillAura.A", "KillAura.B", "KillAura.D", "KillAura.F", "KillAura.G",
             "Aim.C", "Aim.F", "Accuracy.A", "Accuracy.B", "Accuracy.C",
-            "AutoClicker.A", "AutoClicker.B")));
+            "AutoClicker.A", "AutoClicker.B", "HitBox.A")));
 
     private static final class Entry {
         long time;

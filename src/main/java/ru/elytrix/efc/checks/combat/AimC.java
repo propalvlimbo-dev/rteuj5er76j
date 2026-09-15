@@ -61,7 +61,10 @@ public final class AimC extends Check {
         Player victim = (Player) rawVictim;
         long now = System.currentTimeMillis();
         long delay = DamageUtil.rewindDelay(attacker, victim);
-        Location eye = attacker.getEyeLocation();
+                Location past = plugin.getPositionHistory().locationAt(
+                attacker, now - DamageUtil.attackerDelay(attacker));
+        Location eye = new Location(past.getWorld(), past.getX(),
+                past.getY() + 1.62, past.getZ(), past.getYaw(), past.getPitch());
         Location feet = plugin.getPositionHistory().locationAt(victim, now - delay);
         if (CombatGeometry.eyeToBoxDistance(eye, feet, 0.1) > 7.0) {
             return;

@@ -149,4 +149,13 @@ public final class DamageUtil {
         int total = pingOf(attacker) + (victim instanceof Player ? pingOf((Player) victim) : 0);
         return Math.max(0, Math.min(1000, total / 2 + 100));
     }
+
+    /**
+     * На сколько мс в прошлое перематывать атакующего: пакет удара летит
+     * до сервера половину пинга + квант тика. Без этого глаз врёт на
+     * рывках (позиция сервера уже не та, что видел клиент).
+     */
+    public static long attackerDelay(Player attacker) {
+        return Math.max(0, Math.min(500, pingOf(attacker) / 2 + 25));
+    }
 }

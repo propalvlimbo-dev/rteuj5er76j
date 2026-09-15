@@ -21,6 +21,7 @@ import ru.elytrix.efc.checks.combat.AutoClickerD;
 import ru.elytrix.efc.checks.combat.CriticalsA;
 import ru.elytrix.efc.checks.combat.FastBowA;
 import ru.elytrix.efc.checks.combat.FastEatA;
+import ru.elytrix.efc.checks.combat.HitBoxA;
 import ru.elytrix.efc.checks.combat.KillAuraA;
 import ru.elytrix.efc.checks.combat.KillAuraB;
 import ru.elytrix.efc.checks.combat.KillAuraC;
@@ -33,6 +34,7 @@ import ru.elytrix.efc.checks.combat.ReachB;
 import ru.elytrix.efc.checks.combat.VelocityA;
 import ru.elytrix.efc.checks.movement.FlyA;
 import ru.elytrix.efc.checks.movement.SpeedA;
+import ru.elytrix.efc.checks.movement.TimerA;
 
 /**
  * Реестр проверок. Каждая проверка сама слушает Bukkit-события.
@@ -74,8 +76,10 @@ public final class CheckManager {
         register(new VelocityA(plugin));
         register(new FastBowA(plugin));
         register(new FastEatA(plugin));
+        register(new HitBoxA(plugin));
         register(new FlyA(plugin));
         register(new SpeedA(plugin));
+        register(new TimerA(plugin));
     }
 
     public void register(Check check) {
