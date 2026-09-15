@@ -6,9 +6,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.bukkit.entity.Player;
 import ru.elytrix.efc.ElytrixFuckCheats;
 import ru.elytrix.efc.check.Check;
-import ru.elytrix.efc.checks.movement.TimerA;
 import ru.elytrix.efc.data.PlayerData;
-import ru.elytrix.efc.grim.GrimBridge;
 import ru.elytrix.efc.util.DamageUtil;
 
 /**
@@ -36,8 +34,6 @@ public final class PacketManager {
         }
         try {
             PeHook.register(this);
-            GrimBridge.setPacketManager(this);
-            GrimBridge.setPacketLayer(true);
             DamageUtil.setPacketManager(this);
             plugin.getServer().getScheduler().runTaskTimer(plugin, this::evaluate, 20L, 20L);
             available = true;
@@ -103,28 +99,13 @@ public final class PacketManager {
         }
     }
 
-    /** Главный поток, раз в секунду: точный Timer по счёту Flying. */
+    /** Главный поток, раз в секунду: чистка данных вышедших игроков. */
     private void evaluate() {
-        long now = System.currentTimeMillis();
-        for (Map.Entry<UUID, PacketData> entry : data.entrySet()) {
-            UUID uuid = entry.getKey();
-            int count = entry.getValue().pruneAndCountFlying(now);
-            if (count > 25) {
-                PlayerData playerData = plugin.getDataManager().get(uuid);
-                Player player = playerData.getPlayer();
-                if (player == null || !player.isOnline()) {
-                    data.remove(uuid);
-                    continue;
-                }
-                Check check = plugin.getCheckManager().get("Timer.A");
-                if (check instanceof TimerA) {
-                    ((TimerA) check).packetFlag(uuid, count + "/s");
-                }
-            } else if (count == 0) {
-                Player player = plugin.getDataManager().get(uuid).getPlayer();
-                if (player == null || !player.isOnline()) {
-                    data.remove(uuid);
-                }
+        for (UUID uuid : data.keySet()) {
+            PlayerData playerData = plugin.getDataManager().get(uuid);
+            Player player = playerData == null ? null : playerData.getPlayer();
+            if (player == null || !player.isOnline()) {
+                data.remove(uuid);
             }
         }
     }

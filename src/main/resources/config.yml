@@ -32,30 +32,6 @@ checks:
     max-vl: 9.0
     snap-degrees: 200.0
     hit-window-ms: 120.0
-  reach-a:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 12.0
-    base: 3.0
-    per-ms: 0.002
-    cap: 3.6
-  autoclicker-a:
-    enabled: true
-    add-vl: 3.0
-    max-vl: 15.0
-    max-cps: 20
-    max-stddev-ms: 10.0
-  fly-a:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 40.0
-  speed-a:
-    enabled: true
-    add-vl: 1.0
-    max-vl: 30.0
-    max-bps: 9.5
-  # v2: умный no-swing — флаг за 6 ударов подряд без взмаха.
-  # Сам отключается, если взмахов нет ни у кого (сломан форк).
   killaura-b:
     enabled: true
     add-vl: 2.0
@@ -68,8 +44,6 @@ checks:
     enabled: true
     add-vl: 2.0
     max-vl: 6.0
-  # ВЫКЛЮЧЕНА: флагает хороших легитов (ровное слежение за целью).
-  # Порог NESS 17% слишком свободный для скиллового PvP.
   killaura-e:
     enabled: false
     add-vl: 2.0
@@ -84,35 +58,10 @@ checks:
     add-vl: 1.0
     max-vl: 6.0
     max-stddev-ms: 12.0
-  reach-b:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 20.0
-    base: 3.0
-    per-ms: 0.002
-    cap: 3.5
-  autoclicker-b:
-    enabled: true
-    add-vl: 3.0
-    max-vl: 15.0
-    blatant-cps: 30
-  autoclicker-c:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 30.0
-    max-cps: 18
-  autoclicker-d:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 30.0
-    max-cps: 16
-  # ВЫКЛЮЧЕНА: GCD-модуло флагает современные мыши (8К опрос, акселерация).
-  # Вернётся с пакетным слоем (предсказание как у Grim).
   aim-a:
     enabled: false
     add-vl: 1.0
     max-vl: 6.0
-  # ВЫКЛЮЧЕНА: та же причина — GCD питча нестабилен на современном железе.
   aim-b:
     enabled: false
     add-vl: 1.0
@@ -136,233 +85,20 @@ checks:
     enabled: true
     add-vl: 3.0
     max-vl: 10.0
-  accuracy-a:
-    enabled: true
-    add-vl: 1.0
-    max-vl: 5.0
-  accuracy-b:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 10.0
-  accuracy-c:
-    enabled: true
-    add-vl: 1.0
-    max-vl: 5.0
-  criticals-a:
-    enabled: true
-    add-vl: 1.0
-    max-vl: 8.0
-  velocity-a:
-    enabled: true
-    add-vl: 3.0
-    max-vl: 24.0
-  fastbow-a:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 16.0
-  fasteat-a:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 16.0
-  hitbox-a:
-    enabled: true
-    add-vl: 3.0
-    max-vl: 9.0
   timer-a:
     enabled: true
     add-vl: 2.0
     max-vl: 8.0
-  speed-b:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 12.0
-  fly-b:
+  reach-a:
     enabled: true
     add-vl: 2.0
     max-vl: 8.0
-  nofall-b:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  nuker-a:
-    enabled: true
-    add-vl: 3.0
-    max-vl: 9.0
-  scaffold-a:
-    enabled: true
-    add-vl: 3.0
-    max-vl: 9.0
-  farbreak-a:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  farplace-a:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  rotationbreak-a:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  rotationplace-a:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  invalidplace-a:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  positionplace-a:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  noslow-a:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  jesus-a:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  step-a:
-    enabled: true
-    add-vl: 3.0
-    max-vl: 9.0
-  phase-a:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  groundspoof-a:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  fastbreak-a:
-    enabled: true
-    add-vl: 3.0
-    max-vl: 9.0
-  timer-grim:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  timer-limit:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  sprint-a:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  sprint-c:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  sprint-d:
-    enabled: true
-    add-vl: 3.0
-    max-vl: 9.0
-  crash-a:
-    enabled: true
-    add-vl: 3.0
-    max-vl: 6.0
-  crash-b:
-    enabled: true
-    add-vl: 3.0
-    max-vl: 6.0
-  crash-c:
-    enabled: true
-    add-vl: 3.0
-    max-vl: 6.0
-  crash-d:
-    enabled: true
-    add-vl: 3.0
-    max-vl: 6.0
-  crash-e:
-    enabled: true
-    add-vl: 3.0
-    max-vl: 6.0
-  crash-f:
-    enabled: true
-    add-vl: 3.0
-    max-vl: 6.0
-  crash-h:
-    enabled: true
-    add-vl: 3.0
-    max-vl: 6.0
-  exploit-a:
-    enabled: true
-    add-vl: 3.0
-    max-vl: 6.0
-  fastbreak-b:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  noswingbreak-a:
-    enabled: true
-    add-vl: 3.0
-    max-vl: 9.0
-  scaffold-b:
-    enabled: true
-    add-vl: 3.0
-    max-vl: 9.0
-  nuker-b:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [N3B8UKR]"
-  farbreak-b:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [F4B2RKX]"
-  rotationbreak-b:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [R5B6RTT]"
-  multiplace-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [M6P1LCE]"
-  farplace-b:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [F7P3LCE]"
-  rotationplace-b:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [R8P5LCE]"
-  invalidplace-b:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [I9P7LCE]"
-  nuker-b:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  farbreak-b:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  rotationbreak-b:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  multiplace-a:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  farplace-b:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  rotationplace-b:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  invalidplace-b:
+  hitbox-a:
     enabled: true
     add-vl: 2.0
     max-vl: 8.0
 
 punishments:
-  # Легенда кодов (только админ; игрок видит лишь код):
-  # ZM4K7QW снап, P9X2LHA взмахи, D3N8VBC KA.C, H7S1KXM точки,
-  # F5T9WQZ KA.E, R2P6NDK синхронность, W8J3FHT ритм, T6B4VGN/Y9M7CXQ рич,
-  # A4K8ZPD/S1N5GHT/Q7W2XBM/E3R9KVN кликеры, U6H4JFC/I8D1SXA GCD,
-  # JKASF231 мимо, O5G7VNK питч, L2M9QBX Aim.E, B6F3WHT клей,
-  # N8C5JZP/V4V1RKD/G9P6MXS точность, C7T2AHW криты, X5Y8NQF велосити,
-  # J3K4DVB лук, M1Z6SGH еда, W2A9KXC флай, H4E7PWN спид.
-  # Q4H7BXM хитбокс, K2T6MRN таймер.
-  # X4S9PDB спид кинематика, F7L2YBX флай, N3F8LLB нофолл.
-  # Q8N4KRA нукер, W5S7CFD скаффолд, E2F9BRK/R6F3PLC дальность, T4R8BRB/Y1R5PLR взгляд, U7I2PLN воздух, I3P6PSN грань.
-  # N7S2LOW нослоу, J4E9SUS джизус, S6T3TEP степ, P8H4HAS фаза, G3R7SPF граундспуф, F5B1RKZ фастбрейк.
-  # T9B2MRT/T4C7MRT таймер, S8P1RNT/S3C6RNT/S5D9RNT спринт, C1A4RSH-C7H7RSH крашеры, E8X2PLT наковальня,
-  # F9B4RKX задержка копания, N1S6WNG взмах, S2B8CFD повтор поворота.
-  default:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [KQ8D2MN]"
   killaura-a:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [ZM4K7QW]"
   killaura-b:
@@ -377,18 +113,6 @@ punishments:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [R2P6NDK]"
   killaura-g:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [W8J3FHT]"
-  reach-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [T6B4VGN]"
-  reach-b:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [Y9M7CXQ]"
-  autoclicker-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [A4K8ZPD]"
-  autoclicker-b:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [S1N5GHT]"
-  autoclicker-c:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [Q7W2XBM]"
-  autoclicker-d:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [E3R9KVN]"
   aim-a:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [U6H4JFC]"
   aim-b:
@@ -401,91 +125,9 @@ punishments:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [L2M9QBX]"
   aim-f:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [B6F3WHT]"
-  accuracy-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [N8C5JZP]"
-  accuracy-b:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [V4V1RKD]"
-  accuracy-c:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [G9P6MXS]"
-  criticals-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [C7T2AHW]"
-  velocity-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [X5Y8NQF]"
-  fastbow-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [J3K4DVB]"
-  fasteat-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [M1Z6SGH]"
-  fly-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [W2A9KXC]"
-  speed-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [H4E7PWN]"
-  hitbox-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [Q4H7BXM]"
   timer-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [K2T6MRN]"
-  speed-b:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [X4S9PDB]"
-  fly-b:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [F7L2YBX]"
-  nofall-b:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [N3F8LLB]"
-  nuker-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [Q8N4KRA]"
-  scaffold-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [W5S7CFD]"
-  farbreak-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [E2F9BRK]"
-  farplace-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [R6F3PLC]"
-  rotationbreak-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [T4R8BRB]"
-  rotationplace-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [Y1R5PLR]"
-  invalidplace-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [U7I2PLN]"
-  positionplace-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [I3P6PSN]"
-  noslow-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [N7S2LOW]"
-  jesus-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [J4E9SUS]"
-  step-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [S6T3TEP]"
-  phase-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [P8H4HAS]"
-  groundspoof-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [G3R7SPF]"
-  fastbreak-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [F5B1RKZ]"
-  timer-grim:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [T1G7MRT]"
-  timer-limit:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [T2L4MRT]"
-  sprint-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [S8P1RNT]"
-  sprint-c:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [S3C6RNT]"
-  sprint-d:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [S5D9RNT]"
-  crash-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [C1A4RSH]"
-  crash-b:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [C2B6RSH]"
-  crash-c:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [C3C8RSH]"
-  crash-d:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [C4D1RSH]"
-  crash-e:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [C5E3RSH]"
-  crash-f:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [C6F5RSH]"
-  crash-h:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [C7H7RSH]"
-  exploit-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [E8X2PLT]"
-  fastbreak-b:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [F9B4RKX]"
-  noswingbreak-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [N1S6WNG]"
-  scaffold-b:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [S2B8CFD]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [T7MRA20]"
+  reach-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [R3ACHA1]"
+  hitbox-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [H7BOXA1]"

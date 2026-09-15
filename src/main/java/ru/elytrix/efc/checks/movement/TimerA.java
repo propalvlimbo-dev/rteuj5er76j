@@ -5,63 +5,75 @@ import java.util.Deque;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import ru.elytrix.efc.ElytrixFuckCheats;
 import ru.elytrix.efc.check.Category;
 import ru.elytrix.efc.check.Check;
-import ru.elytrix.efc.data.PlayerData;
 
 /**
- * Timer.A: больше 20 движений в секунду (спидер пакетов).
- * С пакетным слоем считает точные Flying (флаг при &gt;25/с),
- * без него — события движения (флаг при &gt;60/2с). Лаги сервера
- * дают меньше событий, не больше, — ложным взяться неоткуда.
+ * Timer.A: счёт движений по серверным тикам (только Bukkit, без пакетов).
+ * Легит: <=1 движение в тик. Лаг-пачки режутся вкладом max 2 на тик —
+ * их даёт один тик, а таймер-чит даёт 2 движения КАЖДЫЙ тик секунду подряд.
+ * Окно 20 тиков, флаг при сумме > 28.
  */
 public final class TimerA extends Check {
 
-    private static final class State {
-        final Deque<Long> ticks = new ArrayDeque<>();
-    }
-
-    private final Map<UUID, State> states = new ConcurrentHashMap<>();
+    private final Map<UUID, AtomicInteger> tickCount = new ConcurrentHashMap<>();
+    private final Map<UUID, Deque<Integer>> window = new ConcurrentHashMap<>();
 
     public TimerA(ElytrixFuckCheats plugin) {
         super(plugin, "Timer", "A", Category.MOVEMENT);
+        plugin.getServer().getScheduler().runTaskTimer(plugin, this::tick, 1L, 1L);
     }
 
     @Override
     public void onQuit(UUID uuid) {
-        states.remove(uuid);
-    }
-
-    /** Флаг из пакетного слоя (точный счёт Flying). */
-    public void packetFlag(UUID uuid, String details) {
-        PlayerData data = plugin.getDataManager().get(uuid);
-        Player player = data.getPlayer();
-        if (player == null || !player.isOnline()) {
-            return;
-        }
-        flag(data, details);
+        tickCount.remove(uuid);
+        window.remove(uuid);
     }
 
     @EventHandler
     public void onMove(PlayerMoveEvent event) {
-        if (plugin.getPacketManager().isAvailable()) {
+        Player player = event.getPlayer();
+        if (player == null) {
             return;
         }
-        State state = states.computeIfAbsent(
-                event.getPlayer().getUniqueId(), key -> new State());
-        long now = System.currentTimeMillis();
-        state.ticks.addLast(now);
-        while (!state.ticks.isEmpty() && now - state.ticks.peekFirst() > 2000) {
-            state.ticks.removeFirst();
+        tickCount.computeIfAbsent(player.getUniqueId(), key -> new AtomicInteger()).incrementAndGet();
+    }
+
+    @EventHandler
+    public void onTeleport(PlayerTeleportEvent event) {
+        Player player = event.getPlayer();
+        if (player != null) {
+            tickCount.remove(player.getUniqueId());
+            window.remove(player.getUniqueId());
         }
-        if (state.ticks.size() > 60) {
-            int count = state.ticks.size();
-            state.ticks.clear();
-            flag(plugin.getDataManager().get(event.getPlayer()), count + "/2s");
+    }
+
+    private void tick() {
+        for (Map.Entry<UUID, AtomicInteger> entry : tickCount.entrySet()) {
+            UUID uuid = entry.getKey();
+            int count = Math.min(2, Math.max(0, entry.getValue().getAndSet(0)));
+            Deque<Integer> deque = window.computeIfAbsent(uuid, key -> new ArrayDeque<>());
+            deque.addLast(count);
+            while (deque.size() > 20) {
+                deque.pollFirst();
+            }
+            if (deque.size() < 20) {
+                continue;
+            }
+            int sum = 0;
+            for (int value : deque) {
+                sum += value;
+            }
+            if (sum > 28) {
+                deque.clear();
+                flag(plugin.getDataManager().get(uuid), sum + "/20t");
+            }
         }
     }
 }

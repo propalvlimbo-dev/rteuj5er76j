@@ -1,21 +1,18 @@
 package ru.elytrix.efc.checks.combat;
 
+import org.bukkit.GameMode;
 import org.bukkit.Location;
-import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import ru.elytrix.efc.ElytrixFuckCheats;
 import ru.elytrix.efc.check.Category;
 import ru.elytrix.efc.check.Check;
-import ru.elytrix.efc.util.CombatGeometry;
-import ru.elytrix.efc.util.DamageUtil;
 
 /**
- * HitBox.A: удар мимо настоящего бокса (блок расширенных хитбоксов).
- * Луч обязан пересекать бокс +1.2 м: промах мимо такого сарая —
- * только чит (лаг и перемотка дают максимум ~0.3 м ошибки).
- * Урон отменяется сразу, флаг — в довесок. Только игроки.
+ * HitBox.A: угол между взглядом атакующего и направлением на цель.
+ * Расширенный хитбокс бьёт мимо прицела (30-90°+). Легит ~0-10°.
+ * Порог 30°, дистанция от 1.2 (в упор углы шумят). Удар гасится.
  */
 public final class HitBoxA extends Check {
 
@@ -25,30 +22,33 @@ public final class HitBoxA extends Check {
 
     @EventHandler
     public void onDamage(EntityDamageByEntityEvent event) {
-        Player attacker = DamageUtil.meleeAttacker(event);
-        if (attacker == null) {
+        if (!(event.getDamager() instanceof Player) || !(event.getEntity() instanceof Player)) {
             return;
         }
-        Entity rawVictim = DamageUtil.entityOf(event);
-        if (!(rawVictim instanceof Player)) {
+        Player attacker = (Player) event.getDamager();
+        if (attacker.getGameMode() == GameMode.CREATIVE) {
             return;
         }
-        Player victim = (Player) rawVictim;
-        long now = System.currentTimeMillis();
-        Location past = plugin.getPositionHistory().locationAt(
-                attacker, now - DamageUtil.attackerDelay(attacker));
-        Location eye = new Location(past.getWorld(), past.getX(),
-                past.getY() + 1.62, past.getZ(), past.getYaw(), past.getPitch());
-        Location feet = plugin.getPositionHistory().locationAt(
-                victim, now - DamageUtil.rewindDelay(attacker, victim));
-        if (CombatGeometry.eyeToBoxDistance(eye, feet, 0.1) > 8.0) {
+        Location eye = attacker.getEyeLocation();
+        Location victim = event.getEntity().getLocation();
+        double tx = victim.getX() - eye.getX();
+        double ty = victim.getY() + 0.9D - eye.getY();
+        double tz = victim.getZ() - eye.getZ();
+        double dist = Math.sqrt(tx * tx + ty * ty + tz * tz);
+        if (dist < 1.2D || dist > 7.0D) {
             return;
         }
-        boolean hit = CombatGeometry.rayHitsBoxDir(
-                eye.toVector(), eye.getDirection(), feet, 1.2, 8.0);
-        if (!hit) {
+        double yaw = Math.toRadians(eye.getYaw());
+        double pitch = Math.toRadians(eye.getPitch());
+        double lx = -Math.sin(yaw) * Math.cos(pitch);
+        double ly = -Math.sin(pitch);
+        double lz = Math.cos(yaw) * Math.cos(pitch);
+        double dot = (lx * tx + ly * ty + lz * tz) / dist;
+        dot = Math.min(1.0D, Math.max(-1.0D, dot));
+        double angle = Math.toDegrees(Math.acos(dot));
+        if (angle > 30.0D) {
             event.setCancelled(true);
-            flag(plugin.getDataManager().get(attacker), "blatant");
+            flag(plugin.getDataManager().get(attacker), String.format("%.1fdeg", angle));
         }
     }
 }
