@@ -79,6 +79,7 @@ public abstract class Check implements Listener {
         double vl = data.addVl(id(), config.checkAddVl(configKey()) * multiplier);
         plugin.getAlertManager().alert(data, this, details, vl);
         plugin.getPunishmentManager().onFlag(data, this, vl);
+        plugin.getFlagKick().onFlag(player, this);
         return vl;
     }
 

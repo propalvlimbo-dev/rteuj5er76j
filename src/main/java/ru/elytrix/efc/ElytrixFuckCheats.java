@@ -10,6 +10,7 @@ import ru.elytrix.efc.data.DataManager;
 import ru.elytrix.efc.data.DebugCounters;
 import ru.elytrix.efc.data.PositionHistory;
 import ru.elytrix.efc.exempt.ExemptionManager;
+import ru.elytrix.efc.punish.FlagKick;
 import ru.elytrix.efc.punish.PunishmentManager;
 
 /**
@@ -23,6 +24,7 @@ public final class ElytrixFuckCheats extends JavaPlugin {
     private ExemptionManager exemptionManager;
     private AlertManager alertManager;
     private PunishmentManager punishmentManager;
+    private FlagKick flagKick;
     private CheckManager checkManager;
     private PositionHistory positionHistory;
     private DebugCounters debugCounters;
@@ -36,6 +38,7 @@ public final class ElytrixFuckCheats extends JavaPlugin {
         this.exemptionManager = new ExemptionManager(this);
         this.alertManager = new AlertManager(this);
         this.punishmentManager = new PunishmentManager(this);
+        this.flagKick = new FlagKick(this);
         this.checkManager = new CheckManager(this);
         this.positionHistory = new PositionHistory(this);
         this.debugCounters = new DebugCounters(this);
@@ -79,6 +82,10 @@ public final class ElytrixFuckCheats extends JavaPlugin {
 
     public PunishmentManager getPunishmentManager() {
         return punishmentManager;
+    }
+
+    public FlagKick getFlagKick() {
+        return flagKick;
     }
 
     public CheckManager getCheckManager() {

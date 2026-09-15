@@ -166,66 +166,68 @@ checks:
     max-vl: 16.0
 
 punishments:
-  # Легенда секретных кодов (только для админа, игрок видит лишь код):
-  # SNP снап KA.A, NSW взмахи KA.B, KC KA.C, MPT точки KA.D, KE KA.E,
-  # SYN синхронность KA.F, RTM ритм KA.G, RCH/RHB рич, CKA-D кликеры,
-  # AA/AB GCD, AIM мимо, PCH питч, AME Aim.E, GLU клей, PRA/B/C точность,
-  # CRT криты, VEL велосити, BOW лук, EAT еда, FLY флай, SPD спид.
+  # Легенда кодов (только админ; игрок видит лишь код):
+  # ZM4K7QW снап, P9X2LHA взмахи, D3N8VBC KA.C, H7S1KXM точки,
+  # F5T9WQZ KA.E, R2P6NDK синхронность, W8J3FHT ритм, T6B4VGN/Y9M7CXQ рич,
+  # A4K8ZPD/S1N5GHT/Q7W2XBM/E3R9KVN кликеры, U6H4JFC/I8D1SXA GCD,
+  # JKASF231 мимо, O5G7VNK питч, L2M9QBX Aim.E, B6F3WHT клей,
+  # N8C5JZP/V4V1RKD/G9P6MXS точность, C7T2AHW криты, X5Y8NQF велосити,
+  # J3K4DVB лук, M1Z6SGH еда, W2A9KXC флай, H4E7PWN спид.
   default:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-GEN]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [KQ8D2MN]"
   killaura-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-SNP]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [ZM4K7QW]"
   killaura-b:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-NSW]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [P9X2LHA]"
   killaura-c:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-KC]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [D3N8VBC]"
   killaura-d:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-MPT]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [H7S1KXM]"
   killaura-e:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-KE]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [F5T9WQZ]"
   killaura-f:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-SYN]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [R2P6NDK]"
   killaura-g:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-RTM]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [W8J3FHT]"
   reach-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-RCH]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [T6B4VGN]"
   reach-b:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-RHB]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [Y9M7CXQ]"
   autoclicker-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-CKA]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [A4K8ZPD]"
   autoclicker-b:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-CKB]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [S1N5GHT]"
   autoclicker-c:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-CKC]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [Q7W2XBM]"
   autoclicker-d:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-CKD]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [E3R9KVN]"
   aim-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-AA]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [U6H4JFC]"
   aim-b:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-AB]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [I8D1SXA]"
   aim-c:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-AIM]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [JKASF231]"
   aim-d:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-PCH]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [O5G7VNK]"
   aim-e:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-AME]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [L2M9QBX]"
   aim-f:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-GLU]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [B6F3WHT]"
   accuracy-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-PRA]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [N8C5JZP]"
   accuracy-b:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-PRB]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [V4V1RKD]"
   accuracy-c:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-PRC]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [G9P6MXS]"
   criticals-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-CRT]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [C7T2AHW]"
   velocity-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-VEL]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [X5Y8NQF]"
   fastbow-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-BOW]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [J3K4DVB]"
   fasteat-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-EAT]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [M1Z6SGH]"
   fly-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-FLY]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [W2A9KXC]"
   speed-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [81NSD-SPD]"
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [H4E7PWN]"
