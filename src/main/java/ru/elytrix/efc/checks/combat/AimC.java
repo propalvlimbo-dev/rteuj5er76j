@@ -20,6 +20,7 @@ import ru.elytrix.efc.util.DamageUtil;
  * Луч из глаза должен пересекать хитбокс жертвы, иначе это доводка.
  * Два луча (текущий + экстраполированный), позиция жертвы — из перемотки.
  * Только игроки — по мобам нет точных боксов.
+ * Флик-эксепшн (резкий доворот) + 2 промаха подряд против лагов.
  */
 public final class AimC extends Check {
 
@@ -27,6 +28,7 @@ public final class AimC extends Check {
         float lastDeltaYaw;
         float lastDeltaPitch;
         boolean has;
+        int misses;
     }
 
     private final Map<UUID, State> states = new ConcurrentHashMap<>();
@@ -83,7 +85,20 @@ public final class AimC extends Check {
                         CombatGeometry.dirFromYawPitch(yaw, pitch), feet, expand, 7.0);
             }
         }
-        if (!hit) {
+        State holder = states.computeIfAbsent(attacker.getUniqueId(), key -> new State());
+        if (!hit && holder.has
+                && (Math.abs(holder.lastDeltaYaw) > 30.0F
+                || Math.abs(holder.lastDeltaPitch) > 20.0F)) {
+            // Резкий доворот мыши или смена сенсы — честный флик, не доводка.
+            holder.misses = 0;
+            return;
+        }
+        if (hit) {
+            holder.misses = 0;
+            return;
+        }
+        if (++holder.misses >= 2) {
+            holder.misses = 0;
             flag(plugin.getDataManager().get(attacker), "direction");
         }
     }

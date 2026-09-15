@@ -133,7 +133,7 @@ checks:
   hitbox-a:
     enabled: true
     add-vl: 3.0
-    max-vl: 9.0
+    max-vl: 999999.0
   reach-a:
     enabled: true
     add-vl: 2.0
@@ -160,6 +160,10 @@ checks:
     enabled: true
     add-vl: 2.0
     max-vl: 8.0
+  sprint-a:
+    enabled: true
+    add-vl: 1.0
+    max-vl: 4.0
 
 punishments:
   killaura-a:
@@ -220,3 +224,5 @@ punishments:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [A1G7MXH]"
   aim-h:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [A2H8MXH]"
+  sprint-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [S7P9RNT]"

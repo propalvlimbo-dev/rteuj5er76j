@@ -32,7 +32,7 @@ public final class FlagKick {
     private static final Set<String> REPEAT = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
             "KillAura.A", "KillAura.B", "KillAura.D", "KillAura.F", "KillAura.G",
             "Aim.C", "Aim.F", "Accuracy.A", "Accuracy.B", "Accuracy.C",
-            "AutoClicker.A", "AutoClicker.B", "HitBox.A")));
+            "AutoClicker.A", "AutoClicker.B")));
 
     private static final class Entry {
         long time;
@@ -53,6 +53,10 @@ public final class FlagKick {
 
     public void onFlag(Player player, Check check) {
         if (check.getCategory() != Category.COMBAT) {
+            return;
+        }
+        if ("HitBox.A".equals(check.id())) {
+            // Хитбокс: только блок удара + алерты, в кик-логике не участвует.
             return;
         }
         long now = System.currentTimeMillis();
