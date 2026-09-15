@@ -11,16 +11,16 @@ import ru.elytrix.efc.check.Category;
 import ru.elytrix.efc.check.Check;
 
 /**
- * Timer.B: баланс движений по Grim Timer.
- * Каждое движение +50 мс кредита, пол — пинг + 150 мс (пинг режем
- * на 1000 — Grim TimerLimit). Флаг за 3 подряд выхода за now + 100:
- * джиттер и догоняющие тики дают 1-2, таймер-чит — серию.
+ * Timer.B: дырявое ведро по мотивам Grim Timer.
+ * Каждое движение +50 мс кредита, прошедшее время кредит гасит.
+ * Пачки движений (батчинг сети, догоняющие тики) ведром поглощаются,
+ * sustained-избыток — только у таймер-чита.
  * Портировано из Grim (GPL-3.0), адаптировано под главный поток.
  */
 public final class TimerB extends Check {
 
     private final Map<UUID, Long> balance = new ConcurrentHashMap<>();
-    private final Map<UUID, Integer> excess = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> lastMove = new ConcurrentHashMap<>();
 
     public TimerB(ElytrixFuckCheats plugin) {
         super(plugin, "Timer", "B", Category.MOVEMENT);
@@ -29,7 +29,7 @@ public final class TimerB extends Check {
     @Override
     public void onQuit(UUID uuid) {
         balance.remove(uuid);
-        excess.remove(uuid);
+        lastMove.remove(uuid);
     }
 
     @EventHandler
@@ -39,32 +39,30 @@ public final class TimerB extends Check {
             return;
         }
         UUID id = player.getUniqueId();
-        long now = System.nanoTime();
-        long bal = balance.getOrDefault(id, now);
-        bal += 50_000_000L;
-        long pingMs = 0;
-        try {
-            int ping = plugin.getPacketManager().ping(player);
-            if (ping > 0) {
-                pingMs = Math.min(ping, 1000);
-            }
-        } catch (Throwable ignored) {
+        long now = System.currentTimeMillis();
+        long prev = lastMove.getOrDefault(id, now);
+        lastMove.put(id, now);
+        long elapsed = now - prev;
+        if (elapsed < 0) {
+            elapsed = 0;
         }
-        long floor = now - (pingMs + 150) * 1_000_000L;
-        if (bal < floor) {
-            bal = floor;
+        if (elapsed > 5000) {
+            elapsed = 5000;
         }
-        if (bal > now + 100_000_000L) {
-            int count = excess.getOrDefault(id, 0) + 1;
-            excess.put(id, count);
-            balance.put(id, now + 100_000_000L);
-            if (count >= 3) {
-                excess.remove(id);
-                flag(plugin.getDataManager().get(player), "timer balance");
-            }
+        long bal = balance.getOrDefault(id, 0L);
+        bal += 50;
+        bal -= elapsed;
+        if (bal < -1000) {
+            bal = -1000;
+        }
+        if (bal > 350) {
+            bal = 350;
+        }
+        if (bal > 300) {
+            balance.put(id, 250L);
+            flag(plugin.getDataManager().get(player), "timer");
             return;
         }
-        excess.remove(id);
         balance.put(id, bal);
     }
 }

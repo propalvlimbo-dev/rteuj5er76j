@@ -1,5 +1,7 @@
 package ru.elytrix.efc.checks.movement;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -11,15 +13,14 @@ import ru.elytrix.efc.check.Category;
 import ru.elytrix.efc.check.Check;
 
 /**
- * Timer.C: движения реже тикрейта (Grim NegativeTimer).
- * Долг растёт за гэпы дольше 150 мс во время реального движения,
- * тает на ровных тиках. Гэп дольше 5 с — простой/лаг, долг сгорает.
+ * Timer.C: движений сильно меньше тикрейта при активном движении
+ * (по мотивам Grim NegativeTimer). Окно 2 с: прошёл 4+ блока меньше
+ * чем за 15 движений — чит. Пачки сети на счёт не влияют.
  * Портировано из Grim (GPL-3.0), адаптировано под главный поток.
  */
 public final class TimerC extends Check {
 
-    private final Map<UUID, Long> lastMove = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> debt = new ConcurrentHashMap<>();
+    private final Map<UUID, Deque<double[]>> windows = new ConcurrentHashMap<>();
 
     public TimerC(ElytrixFuckCheats plugin) {
         super(plugin, "Timer", "C", Category.MOVEMENT);
@@ -27,8 +28,7 @@ public final class TimerC extends Check {
 
     @Override
     public void onQuit(UUID uuid) {
-        lastMove.remove(uuid);
-        debt.remove(uuid);
+        windows.remove(uuid);
     }
 
     @EventHandler
@@ -37,34 +37,34 @@ public final class TimerC extends Check {
         if (player == null || event.getFrom() == null || event.getTo() == null) {
             return;
         }
-        double dx = event.getTo().getX() - event.getFrom().getX();
-        double dz = event.getTo().getZ() - event.getFrom().getZ();
-        if (Math.sqrt(dx * dx + dz * dz) < 0.05) {
-            return;
-        }
         UUID id = player.getUniqueId();
         long now = System.currentTimeMillis();
-        long prev = lastMove.getOrDefault(id, now);
-        lastMove.put(id, now);
-        long gap = now - prev;
-        if (gap < 0) {
-            gap = 0;
+        Deque<double[]> window = windows.computeIfAbsent(id, key -> new ArrayDeque<>());
+        window.addLast(new double[]{now, event.getTo().getX(), event.getTo().getZ()});
+        while (!window.isEmpty() && now - window.peekFirst()[0] > 2000) {
+            window.pollFirst();
         }
-        if (gap > 5000) {
-            debt.remove(id);
+        if (window.size() < 10) {
             return;
         }
-        long owed = debt.getOrDefault(id, 0L);
-        if (gap > 150) {
-            owed += gap - 150;
-        } else {
-            owed = Math.max(0, owed - 50);
+        double dist = 0;
+        double[] prev = null;
+        for (double[] point : window) {
+            if (prev != null) {
+                double dx = point[1] - prev[1];
+                double dz = point[2] - prev[2];
+                dist += Math.sqrt(dx * dx + dz * dz);
+            }
+            prev = point;
         }
-        if (owed > 1200) {
-            debt.put(id, 600L);
-            flag(plugin.getDataManager().get(player), "negative gap=" + gap + "ms");
+        if (dist < 4.0) {
             return;
         }
-        debt.put(id, owed);
+        if (window.size() < 15) {
+            int count = window.size();
+            window.clear();
+            flag(plugin.getDataManager().get(player),
+                    "slow " + count + " moves/" + String.format("%.1f", dist) + "m");
+        }
     }
 }
