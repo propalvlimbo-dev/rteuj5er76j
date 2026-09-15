@@ -6,9 +6,9 @@ package com.github.retrooper.packetevents.util;
  */
 public class Vector3d {
 
-    private double x;
-    private double y;
-    private double z;
+    public double x;
+    public double y;
+    public double z;
 
     public Vector3d() {
         this(0, 0, 0);

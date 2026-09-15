@@ -31,7 +31,9 @@ public final class PacketType {
             TAB_COMPLETE,
             NAME_ITEM,
             PONG,
-            WINDOW_CONFIRMATION
+            WINDOW_CONFIRMATION,
+            ATTACK,
+            SPECTATE_ENTITY
         }
     }
 }

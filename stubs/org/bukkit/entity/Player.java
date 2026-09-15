@@ -48,4 +48,6 @@ public interface Player extends CommandSender, LivingEntity {
     boolean isOp();
 
     boolean teleport(Location location);
+
+    float getFallDistance();
 }

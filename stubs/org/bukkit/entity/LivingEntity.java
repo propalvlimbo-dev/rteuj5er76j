@@ -5,4 +5,6 @@ public interface LivingEntity extends Entity {
     org.bukkit.Location getEyeLocation();
 
     boolean hasPotionEffect(org.bukkit.potion.PotionEffectType type);
+
+    double getEyeHeight();
 }

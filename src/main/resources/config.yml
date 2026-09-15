@@ -85,6 +85,106 @@ checks:
     enabled: true
     add-vl: 3.0
     max-vl: 10.0
+  timer-grim:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  timer-limit:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  sprint-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  sprint-d:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 9.0
+  crash-a:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 6.0
+  crash-b:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 6.0
+  crash-c:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 6.0
+  crash-e:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 6.0
+  crash-f:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 6.0
+  crash-h:
+    enabled: true
+    add-vl: 3.0
+    max-vl: 6.0
+  nuker-b:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  farbreak-b:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  rotationbreak-b:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  multiplace-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  farplace-b:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  rotationplace-b:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  invalidplace-b:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  multiinteract-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  multiinteract-b:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  selfinteract-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  reach-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  hitbox-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  criticals-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  autoclicker-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  timer-a:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
 
 punishments:
   killaura-a:
@@ -113,3 +213,53 @@ punishments:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [L2M9QBX]"
   aim-f:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [B6F3WHT]"
+  timer-grim:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [T1G7MRT]"
+  timer-limit:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [T2L4MRT]"
+  sprint-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [S8P1RNT]"
+  sprint-d:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [S5D9RNT]"
+  crash-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [C1A4RSH]"
+  crash-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [C2B6RSH]"
+  crash-c:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [C3C8RSH]"
+  crash-e:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [C5E3RSH]"
+  crash-f:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [C6F5RSH]"
+  crash-h:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [C7H7RSH]"
+  nuker-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [N3B8UKR]"
+  farbreak-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [F4B2RKX]"
+  rotationbreak-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [R5B6RTT]"
+  multiplace-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [M6P1LCE]"
+  farplace-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [F7P3LCE]"
+  rotationplace-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [R8P5LCE]"
+  invalidplace-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [I9P7LCE]"
+  multiinteract-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [M1A3NTR]"
+  multiinteract-b:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [M2B7NTR]"
+  selfinteract-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [S3E5LFI]"
+  reach-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [R4E1ACH]"
+  hitbox-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [H7B2OXA]"
+  criticals-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [C6R9ITA]"
+  autoclicker-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [A8C2LCK]"
+  timer-a:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [T9M4RAA]"
