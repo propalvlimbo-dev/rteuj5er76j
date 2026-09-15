@@ -152,6 +152,14 @@ checks:
     enabled: true
     add-vl: 3.0
     max-vl: 24.0
+  aim-g:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
+  aim-h:
+    enabled: true
+    add-vl: 2.0
+    max-vl: 8.0
 
 punishments:
   killaura-a:
@@ -208,3 +216,7 @@ punishments:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [Y9M7CXQ]"
   velocity-a:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [X5Y8NQF]"
+  aim-g:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [A1G7MXH]"
+  aim-h:
+    - "minecraft:kick %player% \u00a7cПодозрение в читах [A2H8MXH]"

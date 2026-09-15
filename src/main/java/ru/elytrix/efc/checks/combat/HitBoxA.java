@@ -13,7 +13,7 @@ import ru.elytrix.efc.util.DamageUtil;
 
 /**
  * HitBox.A: удар мимо настоящего бокса (блок расширенных хитбоксов).
- * Луч обязан пересекать бокс +1.2 м: промах мимо такого сарая —
+ * Луч обязан пересекать бокс +0.5 м (строго, как Grim): промах —
  * только чит (лаг и перемотка дают максимум ~0.3 м ошибки).
  * Урон отменяется сразу, флаг — в довесок. Только игроки.
  */
@@ -45,7 +45,7 @@ public final class HitBoxA extends Check {
             return;
         }
         boolean hit = CombatGeometry.rayHitsBoxDir(
-                eye.toVector(), eye.getDirection(), feet, 1.2, 8.0);
+                eye.toVector(), eye.getDirection(), feet, 0.5, 8.0);
         if (!hit) {
             event.setCancelled(true);
             flag(plugin.getDataManager().get(attacker), "blatant");
