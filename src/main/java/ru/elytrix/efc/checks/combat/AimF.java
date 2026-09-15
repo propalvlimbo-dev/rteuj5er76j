@@ -19,7 +19,8 @@ import ru.elytrix.efc.util.DamageUtil;
 /**
  * Aim.F: прилипание к цели (порт Medusa AimAssistH).
  * Разница между взглядом и идеальным доводом на жертву, 20 замеров:
- * у лока среднее &lt;7° и разброс &lt;12° окно за окном. Только в бою + VL.
+ * у лока среднее &lt;5° и разброс &lt;9° окно за окном (хороший легит держит
+ * 5–7°). Только в бою + VL, флаг с 8 плохих окон.
  * Замер — минимум по 3 точкам пути жертвы (±50 мс от перемотки):
  * убирает ошибку перемотки, на которой джиттер-лок сидел ровно
  * на планке. Гейт 0.3° видит медленный лок, буфер +1/-0.5.
@@ -112,10 +113,10 @@ public final class AimF extends Check {
             state.diffs.clear();
             state.lastMean = mean;
             state.lastStd = deviation;
-            if (mean < 7 && deviation < 12) {
+            if (mean < 5 && deviation < 9) {
                 state.invalid++;
                 state.buffer += 1;
-                if (state.buffer > 6) {
+                if (state.buffer > 8) {
                     state.buffer = 0;
                     flag(plugin.getDataManager().get(player), "glue");
                 }
