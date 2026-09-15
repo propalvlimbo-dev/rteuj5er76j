@@ -21,6 +21,8 @@ import ru.elytrix.efc.check.Check;
  * Один и тот же флаг дважды может дёрнуться на лагере, два разных —
  * уже нет; повтор разрешён только точным проверкам (рич и прочие
  * лагозависимые идут своими порогами). Одиночки тают как раньше.
+ * Очередь чистится только реальным киком: кулдаун пережидаем
+ * и добиваем следующим флагом.
  */
 public final class FlagKick {
 
@@ -51,7 +53,7 @@ public final class FlagKick {
         long now = System.currentTimeMillis();
         UUID uuid = player.getUniqueId();
         Deque<Entry> queue = flags.computeIfAbsent(uuid, key -> new ArrayDeque<>());
-        boolean kick;
+        boolean fire;
         synchronized (queue) {
             Entry entry = new Entry();
             entry.time = now;
@@ -72,15 +74,17 @@ public final class FlagKick {
                     same++;
                 }
             }
-            kick = distinct.size() >= 2
+            fire = distinct.size() >= 2
                     || (REPEAT.contains(check.id()) && same >= 3);
-            if (kick) {
-                queue.clear();
-            }
         }
-        if (kick) {
-            plugin.getPunishmentManager().onFlag(
+        if (fire) {
+            boolean punished = plugin.getPunishmentManager().onFlag(
                     plugin.getDataManager().get(player), check, check.getMaxVl());
+            if (punished) {
+                synchronized (queue) {
+                    queue.clear();
+                }
+            }
         }
     }
 }

@@ -12,6 +12,7 @@ import ru.elytrix.efc.data.PlayerData;
 /**
  * Наказания. Только когда VL превысил max-vl проверки.
  * По умолчанию: консольные команды (кик). Автобана нет.
+ * Возвращает, было ли наказание (false — кулдаун или порог).
  */
 public final class PunishmentManager {
 
@@ -22,19 +23,19 @@ public final class PunishmentManager {
         this.plugin = plugin;
     }
 
-    public void onFlag(PlayerData data, Check check, double vl) {
+    public boolean onFlag(PlayerData data, Check check, double vl) {
         if (vl < check.getMaxVl()) {
-            return;
+            return false;
         }
         Player player = data.getPlayer();
         if (player == null) {
-            return;
+            return false;
         }
         String key = player.getUniqueId() + ":" + check.id();
         long now = System.currentTimeMillis();
         Long last = lastPunish.get(key);
         if (last != null && now - last < plugin.getConfigManager().punishCooldownMs()) {
-            return;
+            return false;
         }
         lastPunish.put(key, now);
 
@@ -54,5 +55,6 @@ public final class PunishmentManager {
                 plugin.getServer().dispatchCommand(plugin.getServer().getConsoleSender(), command);
             }
         });
+        return true;
     }
 }

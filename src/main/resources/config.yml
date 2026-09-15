@@ -22,7 +22,7 @@ min-tps: 18.5
 creative-bypass: true
 
 # Пауза между наказаниями одного игрока по одной проверке.
-punish-cooldown-seconds: 60
+punish-cooldown-seconds: 15
 
 # Проверки. add-vl — сколько VL даёт один флаг, max-vl — порог наказания.
 checks:
