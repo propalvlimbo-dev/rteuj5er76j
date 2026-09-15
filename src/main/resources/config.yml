@@ -85,18 +85,6 @@ checks:
     enabled: true
     add-vl: 3.0
     max-vl: 10.0
-  timer-a:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  reach-a:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
-  hitbox-a:
-    enabled: true
-    add-vl: 2.0
-    max-vl: 8.0
 
 punishments:
   killaura-a:
@@ -125,9 +113,3 @@ punishments:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [L2M9QBX]"
   aim-f:
     - "minecraft:kick %player% \u00a7cПодозрение в читах [B6F3WHT]"
-  timer-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [T7MRA20]"
-  reach-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [R3ACHA1]"
-  hitbox-a:
-    - "minecraft:kick %player% \u00a7cПодозрение в читах [H7BOXA1]"

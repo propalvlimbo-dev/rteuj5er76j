@@ -31,7 +31,7 @@ public final class FlagKick {
     /** Проверки, чей тройной повтор за 90 сек — уже приговор. */
     private static final Set<String> REPEAT = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
             "KillAura.A", "KillAura.B", "KillAura.D", "KillAura.F", "KillAura.G",
-            "Aim.C", "Aim.F", "HitBox.A", "Reach.A")));
+            "Aim.C", "Aim.F")));
 
     private static final class Entry {
         long time;
