@@ -44,13 +44,30 @@ MEMORY_TASKS = 6
 MEMORY_TASK_CHARS = 220
 MEMORY_RESULT_CHARS = 320
 
+RESULT_CAP = 6000          # столько символов результата живёт в пересылаемой истории
+
+
+def _cap_result(text: str) -> str:
+    """Большие выводы инструментов не тащим в историю целиком: интерфейс видит всё."""
+    if text is None or len(text) <= RESULT_CAP:
+        return text
+    head = int(RESULT_CAP * 0.7)
+    tail = RESULT_CAP - head
+    return (text[:head]
+            + f"\n…[в истории урезано: ещё {len(text) - RESULT_CAP} символов; "
+              f"полный вывод виден в интерфейсе и доступен read/grep]…\n"
+            + text[-tail:])
+
+
 SYSTEM_TEMPLATE = """Ты ELYTRIX — инженер-программист, работающий прямо в файлах пользователя.
 Папка: {root}
 Среда: {os} · {date}
 Проект: {fingerprint}
 
 КАК РАБОТАТЬ
-1. Осмотрись (ls, read, grep), пойми устройство кода — и действуй.
+1. В незнакомом проекте начни с map — карта кода вместо серии grep/read;
+   ориентиры («какой файл за что отвечает») сохраняй через memo — они вернутся
+   в промт следующей задачи, и искать заново не придётся.
 2. Правь точечно через edit. write — только новый файл или полная перепись.
 3. Нужного файла нет — создай его (write). Отсутствие файла не повод останавливать задачу.
 4. Есть тесты или сборка — запусти (bash) и исправь ошибки.
@@ -65,6 +82,8 @@ SYSTEM_TEMPLATE = """Ты ELYTRIX — инженер-программист, р�
 · В чат не дублируй код из write: итог — две-три строки, код живёт в файлах.
 · Вывод команд не цитируй — только вывод и решение.
 · Лимит на задачу: {max_steps} шагов. Решил задачу — заканчивай сразу.
+· Простая правка (удалить/изменить строку, текст, сообщение): один grep → один
+  edit → итог. Успешный edit не перечитывай и не перепроверяй тем же grep.
 
 БЕЗОПАСНОСТЬ
 · Пиши только внутри рабочей папки. Секреты (.env, *.key, id_rsa) не читай и не правь.
@@ -77,7 +96,7 @@ TEXT_PROTOCOL = """
 РЕЖИМ БЕЗ ИНСТРУМЕНТОВ (шлюз их не поддержал): отвечай строго одним JSON-объектом.
 Действие: {"thought":"зачем","tool":"read","args":{"path":"main.py"}}
 Доступно: ls{path?,depth?}, read{path,offset?,limit?}, grep{pattern,path?,glob?,i?},
-write{path,content}, edit{path,old,new,all?}, bash{command}
+write{path,content}, edit{path,old,new,all?}, bash{command}, map{path?}, memo{text}
 Готово: {"thought":"итог","done":true,"answer":"что сделано"}
 Ничего кроме JSON не пиши."""
 
@@ -152,6 +171,8 @@ class Agent:
         self.cancel = threading.Event()
         self.busy = False
         self.squeezed_total = 0
+        self._last_sig = ""
+        self._repeat = 0
         self.steps_history: List[StepInfo] = []
         self.last_task = ""
         self.compact_threshold = float(cfg.get("economy.compact_at", 0.55))
@@ -181,6 +202,10 @@ class Agent:
             max_steps=self.max_steps,
             memory=memory,
         )
+        notes = self.tools.notes_text()
+        if notes:
+            prompt += ("\n\nЗАМЕТКИ ПРОЕКТА (твои ориентиры из прошлых задач — "
+                       "не ищи заново то, что уже известно):\n" + notes)
         if self.text_protocol:
             prompt += TEXT_PROTOCOL
         return prompt
@@ -242,6 +267,7 @@ class Agent:
                     self._send("error", text=str(e))
                     break
 
+                self._note_repeat(turn)
                 self._absorb(turn, step)
                 report.steps = step
                 if not turn.tool_calls:
@@ -271,6 +297,7 @@ class Agent:
             charged=self.gw.session.charged - session_before.charged,
             elapsed=report.elapsed,
         )
+        self._auto_compact()          # следующая задача стартует с лёгкой историей
         report.cached_tokens = self.gw.session_cache_read
         report.squeezed_tokens = self.squeezed_total
         report.tool_calls = sum(len(s.tools) for s in self.steps_history)
@@ -334,6 +361,16 @@ class Agent:
             blocks = [{"type": "text", "text": ""}]
         self.messages.append({"role": "assistant", "content": blocks})
 
+    def _note_repeat(self, turn: Turn) -> None:
+        """Считает шаги подряд с тем же набором вызовов — против хождения по кругу."""
+        sig = json.dumps([(c.name, c.args) for c in turn.tool_calls],
+                         ensure_ascii=False, sort_keys=True) if turn.tool_calls else ""
+        if sig and sig == self._last_sig:
+            self._repeat += 1
+        else:
+            self._repeat = 0
+        self._last_sig = sig
+
     def _execute_tools(self, turn: Turn, step: int) -> bool:
         """Выполняет инструменты ответа. Возвращает True, если задачу надо прервать.
 
@@ -390,7 +427,12 @@ class Agent:
                        detail=res.detail, diff=res.diff, path=res.path, size=res.size,
                        elapsed=res.elapsed, args=_redact(call.args), text=res.text)
             blocks.append({"type": "tool_result", "tool_use_id": call.id or "call_0",
-                           "content": res.text, "is_error": not res.ok})
+                           "content": _cap_result(res.text), "is_error": not res.ok})
+        if self._repeat >= 1:
+            blocks.append({"type": "text", "text":
+                           "ELYTRIX: этот вызов уже был шаг назад с теми же аргументами — "
+                           "новый результат не появится. Смени подход (другой файл, шаблон, "
+                           "инструмент) или завершай ответ текстом."})
         self.messages.append({"role": "user", "content": blocks})
         return aborted
 

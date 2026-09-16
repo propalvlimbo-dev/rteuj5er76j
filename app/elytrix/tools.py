@@ -126,6 +126,17 @@ TOOL_SPECS: List[ToolSpec] = [
              {"type": "object", "properties": {"command": {"type": "string"},
                                                "timeout": {"type": "integer"}},
               "required": ["command"]}),
+    ToolSpec("map", "картирую", False,
+             "Карта проекта: дерево папок и сигнатуры (классы/функции) файлов. "
+             "Вызывай ВНАЧАЛЕ задачи вместо серии grep/read, чтобы понять, где что "
+             "лежит; один вызов заменяет десяток блужданий.",
+             {"type": "object", "properties": {"path": {"type": "string"}}}),
+    ToolSpec("memo", "запоминаю", False,
+             "Записать заметку-ориентир о проекте (какой файл за что отвечает, где "
+             "какие классы/хуки). Заметки автоматически попадают в следующий промт — "
+             "второй задаче не придётся искать заново.",
+             {"type": "object", "properties": {"text": {"type": "string"}},
+              "required": ["text"]}),
 ]
 
 TOOL_BY_NAME: Dict[str, ToolSpec] = {t.name: t for t in TOOL_SPECS}
@@ -664,6 +675,80 @@ class Toolbox:
                           summary=first[2:] if first.startswith("# ") else first[:80],
                           detail=f"«{args.get('pattern')}»", size=len(text))
 
+    SKIP_DIRS = {".git", "node_modules", "target", "build", "dist", "out",
+                 "__pycache__", ".idea", ".vscode", "venv", ".venv", ".elytrix"}
+    SIG_RE = re.compile(
+        r"^\s*(?:export\s+|public\s+|private\s+|protected\s+|final\s+|abstract\s+|"
+        r"static\s+)*(?:class|interface|enum|struct|trait|def|func|function)\s+\w+"
+        r"|^\s*(?:public|protected|private)\s+[\w<>\[\], .?]+\s+\w+\s*\(")
+
+    def notes_path(self) -> str:
+        return os.path.join(self.ws.root, ".elytrix", "notes.md")
+
+    def notes_text(self, limit: int = 1200) -> str:
+        """Хвост заметок проекта — идёт в системный промт следующей задачи."""
+        try:
+            with open(self.notes_path(), encoding="utf-8", errors="replace") as f:
+                lines = [ln.rstrip() for ln in f if ln.strip()][-24:]
+        except OSError:
+            return ""
+        text = "\n".join(lines)
+        return text[-limit:] if len(text) > limit else text
+
+    def _signatures(self, full: str, cap: int = 8) -> List[str]:
+        try:
+            with open(full, encoding="utf-8", errors="replace") as f:
+                out = []
+                for i, ln in enumerate(f):
+                    if i > 2000:
+                        break
+                    if self.SIG_RE.match(ln):
+                        out.append(ln.strip()[:100])
+                        if len(out) >= cap:
+                            break
+                return out
+        except OSError:
+            return []
+
+    def _map(self, args: Dict[str, Any]) -> ToolResult:
+        root = self.ws.root
+        sub = str(args.get("path") or "")
+        start = os.path.join(root, sub) if sub else root
+        lines: List[str] = []
+        files = 0
+        for dirpath, dirnames, filenames in os.walk(start):
+            dirnames[:] = sorted(d for d in dirnames
+                                 if d not in self.SKIP_DIRS and not d.startswith("."))
+            depth = os.path.relpath(dirpath, start).count(os.sep)
+            ind = "  " * depth
+            lines.append(f"{ind}{os.path.basename(dirpath) or '.'}/")
+            for fn in sorted(filenames):
+                if files >= 250 or len(lines) >= 350:
+                    break
+                full = os.path.join(dirpath, fn)
+                try:
+                    size = os.path.getsize(full)
+                except OSError:
+                    continue
+                files += 1
+                lines.append(f"{ind}  {fn} · {size} Б")
+                if size < 400_000:
+                    lines.extend(f"{ind}    {sig}" for sig in self._signatures(full))
+        text = "\n".join(lines[:380]) or "(пусто)"
+        return ToolResult(name="map", text=text, summary=f"карта: {files} файлов",
+                          size=len(text))
+
+    def _memo(self, args: Dict[str, Any]) -> ToolResult:
+        line = str(args.get("text") or "").strip()
+        if not line:
+            raise ValueError("нужно text")
+        path = self.notes_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+        return ToolResult(name="memo", text=f"записано: {line}",
+                          summary="заметка сохранена", changed=True, size=len(line))
+
     def _write(self, args: Dict[str, Any]) -> ToolResult:
         path = str(args.get("path") or "")
         content = args.get("content")
@@ -700,7 +785,8 @@ class Toolbox:
         self.by_name[name] = self.by_name.get(name, 0) + 1
         t0 = time.time()
         handlers = {"ls": self._ls, "read": self._read, "grep": self._grep,
-                    "write": self._write, "edit": self._edit, "bash": self._bash}
+                    "write": self._write, "edit": self._edit, "bash": self._bash,
+                    "map": self._map, "memo": self._memo}
         handler = handlers.get(name)
         if handler is None:
             return ToolResult(name=name, ok=False,

@@ -26,6 +26,32 @@ MODEL = "claude-sonnet-4-6"
 
 
 class AgentCase(unittest.TestCase):
+    def test_cap_result_truncates_huge_output(self):
+        from elytrix.agent import RESULT_CAP, _cap_result
+        big = "x" * (RESULT_CAP + 5000)
+        capped = _cap_result(big)
+        self.assertLessEqual(len(capped), RESULT_CAP + 200)
+        self.assertIn("урезано", capped)
+        self.assertEqual(_cap_result("коротко"), "коротко")
+
+    def test_repeat_detector_and_nudge(self):
+        import types
+        from elytrix.agent import Turn
+        from elytrix.gateway import ToolCall
+        turn1 = Turn(model="m", endpoint="anthropic")
+        turn1.tool_calls = [ToolCall(id="c1", name="ls", args={"path": ""})]
+        self.agent._note_repeat(turn1)
+        self.assertEqual(self.agent._repeat, 0)
+        turn2 = Turn(model="m", endpoint="anthropic")
+        turn2.tool_calls = [ToolCall(id="c2", name="ls", args={"path": ""})]
+        self.agent._note_repeat(turn2)
+        self.assertEqual(self.agent._repeat, 1)
+        self.agent.messages = []
+        self.agent._execute_tools(turn2, 1)
+        last = self.agent.messages[-1]["content"]
+        self.assertTrue(any(b.get("type") == "text" and "ELYTRIX:" in b.get("text", "")
+                            for b in last))
+
     def test_send_accepts_kind_inside_data(self):
         got = []
         self.agent.emit = lambda k, d: got.append((k, d))

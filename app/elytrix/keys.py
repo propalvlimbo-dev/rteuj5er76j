@@ -35,6 +35,7 @@ TILDE_NAMES = {
 }
 
 VK_NAMES = {
+    0x1B: "esc",
     0x26: "up", 0x28: "down", 0x27: "right", 0x25: "left",
     0x24: "home", 0x23: "end", 0x21: "pageup", 0x22: "pagedown",
     0x2D: "insert", 0x2E: "delete",

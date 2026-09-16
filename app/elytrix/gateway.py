@@ -598,6 +598,8 @@ class SmartAPI:
                 resp = conn.request("POST", path, body=body, headers=self.headers(kind))
             except socket.timeout as e:
                 conn.close()
+                if cancel is not None and cancel.is_set():
+                    raise Cancelled("остановлено пользователем")
                 raise GatewayError(f"{kind}: таймаут соединения ({self.connect_timeout}с)",
                                    code=0, retryable=True) from e
 
@@ -807,6 +809,8 @@ class SmartAPI:
             raise
         except (http.client.HTTPException, ConnectionError, OSError) as e:
             _close_quiet(resp)
+            if cancel is not None and cancel.is_set():
+                raise Cancelled("остановлено пользователем")
             if not turn.text and not turn.tool_calls:
                 err = GatewayError(f"обрыв потока ({kind}): {e}", retryable=True)
                 err.empty_stream = not state.get("lines")

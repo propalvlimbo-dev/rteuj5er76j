@@ -23,6 +23,19 @@ LIMITS = {"tool_result_chars": 2000, "read_chars": 1500, "bash_output_chars": 80
 
 
 class WorkspaceCase(unittest.TestCase):
+    def test_map_shows_tree_and_signatures(self):
+        res = self.box.run("map", {})
+        self.assertTrue(res.ok)
+        self.assertIn("main.py", res.text)
+        self.assertIn("def get_user", res.text)
+        self.assertNotIn("junk.js", res.text)      # node_modules не картируем
+        self.assertNotIn("SECRET", res.text)       # .env скрыт
+
+    def test_memo_notes_roundtrip(self):
+        res = self.box.run("memo", {"text": "ActiveSkyAirdrop.java — классы аирдропа"})
+        self.assertTrue(res.ok)
+        self.assertIn("ActiveSkyAirdrop", self.box.notes_text())
+
     def setUp(self) -> None:
         self.root = tempfile.mkdtemp(prefix="elytrix-tools-")
         self.ws = Workspace(self.root, limits=LIMITS)
@@ -279,7 +292,7 @@ class TestToolbox(WorkspaceCase):
 
     def test_schemas_are_compact_and_valid(self):
         names = [t["name"] for t in TOOL_SCHEMAS]
-        self.assertEqual(names, ["ls", "read", "grep", "write", "edit", "bash"])
+        self.assertEqual(names, ["ls", "read", "grep", "write", "edit", "bash", "map", "memo"])
         for spec in TOOL_SCHEMAS:
             self.assertEqual(spec["input_schema"]["type"], "object")
             self.assertLess(len(spec["description"]), 220,

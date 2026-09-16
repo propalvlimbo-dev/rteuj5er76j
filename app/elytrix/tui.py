@@ -904,6 +904,7 @@ class App:
                 self.add(KIND_INFO, "останавливаю: жду ответа от шлюза…")
             else:
                 self.agent.cancel.set()
+                self.gw.close()      # закрыть сокет — блокирующее чтение умрёт сразу
                 self.activity_text = "останавливаю (Esc/Ctrl+C ещё раз — немедленно)"
             self.dirty = True
             return
