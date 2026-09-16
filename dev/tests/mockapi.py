@@ -126,14 +126,19 @@ class _Handler(BaseHTTPRequestHandler):
             step = text("[mock] сценарий пуст")
         if api.stall:
             time.sleep(api.stall)
-        if api.cut_stream:
-            # обрыв потока: отдаём кусок мусора и закрываем соединение без [DONE]
+        if api.cut_stream or api.cut_empty:
+            # обрыв потока: кусок мусора (или ничего) и закрытие соединения без [DONE]
+            empty = api.cut_empty
+            if api.cut_once:
+                api.cut_stream = False
+                api.cut_empty = False
             try:
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
                 self.send_header("Transfer-Encoding", "chunked")
                 self.end_headers()
-                self.wfile.write(b"5\r\nhello\r\n")
+                if not empty:
+                    self.wfile.write(b"5\r\nhello\r\n")
                 self.wfile.flush()
             except Exception:  # noqa: BLE001
                 pass
@@ -306,6 +311,8 @@ class MockGateway:
         self.anthropic_message = ""
         self.stall = 0.0
         self.cut_stream = False
+        self.cut_empty = False
+        self.cut_once = False
         self._httpd: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
         self.host = host

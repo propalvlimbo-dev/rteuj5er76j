@@ -617,6 +617,7 @@ class App:
     def check_key_async(self) -> None:
         """Проверяет связь со шлюзом в фоне — интерфейс не подвисает."""
         def work() -> None:
+            self.gw.warm()          # греем оба эндпоинта, пока идёт проверка
             try:
                 ids = self.gw.fetch_models(timeout=10)
             except Exception as e:  # noqa: BLE001

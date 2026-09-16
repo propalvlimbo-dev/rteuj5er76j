@@ -26,6 +26,7 @@ import socket
 import ssl
 import threading
 import time
+import zlib
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -219,7 +220,13 @@ def from_openai_chunk(state: Dict[str, Any], obj: Dict[str, Any]) -> Tuple[str, 
                 piece = choice.get("text") if isinstance(choice.get("text"), str) else ""
         if isinstance(piece, str) and piece:
             delta_text += piece
-        for call in delta.get("tool_calls") or []:
+        message = choice.get("message")
+        message = message if isinstance(message, dict) else {}
+        calls = delta.get("tool_calls") or message.get("tool_calls") or []
+        legacy = delta.get("function_call") or message.get("function_call")
+        if isinstance(legacy, dict) and (legacy.get("name") or legacy.get("arguments")):
+            calls = list(calls) + [{"index": 0, "function": legacy}]
+        for call in calls:
             idx = int(call.get("index") or 0)
             slot = state.setdefault("calls", {}).setdefault(idx, {"id": "", "name": "", "args": ""})
             if call.get("id"):
@@ -227,9 +234,12 @@ def from_openai_chunk(state: Dict[str, Any], obj: Dict[str, Any]) -> Tuple[str, 
             fn = call.get("function") or {}
             if fn.get("name"):
                 slot["name"] = fn["name"]
-            if fn.get("arguments"):
-                slot["args"] += fn["arguments"]
-                tool_json += fn["arguments"]
+            args = fn.get("arguments")
+            if isinstance(args, dict):          # шлюз прислал объект вместо строки
+                args = json.dumps(args, ensure_ascii=False)
+            if args:
+                slot["args"] += args
+                tool_json += args
         if choice.get("finish_reason"):
             state["stop_reason"] = choice["finish_reason"]
     usage = obj.get("usage")
@@ -296,6 +306,12 @@ class Connection:
                         break
             raise GatewayError(f"нет соединения с {self.url}: {last_error}", retryable=True)
 
+    def preconnect(self) -> None:
+        """Заранее открывает канал (TLS-handshake), чтобы первый запрос не ждал его."""
+        with self._lock:
+            if self._conn is None:
+                self._conn = self._connect()
+
     def close(self) -> None:
         if self._conn is not None:
             try:
@@ -356,6 +372,17 @@ class SmartAPI:
             for c in self._conns.values():
                 c.close()
             self._conns.clear()
+
+    def warm(self) -> None:
+        """Параллельно греет соединения обоих эндпоинтов: первый ответ быстрее
+        на время рукопожатия TLS."""
+        def job() -> None:
+            for url in (self.base_url, self.oai_url):
+                try:
+                    self.conn(url).preconnect()
+                except Exception:  # noqa: BLE001
+                    pass
+        threading.Thread(target=job, daemon=True, name="elytrix-warm").start()
 
     def headers(self, kind: str) -> Dict[str, str]:
         base = {
@@ -477,6 +504,11 @@ class SmartAPI:
             self.last_endpoint = kind
             return turn
 
+        if last_error is not None and len(self.errors) >= 2:
+            prev = self.errors[-2]
+            if not prev.startswith("openai") and str(last_error).startswith(("поток", "обрыв")):
+                last_error = GatewayError(f"{last_error} · первый формат тоже не смог: {prev}",
+                                          retryable=last_error.retryable)
         raise last_error or GatewayError("шлюз не ответил", retryable=True)
 
     def _account(self, model: str, mult: float, usage: Usage) -> int:
@@ -530,26 +562,40 @@ class SmartAPI:
         path = "/v1/messages" if kind == "anthropic" else "/chat/completions"
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         t0 = time.time()
-        try:
-            resp = conn.request("POST", path, body=body, headers=self.headers(kind))
-        except socket.timeout as e:
-            conn.close()
-            raise GatewayError(f"{kind}: таймаут соединения ({self.connect_timeout}с)",
-                               code=0, retryable=True) from e
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                resp = conn.request("POST", path, body=body, headers=self.headers(kind))
+            except socket.timeout as e:
+                conn.close()
+                raise GatewayError(f"{kind}: таймаут соединения ({self.connect_timeout}с)",
+                                   code=0, retryable=True) from e
 
-        status = getattr(resp, "status", 200)
-        if status >= 400:
-            detail = _safe_read(resp, 800)
-            conn.close()
-            raise self._http_error(kind, status, detail)
+            status = getattr(resp, "status", 200)
+            if status >= 400:
+                detail = _safe_read(resp, 800)
+                conn.close()
+                raise self._http_error(kind, status, detail)
 
-        if stream:
-            turn = self._read_stream(kind, resp, model, on_text, on_tool, cancel, t0)
-        else:
-            raw = json.loads(_safe_read(resp, 4_000_000) or "{}")
-            turn = self._parse_full(kind, raw, model)
-        turn.usage.elapsed = time.time() - t0
-        return turn
+            if not stream:
+                raw = json.loads(_safe_read(resp, 4_000_000) or "{}")
+                turn = self._parse_full(kind, raw, model)
+                turn.usage.elapsed = time.time() - t0
+                return turn
+
+            try:
+                turn = self._read_stream(kind, resp, model, on_text, on_tool, cancel, t0)
+            except GatewayError as e:
+                # оборванный поток оставляет соединение грязным — только закрывать;
+                # пустой поток (грязное соединение с прошлого раза) пробуем ещё раз
+                conn.close()
+                if getattr(e, "empty_stream", False) and attempt < 2:
+                    continue
+                raise
+            conn.close()                  # keep-alive оставляем лишь не-стрим запросам
+            turn.usage.elapsed = time.time() - t0
+            return turn
 
     def _http_error(self, kind: str, status: int, detail: str) -> GatewayError:
         low = detail.lower()
@@ -637,10 +683,21 @@ class SmartAPI:
                      cancel: Optional[threading.Event], t0: float) -> Turn:
         """Читает SSE-поток построчно и сразу отдаёт куски в интерфейс."""
         state: Dict[str, Any] = {"calls": {}, "blocks": {}, "usage": {}, "stop_reason": "",
-                                 "json": {}, "announced": set(), "complete": False}
+                                 "json": {}, "announced": set(), "complete": False,
+                                 "lines": 0}
         turn = Turn(model=model, endpoint=kind)
         first = True
         buffer = b""
+        decompressor = None
+        enc = ""
+        try:
+            enc = (resp.getheader("Content-Encoding") or "").lower()
+        except Exception:  # noqa: BLE001
+            enc = ""
+        if "gzip" in enc:
+            decompressor = zlib.decompressobj(zlib.MAX_WBITS | 16)
+        elif "deflate" in enc:
+            decompressor = zlib.decompressobj()
         try:
             while True:
                 if cancel is not None and cancel.is_set():
@@ -648,6 +705,10 @@ class SmartAPI:
                 chunk = _read1(resp)
                 if not chunk:
                     break
+                if decompressor is not None:
+                    chunk = decompressor.decompress(chunk)
+                    if not chunk:
+                        continue
                 buffer += chunk
                 while b"\n" in buffer:
                     raw_line, buffer = buffer.split(b"\n", 1)
@@ -660,6 +721,7 @@ class SmartAPI:
                         data = line          # некоторые шлюзы льют JSON без data:
                     else:
                         continue
+                    state["lines"] += 1
                     if len(state.setdefault("tail", [])) < 3:
                         state["tail"].append(data[:160])
                     else:
@@ -693,7 +755,9 @@ class SmartAPI:
         except (http.client.HTTPException, ConnectionError, OSError) as e:
             _close_quiet(resp)
             if not turn.text and not turn.tool_calls:
-                raise GatewayError(f"обрыв потока ({kind}): {e}", retryable=True) from e
+                err = GatewayError(f"обрыв потока ({kind}): {e}", retryable=True)
+                err.empty_stream = not state.get("lines")
+                raise err from e
         else:
             _close_quiet(resp)
         usage = state.get("usage") or {}
@@ -714,8 +778,10 @@ class SmartAPI:
             if not turn.text and not turn.tool_calls:
                 tail = " · хвост потока: " + " | ".join(state.get("tail") or []) \
                     if state.get("tail") else ""
-                raise GatewayError(f"поток оборвался до конца ответа ({kind}){tail}",
+                err = GatewayError(f"поток оборвался до конца ответа ({kind}){tail}",
                                    retryable=True)
+                err.empty_stream = not state.get("lines")
+                raise err
             turn.stop_reason = turn.stop_reason or "incomplete"
         if turn.usage.ttfb == 0.0:
             turn.usage.ttfb = time.time() - t0

@@ -229,13 +229,17 @@ class TestResilience(GatewayCase):
 class FakeStream:
     """Подставной поток ответа: отдаёт байты порциями, как read1 у http.client."""
 
-    def __init__(self, data: bytes, piece: int = 7):
+    def __init__(self, data: bytes, piece: int = 7, encoding: str = ""):
         self._buf = data
         self._piece = piece
+        self._encoding = encoding
 
     def read1(self, n: int) -> bytes:
         chunk, self._buf = self._buf[:self._piece], self._buf[self._piece:]
         return chunk
+
+    def getheader(self, name: str, default: str = "") -> str:
+        return self._encoding if name.lower() == "content-encoding" else default
 
     def close(self) -> None:
         pass
@@ -244,10 +248,10 @@ class FakeStream:
 class TestStreamOddities(GatewayCase):
     """Причуды шлюзов: JSON без data:, закрытие без [DONE], мусор в потоке."""
 
-    def stream(self, kind: str, body: bytes):
+    def stream(self, kind: str, body: bytes, encoding: str = ""):
         import time as _time
-        return self.gw._read_stream(kind, FakeStream(body), MODEL, None, None, None,
-                                    _time.time())
+        return self.gw._read_stream(kind, FakeStream(body, encoding=encoding), MODEL,
+                                    None, None, None, _time.time())
 
     def test_openai_raw_json_lines_without_done(self):
         body = ("{\"choices\":[{\"delta\":{\"content\":\"привет\"}}]}\n"
@@ -277,6 +281,36 @@ class TestStreamOddities(GatewayCase):
                                       "data: [DONE]\n").encode("utf-8")
         turn = self.stream("openai", body)
         self.assertEqual(turn.text, "ок")
+
+
+    def test_gzip_stream_is_decompressed(self):
+        import zlib
+        plain = ("data: {\"choices\":[{\"delta\":{\"content\":\"упаковано\"}}]}\n"
+                 "data: [DONE]\n").encode("utf-8")
+        comp = zlib.compressobj(9, zlib.DEFLATED, zlib.MAX_WBITS | 16)
+        body = comp.compress(plain) + comp.flush()
+        turn = self.stream("openai", body, encoding="gzip")
+        self.assertEqual(turn.text, "упаковано")
+
+    def test_tool_arguments_as_dict_and_legacy(self):
+        from elytrix.gateway import from_openai_chunk
+        state: dict = {}
+        from_openai_chunk(state, {"choices": [{"delta": {"tool_calls": [
+            {"index": 0, "id": "c1", "function": {"name": "write",
+                                                  "arguments": {"path": "a.txt", "content": "x"}}}]}}]})
+        self.assertEqual(json.loads(state["calls"][0]["args"]), {"path": "a.txt", "content": "x"})
+        state2: dict = {}
+        from_openai_chunk(state2, {"choices": [{"delta": {
+            "function_call": {"name": "read", "arguments": "{\"path\": \"b.txt\"}"}}}]})
+        self.assertEqual(state2["calls"][0]["name"], "read")
+
+    def test_empty_stream_is_retried_on_fresh_connection(self):
+        # первый шаг сценария сгорает вместе с оборванным потоком, второй доходит
+        self.mock.queue(text("сгоревший шаг"), text("ответ со второй попытки"))
+        self.mock.cut_empty = True
+        self.mock.cut_once = True
+        turn = self.chat(stream=True)
+        self.assertEqual(turn.text, "ответ со второй попытки")
 
 
 class TestAccounting(GatewayCase):
