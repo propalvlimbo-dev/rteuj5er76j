@@ -37,6 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
   ELYTRIX.bat                                  консоль (полноэкранный интерфейс)
   python -m elytrix                            то же из терминала
   python -m elytrix "в api.py исправь get_user"  одна задача и выход
+  python -m elytrix prompt.txt                   задача из файла (большие промты)
   python -m elytrix -w C:\\Projects\\bot -m cheap  папка и дешёвая модель
   python -m elytrix --router 8789              шлюз для Cline / Continue / opencode
   python -m elytrix --doctor                   проверка ключа и связи со шлюзом
@@ -63,6 +64,24 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--models", action="store_true", help="список моделей и выход")
     ap.add_argument("--version", action="version", version=f"ELYTRIX {__version__}")
     return ap
+
+
+def resolve_task(args: argparse.Namespace) -> str:
+    """Задача из аргументов; если аргумент один и это файл — текст берём из файла.
+
+    Так большой промт не нужно печатать или вставлять в консоль: положили его
+    в prompt.txt и запустили ``python -m elytrix prompt.txt``.
+    """
+    parts = [p for p in (args.task or []) if p.strip()]
+    if len(parts) == 1:
+        path = os.path.expanduser(parts[0])
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8", errors="replace") as f:
+                    return f.read(500000).strip()
+            except OSError:
+                pass
+    return " ".join(parts).strip()
 
 
 def _print(text: str = "") -> None:
@@ -267,7 +286,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.doctor:
         return run_doctor(cfg, catalog, state, gateway, workspace, key_source)
 
-    task = " ".join(args.task or []).strip()
+    task = resolve_task(args)
     interactive = is_tty() and not args.plain and not task
 
     if not interactive:

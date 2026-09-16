@@ -1016,6 +1016,38 @@ class TestStartupBanner(ConsoleCase):
         self.assertIn("напишите задачу и Enter", frame)
 
 
+class TestBigPrompts(ConsoleCase):
+    """Большие промты: /prompt грузит файл в строку, cli читает задачу из файла."""
+
+    def test_prompt_command_loads_file_into_input(self):
+        path = os.path.join(self.ws, "spec.md")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("первая строка\nвторая строка")
+        self.app.command("/prompt spec.md")
+        self.assertEqual(self.app.input.lines, ["первая строка", "вторая строка"])
+
+    def test_prompt_missing_file_reports_error(self):
+        self.app.command("/prompt нет-такого.md")
+        self.assertTrue(any("не удалось" in t for t in self.block_texts(KIND_ERROR)))
+
+    def test_cli_resolve_task_reads_file(self):
+        from elytrix.cli import resolve_task
+
+        path = os.path.join(self.ws, "task.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("задача из файла")
+
+        class Args:
+            task = [path]
+
+        self.assertEqual(resolve_task(Args()), "задача из файла")
+
+        class Words:
+            task = ["просто", "слова"]
+
+        self.assertEqual(resolve_task(Words()), "просто слова")
+
+
 class TestFrameDiff(ConsoleCase):
     """Кадр перерисовывается дифференциально — без мерцания всего экрана."""
 

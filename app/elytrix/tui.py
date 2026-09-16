@@ -238,6 +238,7 @@ COMMANDS: List[Tuple[str, str]] = [
     ("/limit", "дневной лимит зачётных токенов: /limit 600000"),
     ("/confirm", "режим правок: ask | auto | readonly"),
     ("/verbose", "показывать содержимое результатов инструментов"),
+    ("/prompt", "загрузить большой промт из файла в строку ввода: /prompt spec.md"),
     ("/copy", "копировать строку ввода или последний ответ в буфер обмена"),
     ("/paste", "вставить буфер обмена в строку ввода"),
     ("/theme", "тема оформления"),
@@ -416,6 +417,8 @@ class App:
         self._last_lines: Optional[List[str]] = None   # прошлый кадр для диф-отрисовки
         self._force_full = True
         self._log = None                                 # журнал при ELYTRIX_LOG
+        self._write_ema = 0.0                            # средняя цена кадра в консоли
+        self._slow_console = False
 
         agent.emit = self.post
         agent.confirm = self.confirm_async
@@ -486,7 +489,8 @@ class App:
                     # чаще 20 кадров/с не перерисовываем: классическая консоль
                     # Windows не успевает за перерисовкой на каждое нажатие,
                     # и ввод ощущается рывками; dirty остаётся — докадрим чуть позже
-                    if self.dirty and now - self.last_frame < 0.05:
+                    interval = 0.05 if self._write_ema < 0.08 else 0.12
+                    if self.dirty and now - self.last_frame < interval:
                         need = False
                     else:
                         self.draw()
@@ -1165,6 +1169,7 @@ class App:
             "/steps": self.cmd_steps, "/limit": self.cmd_limit,
             "/confirm": self.cmd_confirm, "/verbose": self.cmd_verbose,
             "/copy": self.cmd_copy, "/paste": self.cmd_paste,
+            "/prompt": self.cmd_prompt,
             "/theme": self.cmd_theme, "/cd": self.cmd_cd, "/key": self.cmd_key,
             "/doctor": self.cmd_doctor, "/router": self.cmd_router,
             "/exit": lambda a: self.quit(), "/quit": lambda a: self.quit(),
@@ -1408,6 +1413,26 @@ class App:
             self.toggle_verbose()
         elif wanted != self.verbose:
             self.toggle_verbose()
+
+    def cmd_prompt(self, arg: str) -> None:
+        """/prompt файл — большой промт из файла прямо в строку ввода."""
+        if not arg:
+            self.add(KIND_INFO, "/prompt <файл> — загрузить текст промта из файла "
+                                "в строку ввода (правьте и жмите Enter)")
+            return
+        path = arg.strip()
+        if not os.path.isabs(path):
+            path = os.path.join(self.ws.root, path)
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                text = f.read(200000)
+        except OSError as e:
+            self.add(KIND_ERROR, f"не удалось прочитать файл: {e}")
+            return
+        self.input.set_text(text.strip("\n"))
+        self.add(KIND_INFO,
+                 f"промт из {os.path.basename(path)} в строке ввода "
+                 f"({human_number(len(text))} символов) — правьте и жмите Enter")
 
     def cmd_copy(self, _arg: str) -> None:
         self.do_copy()
@@ -1782,11 +1807,22 @@ class App:
                 out.append(SHOW_CURSOR)
         out.append("\x1b[0m")
         self._log_event(f"draw {sum(len(p) for p in out)} байт")
+        t0 = time.time()
         try:
             sys.stdout.write("".join(out))
             sys.stdout.flush()
         except (BrokenPipeError, ValueError):
             self.exit_code = 0
+        dt = time.time() - t0
+        self._write_ema = dt if not self._write_ema else 0.7 * self._write_ema + 0.3 * dt
+        if self._write_ema > 0.08 and not self._slow_console:
+            # консоль не успевает рисовать (conhost на слабой машине): сами
+            # снижаем темп кадров, чтобы ввод не стоял в очереди на отрисовку
+            self._slow_console = True
+            self.add(KIND_INFO,
+                     f"консоль рисует кадр ~{int(self._write_ema * 1000)} мс — снижаю темп "
+                     "перерисовки; в Windows Terminal будет заметно плавнее "
+                     "(какой терминал обнаружен — /doctor)")
 
     def _dialog_cursor(self, rows: List[Line], width: int, body_top: int) -> Optional[Tuple[int, int]]:
         """Курсор для диалога ввода (PromptDialog): где мигает каретка."""
