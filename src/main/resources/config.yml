@@ -1,32 +1,9 @@
-# Боты только в TAB. Ники максимум 16 символов.
-tab-bots:
-  - name: NightWalker
-    ping: 54
-  - name: SkyDreamer
-    ping: 81
-
-# Пакетные игроки. spawn — место появления, target — куда бегут после запуска.
-# Маршрут должен быть ровным и свободным: тяжёлый pathfinding намеренно не используется.
-live-bots:
-  alex:
-    name: AlexAFK
-    ping: 42
-    speed-blocks-per-second: 3.8
-    spawn: { world: world, x: 0.5, y: 65.0, z: 0.5, yaw: 0.0, pitch: 0.0 }
-    target: { world: world, x: 8.5, y: 65.0, z: 0.5 }
-  steve:
-    name: SteveAFK
-    ping: 67
-    speed-blocks-per-second: 4.0
-    spawn: { world: world, x: 1.5, y: 65.0, z: 0.5, yaw: 0.0, pitch: 0.0 }
-    target: { world: world, x: 1.5, y: 65.0, z: 10.5 }
-  elytra:
-    name: ElytraFan
-    ping: 35
-    speed-blocks-per-second: 3.6
-    spawn: { world: world, x: -1.5, y: 65.0, z: 0.5, yaw: 0.0, pitch: 0.0 }
-    target: { world: world, x: -9.5, y: 65.0, z: 0.5 }
-
 settings:
-  view-distance: 64
   movement-period-ticks: 2
+  motd-count-enabled: true
+  override-online-command: true
+  use-essentials-spawn: true
+  physics:
+    enabled: true
+    max-step-height: 1
+    max-fall-check: 4

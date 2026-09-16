@@ -1,0 +1,30 @@
+tab-bots:
+  night:
+    name: NightWalker
+    ping: 54
+    luckperms-group: default
+  dreamer:
+    name: SkyDreamer
+    ping: 81
+    luckperms-group: default
+
+live-bots:
+  alex:
+    name: AlexAFK
+    ping: 42
+    luckperms-group: default
+    speed-blocks-per-second: 3.8
+    # Если spawn отсутствует, используется EssentialsX /spawn, затем setworldspawn.
+    target: { x: 8.5, y: 65.0, z: 0.5 }
+  steve:
+    name: SteveAFK
+    ping: 67
+    luckperms-group: default
+    speed-blocks-per-second: 4.0
+    target: { x: 1.5, y: 65.0, z: 10.5 }
+  elytra:
+    name: ElytraFan
+    ping: 35
+    luckperms-group: default
+    speed-blocks-per-second: 3.6
+    target: { x: -9.5, y: 65.0, z: 0.5 }
