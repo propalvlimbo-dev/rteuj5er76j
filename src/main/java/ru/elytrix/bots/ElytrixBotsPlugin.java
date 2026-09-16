@@ -28,7 +28,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private YamlConfiguration bots;
     private DatasetManager datasets;
     private final Random random = new Random();
-    private final NmsFakePlayerRegistry registry = new NmsFakePlayerRegistry();
+    private final BotTeamManager teams = new BotTeamManager();
 
     @Override public void onEnable() {
         saveDefaultConfig(); saveResource("bots.yml", false);
@@ -47,7 +47,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             tabBots.forEach(bot -> bot.sendRemovePlayerPacket(viewer));
             liveBots.forEach(bot -> { bot.player.tick(Collections.emptySet()); bot.player.sendRemovePlayerPacket(viewer); });
         }
-        registry.clear();
+        teams.clear();
         tabBots.clear(); liveBots.clear();
     }
 
@@ -58,7 +58,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPing(ServerListPingEvent event) {
         if (getConfig().getBoolean("settings.motd-count-enabled", true))
-            event.setMaxPlayers(Math.max(event.getMaxPlayers(), realPlayers().size() + fakeCount() + 1));
+            event.setMaxPlayers(20000 + fakeCount());
         // Bukkit не позволяет менять getNumPlayers; Bungee-модуль должен менять число на proxy.
     }
 
@@ -118,13 +118,13 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
                 }
             } catch (Exception ex) { getLogger().warning("LuckPerms hook failed for " + name + ": " + ex.getMessage()); }
         }
-        registry.register(name, p.getUuid(), registrationWorld);
+        teams.add(name, group);
         return p;
     }
 
     private List<Player> realPlayers() {
         List<Player> result = new ArrayList<>();
-        for (Player player : Bukkit.getOnlinePlayers()) if (!registry.isFake(player.getUniqueId())) result.add(player);
+        result.addAll(Bukkit.getOnlinePlayers());
         return result;
     }
 
@@ -133,7 +133,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         for (MovingBot b : liveBots) {
             b.move(ticks / 20D);
             Set<Player> viewers = new HashSet<>();
-            for (Player player : b.world.getPlayers()) if (!registry.isFake(player.getUniqueId())) viewers.add(player);
+            viewers.addAll(b.world.getPlayers());
             b.player.tick(viewers);
         }
     }
