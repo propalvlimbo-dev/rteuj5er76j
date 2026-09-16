@@ -158,9 +158,11 @@ class Agent:
 
     # ------------------------------------------------------------------ сервис
 
-    def _send(self, kind: str, **data: Any) -> None:
+    def _send(self, _kind: str, **data: Any) -> None:
+        # имя первого параметра не должно конфликтовать с ключами data:
+        # например, _send("note", text=…, kind="warn")
         try:
-            self.emit(kind, data)
+            self.emit(_kind, data)
         except Exception:  # noqa: BLE001  интерфейс не должен ронять агента
             pass
 

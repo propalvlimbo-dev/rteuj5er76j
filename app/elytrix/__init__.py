@@ -8,5 +8,5 @@
 Точка входа: ``python -m elytrix`` (из Windows — ELYTRIX.bat).
 """
 
-__version__ = "3.2.2"
+__version__ = "3.2.3"
 __all__ = ["__version__"]

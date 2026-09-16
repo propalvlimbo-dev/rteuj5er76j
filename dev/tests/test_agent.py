@@ -26,6 +26,12 @@ MODEL = "claude-sonnet-4-6"
 
 
 class AgentCase(unittest.TestCase):
+    def test_send_accepts_kind_inside_data(self):
+        got = []
+        self.agent.emit = lambda k, d: got.append((k, d))
+        self.agent._send("note", text="шлюз перегружен", kind="warn")
+        self.assertEqual(got, [("note", {"text": "шлюз перегружен", "kind": "warn"})])
+
     def setUp(self) -> None:
         self.mock = MockGateway().start()
         self.root = make_workspace()
