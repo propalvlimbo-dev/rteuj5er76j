@@ -4,6 +4,7 @@ import dev.by1337.virtualentity.api.virtual.player.VirtualPlayer;
 import net.luckperms.api.LuckPerms;
 import net.luckperms.api.LuckPermsProvider;
 import net.luckperms.api.node.types.InheritanceNode;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.configuration.ConfigurationSection;
@@ -24,6 +25,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener {
     private final List<MovingBot> liveBots = new ArrayList<>();
     private BukkitTask ticker;
     private YamlConfiguration bots;
+    private final NmsFakePlayerRegistry registry = new NmsFakePlayerRegistry();
 
     @Override public void onEnable() {
         saveDefaultConfig(); saveResource("bots.yml", false);
@@ -36,10 +38,11 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener {
 
     @Override public void onDisable() {
         if (ticker != null) ticker.cancel();
-        for (Player viewer : Bukkit.getOnlinePlayers()) {
+        for (Player viewer : realPlayers()) {
             tabBots.forEach(bot -> bot.sendRemovePlayerPacket(viewer));
             liveBots.forEach(bot -> { bot.player.tick(Collections.emptySet()); bot.player.sendRemovePlayerPacket(viewer); });
         }
+        registry.clear();
         tabBots.clear(); liveBots.clear();
     }
 
@@ -50,7 +53,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPing(ServerListPingEvent event) {
         if (getConfig().getBoolean("settings.motd-count-enabled", true))
-            event.setMaxPlayers(Math.max(event.getMaxPlayers(), Bukkit.getOnlinePlayers().size() + fakeCount() + 1));
+            event.setMaxPlayers(Math.max(event.getMaxPlayers(), realPlayers().size() + fakeCount() + 1));
         // Bukkit не позволяет менять getNumPlayers; Bungee-модуль должен менять число на proxy.
     }
 
@@ -60,7 +63,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener {
         String cmd = event.getMessage().toLowerCase(Locale.ROOT).split(" ")[0];
         if (!cmd.equals("/online") && !cmd.equals("/list")) return;
         event.setCancelled(true);
-        int real = Bukkit.getOnlinePlayers().size(), fake = fakeCount();
+        int real = realPlayers().size(), fake = fakeCount();
         event.getPlayer().sendMessage(ChatColor.GREEN + "Онлайн: " + (real + fake) + ChatColor.GRAY + " (реальных: " + real + ", ботов: " + fake + ")");
     }
 
@@ -76,8 +79,8 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener {
         ConfigurationSection tabs = bots.getConfigurationSection("tab-bots");
         if (tabs != null) for (String key : tabs.getKeys(false)) {
             ConfigurationSection c = tabs.getConfigurationSection(key); if (c == null) continue;
-            VirtualPlayer bot = create(c.getString("name", key), c.getInt("ping", 50), c.getString("luckperms-group", "default"));
-            tabBots.add(bot); Bukkit.getOnlinePlayers().forEach(bot::sendAddPlayerPacket);
+            VirtualPlayer bot = create(c.getString("name", key), c.getInt("ping", 50), c.getString("luckperms-group", "default"), Bukkit.getWorlds().get(0));
+            tabBots.add(bot); realPlayers().forEach(bot::sendAddPlayerPacket);
         }
         ConfigurationSection lives = bots.getConfigurationSection("live-bots");
         if (lives != null) for (String key : lives.getKeys(false)) {
@@ -85,28 +88,47 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener {
             try {
                 Location spawn = spawn(c.getConfigurationSection("spawn"));
                 Point target = point(c.getConfigurationSection("target"), spawn.getWorld());
-                VirtualPlayer player = create(c.getString("name", key), c.getInt("ping", 50), c.getString("luckperms-group", "default"));
+                VirtualPlayer player = create(c.getString("name", key), c.getInt("ping", 50), c.getString("luckperms-group", "default"), spawn.getWorld());
                 player.setPos(vec(spawn)); player.setYaw(spawn.getYaw()); player.setPitch(spawn.getPitch()); player.setSprinting(true); player.setOnGround(true);
                 liveBots.add(new MovingBot(player, spawn.getWorld(), target.vector(), c.getDouble("speed-blocks-per-second", 3.8)));
-                Bukkit.getOnlinePlayers().forEach(player::sendAddPlayerPacket);
+                realPlayers().forEach(player::sendAddPlayerPacket);
             } catch (RuntimeException ex) { getLogger().warning("Skipped bot " + key + ": " + ex.getMessage()); }
         }
     }
 
-    private VirtualPlayer create(String name, int ping, String group) {
+    private VirtualPlayer create(String name, int ping, String group, World registrationWorld) {
         if (name.isBlank() || name.length() > 16) throw new IllegalArgumentException("name must be 1-16 characters");
         VirtualPlayer p = VirtualPlayer.create(); p.setName(name); p.setLatency(Math.max(0, ping)); p.setGameMode(GameMode.SURVIVAL);
         if (Bukkit.getPluginManager().isPluginEnabled("LuckPerms")) {
-            try { LuckPerms lp = LuckPermsProvider.get(); lp.getUserManager().modifyUser(p.getUuid(), user -> user.data().add(InheritanceNode.builder(group).build())); }
-            catch (Exception ex) { getLogger().warning("LuckPerms hook failed for " + name + ": " + ex.getMessage()); }
+            try {
+                LuckPerms lp = LuckPermsProvider.get();
+                lp.getUserManager().modifyUser(p.getUuid(), user -> user.data().add(InheritanceNode.builder(group).build()));
+                net.luckperms.api.model.group.Group lpGroup = lp.getGroupManager().getGroup(group);
+                String prefix = lpGroup == null ? null : lpGroup.getCachedData().getMetaData().getPrefix();
+                if (prefix != null) {
+                    String label = ChatColor.translateAlternateColorCodes('&', prefix) + name;
+                    p.setDisplayName(LegacyComponentSerializer.legacySection().deserialize(label));
+                    p.setCustomName(LegacyComponentSerializer.legacySection().deserialize(label));
+                    p.setCustomNameVisible(true);
+                }
+            } catch (Exception ex) { getLogger().warning("LuckPerms hook failed for " + name + ": " + ex.getMessage()); }
         }
+        registry.register(name, p.getUuid(), registrationWorld);
         return p;
+    }
+
+    private List<Player> realPlayers() {
+        List<Player> result = new ArrayList<>();
+        for (Player player : Bukkit.getOnlinePlayers()) if (!registry.isFake(player.getUniqueId())) result.add(player);
+        return result;
     }
 
     private void tick(int ticks) {
         for (MovingBot b : liveBots) {
             b.move(ticks / 20D);
-            b.player.tick(new HashSet<>(b.world.getPlayers()));
+            Set<Player> viewers = new HashSet<>();
+            for (Player player : b.world.getPlayers()) if (!registry.isFake(player.getUniqueId())) viewers.add(player);
+            b.player.tick(viewers);
         }
     }
 
@@ -135,13 +157,22 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener {
     private record Point(World world,double x,double y,double z,float yaw,float pitch) { Vec3d vector(){return new Vec3d(x,y,z);} }
 
     private final class MovingBot {
-        final VirtualPlayer player; final World world; final Vec3d target; final double speed; boolean arrived;
+        final VirtualPlayer player; final World world; final Vec3d target; final double speed; boolean arrived; double verticalVelocity;
         MovingBot(VirtualPlayer p, World w, Vec3d t, double s){player=p;world=w;target=t;speed=Math.max(.1,s);}
         void move(double seconds) {
             if (arrived) return; Vec3d p=player.getPos(); double dx=target.x-p.x,dz=target.z-p.z, horizontal=Math.sqrt(dx*dx+dz*dz), step=speed*seconds;
             if(horizontal<.03){arrived=true;player.setSprinting(false);return;}
-            double amount=Math.min(step,horizontal), nx=p.x+dx/horizontal*amount,nz=p.z+dz/horizontal*amount,ny=groundY(nx,p.y,nz);
-            if(Double.isNaN(ny)) { player.setSprinting(false); return; }
+            double amount=Math.min(step,horizontal), nx=p.x+dx/horizontal*amount,nz=p.z+dz/horizontal*amount,ground=groundY(nx,p.y,nz);
+            if(Double.isNaN(ground)) { player.setSprinting(false); return; }
+            double ny;
+            if (ground > p.y + 0.05) { // короткий плавный шаг/прыжок вместо телепорта вверх
+                verticalVelocity = Math.max(verticalVelocity, 4.2);
+                ny = Math.min(ground, p.y + verticalVelocity * seconds);
+            } else if (ground < p.y - 0.05) { // плавное падение с обычным ускорением
+                verticalVelocity = Math.max(-7.0, verticalVelocity - 9.8 * seconds);
+                ny = Math.max(ground, p.y + verticalVelocity * seconds);
+            } else { ny = ground; verticalVelocity = 0; }
+            player.setOnGround(Math.abs(ny-ground)<0.02);
             player.setSprinting(true); player.setYaw((float)Math.toDegrees(Math.atan2(-dx,dz))); player.setPos(new Vec3d(nx,ny,nz));
         }
         double groundY(double x,double y,double z) {
