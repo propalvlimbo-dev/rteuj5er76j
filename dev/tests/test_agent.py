@@ -26,6 +26,25 @@ MODEL = "claude-sonnet-4-6"
 
 
 class AgentCase(unittest.TestCase):
+    def test_quick_task_heuristic(self):
+        from elytrix.agent import _is_quick
+        self.assertTrue(_is_quick("удали сообщение «Привет» из AirdropManager.java"))
+        self.assertTrue(_is_quick("исправь опечатку в readme"))
+        self.assertFalse(_is_quick("перепиши плагин аирдропов под новую версию API "
+                                    "и добавь поддержку нескольких миров"))
+        self.assertFalse(_is_quick(""))
+
+    def test_memory_persists_between_agents(self):
+        import json as _json
+        from elytrix.agent import Agent
+        self.agent.memory = [{"task": "удалил привет", "result": "ok [Airdrop.java]"}]
+        self.agent._save_memory()
+        path = self.agent._memory_path()
+        self.assertTrue(_json.load(open(path, encoding="utf-8")))
+        a = self.agent
+        fresh = Agent(a.gw, a.tools, a.cfg, a.catalog, a.state)
+        self.assertEqual(fresh.memory[0]["task"], "удалил привет")
+
     def test_cap_result_truncates_huge_output(self):
         from elytrix.agent import RESULT_CAP, _cap_result
         big = "x" * (RESULT_CAP + 5000)

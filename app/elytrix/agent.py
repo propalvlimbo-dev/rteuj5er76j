@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from .config import Catalog, Config, State
+from .config import Catalog, Config, State, home_dir
 from .gateway import Cancelled, GatewayError, SmartAPI, Turn, Usage, estimate_tokens, messages_tokens
 from .tools import Toolbox, ToolResult, TOOL_SCHEMAS
 
@@ -43,6 +43,16 @@ SQUEEZE_CHARS = 160
 MEMORY_TASKS = 6
 MEMORY_TASK_CHARS = 220
 MEMORY_RESULT_CHARS = 320
+
+QUICK_MARKS = ("удали", "убери", "исправь", "поправь", "замен", "переимен",
+               "поменяй", "добавь строку", "сотри", "вырежи")
+
+
+def _is_quick(task: str) -> bool:
+    """Мелкая правка: решаем за пару шагов, без карт и перепроверок."""
+    low = (task or "").strip().lower()
+    return 0 < len(low) < 120 and any(m in low for m in QUICK_MARKS)
+
 
 RESULT_CAP = 6000          # столько символов результата живёт в пересылаемой истории
 
@@ -169,10 +179,13 @@ class Agent:
         self.journal: List[str] = []
         self.text_protocol = False
         self.cancel = threading.Event()
+        self.tools.cancel = self.cancel
         self.busy = False
         self.squeezed_total = 0
         self._last_sig = ""
         self._repeat = 0
+        self._quick = False
+        self._load_memory()
         self.steps_history: List[StepInfo] = []
         self.last_task = ""
         self.compact_threshold = float(cfg.get("economy.compact_at", 0.55))
@@ -202,6 +215,10 @@ class Agent:
             max_steps=self.max_steps,
             memory=memory,
         )
+        if self._quick:
+            prompt += ("\n\nЗАДАЧА ПРОСТАЯ (мелкая правка): реши за 1–3 шага — "
+                       "один grep → один edit → итог. Без map/ls и повторных проверок, "
+                       "если путь уже ясен из заметок.")
         notes = self.tools.notes_text()
         if notes:
             prompt += ("\n\nЗАМЕТКИ ПРОЕКТА (твои ориентиры из прошлых задач — "
@@ -226,6 +243,26 @@ class Agent:
             self.memory = []
         self.squeezed_total = 0
 
+    def _memory_path(self) -> str:
+        return os.path.join(home_dir(), "memory.json")
+
+    def _load_memory(self) -> None:
+        try:
+            with open(self._memory_path(), encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                self.memory = [d for d in data if isinstance(d, dict)
+                               and d.get("task") and d.get("result")][-MEMORY_TASKS:]
+        except (OSError, ValueError):
+            pass
+
+    def _save_memory(self) -> None:
+        try:
+            with open(self._memory_path(), "w", encoding="utf-8") as f:
+                json.dump(self.memory[-MEMORY_TASKS:], f, ensure_ascii=False)
+        except OSError:
+            pass
+
     def set_model(self, model: str) -> str:
         self.model = model or self.catalog.default
         # контекст другой модели стоит других денег — старую историю не тащим
@@ -238,6 +275,7 @@ class Agent:
         """Одна задача пользователя: сколько нужно шагов, столько и сделаем."""
         report = Report()
         self.last_task = task
+        self._quick = _is_quick(task)
         self.busy = True
         self.cancel.clear()
         t0 = time.time()
@@ -252,7 +290,8 @@ class Agent:
         self._send(self.EVENT_STATUS, text="думаю")
 
         try:
-            for step in range(1, self.max_steps + 1):
+            step_cap = min(self.max_steps, 6) if self._quick else self.max_steps
+            for step in range(1, step_cap + 1):
                 if self.cancel.is_set():
                     report.cancelled = True
                     break
@@ -302,6 +341,9 @@ class Agent:
         report.squeezed_tokens = self.squeezed_total
         report.tool_calls = sum(len(s.tools) for s in self.steps_history)
         self._remember(task, report)
+        self._save_memory()
+        if self.prompt_tokens() > self.context_budget() * 0.8:
+            self.compact(aggressive=True)   # следующая задача стартует лёгкой
         return report
 
     def _step(self, step: int) -> Turn:

@@ -36,6 +36,17 @@ class WorkspaceCase(unittest.TestCase):
         self.assertTrue(res.ok)
         self.assertIn("ActiveSkyAirdrop", self.box.notes_text())
 
+    def test_bash_killed_on_cancel(self):
+        import threading
+        import time
+        cancel = threading.Event()
+        self.box.cancel = cancel
+        threading.Timer(0.4, cancel.set).start()
+        t0 = time.time()
+        res = self.box.run("bash", {"command": "sleep 30"})
+        self.assertLess(time.time() - t0, 10)
+        self.assertIn("прервана", res.text)
+
     def setUp(self) -> None:
         self.root = tempfile.mkdtemp(prefix="elytrix-tools-")
         self.ws = Workspace(self.root, limits=LIMITS)

@@ -905,6 +905,7 @@ class App:
             else:
                 self.agent.cancel.set()
                 self.gw.close()      # закрыть сокет — блокирующее чтение умрёт сразу
+                threading.Timer(2.0, self._esc_watchdog).start()
                 self.activity_text = "останавливаю (Esc/Ctrl+C ещё раз — немедленно)"
             self.dirty = True
             return
@@ -1129,6 +1130,11 @@ class App:
         self.add(KIND_INFO, f"подробный вывод {'включён' if self.verbose else 'выключен'} "
                             f"(содержимое результатов инструментов)")
         self.dirty = True
+
+    def _esc_watchdog(self) -> None:
+        """Если автоповтор шлюза открыл новый сокет после Esc — закрыть и его."""
+        if self.busy and self.agent.cancel.is_set():
+            self.gw.close()
 
     def quit(self, code: int = 0) -> None:
         if self.busy:

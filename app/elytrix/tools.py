@@ -22,6 +22,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -528,7 +529,8 @@ class Workspace:
         self.touched.append(rel)
         return f"Удалён {rel} (копия в .elytrix/backups)", f"{rel} удалён"
 
-    def bash(self, command: str, timeout: int = 120) -> Tuple[str, str]:
+    def bash(self, command: str, timeout: int = 120,
+             cancel: Optional[threading.Event] = None) -> Tuple[str, str]:
         cmd = (command or "").strip()
         if not cmd:
             raise ValueError("пустая команда")
@@ -538,17 +540,36 @@ class Workspace:
         timeout = max(5, min(int(timeout or 120), 900))
         t0 = time.time()
         try:
-            proc = subprocess.run(cmd, shell=True, cwd=self.root, capture_output=True,
-                                  text=True, encoding="utf-8", errors="replace", timeout=timeout)
-        except subprocess.TimeoutExpired:
-            return (f"Команда не завершилась за {timeout}с: {cmd}. "
-                    f"Разбей её на части или добавь флаг неинтерактивного режима.",
-                    f"таймаут {timeout}с")
+            proc = subprocess.Popen(cmd, shell=True, cwd=self.root,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    text=True, encoding="utf-8", errors="replace")
         except OSError as e:
             raise RuntimeError(f"не удалось запустить команду: {e}") from e
+        out = err = ""
+        while True:
+            try:
+                out, err = proc.communicate(timeout=0.25)
+                break
+            except subprocess.TimeoutExpired:
+                if cancel is not None and cancel.is_set():
+                    proc.kill()
+                    try:
+                        proc.wait(2)
+                    except subprocess.TimeoutExpired:  # noqa: BLE001
+                        pass
+                    return (f"Команда прервана пользователем (Esc): {cmd}", "остановлено")
+                if time.time() - t0 > timeout:
+                    proc.kill()
+                    try:
+                        proc.wait(2)
+                    except subprocess.TimeoutExpired:  # noqa: BLE001
+                        pass
+                    return (f"Команда не завершилась за {timeout}с: {cmd}. "
+                            f"Разбей её на части или добавь флаг неинтерактивного режима.",
+                            f"таймаут {timeout}с")
         elapsed = time.time() - t0
-        out = (proc.stdout or "").replace("\r\n", "\n")
-        err = (proc.stderr or "").replace("\r\n", "\n")
+        out = (out or "").replace("\r\n", "\n")
+        err = (err or "").replace("\r\n", "\n")
         limit = int(self.limits.get("bash_output_chars", 4000))
         body = _truncate_middle(out, limit)
         if err.strip():
@@ -647,6 +668,7 @@ class Toolbox:
     def __init__(self, ws: Workspace, limits: Optional[Dict[str, Any]] = None):
         self.ws = ws
         self.limits = dict(limits or {})
+        self.cancel: Optional[threading.Event] = None   # ставит агент: Esc убивает команды
         self.calls = 0
         self.by_name: Dict[str, int] = {}
 
@@ -772,7 +794,7 @@ class Toolbox:
 
     def _bash(self, args: Dict[str, Any]) -> ToolResult:
         cmd = str(args.get("command") or "")
-        text, summary = self.ws.bash(cmd, int(args.get("timeout") or 120))
+        text, summary = self.ws.bash(cmd, int(args.get("timeout") or 120), self.cancel)
         ok = "[код 0" in text
         return ToolResult(name="bash", ok=ok, text=text, summary=summary, detail=cmd[:200],
                           size=len(text))
