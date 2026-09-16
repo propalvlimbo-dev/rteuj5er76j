@@ -47,6 +47,21 @@ class GatewayError(RuntimeError):
         super().__init__(message)
         self.code = code
         self.retryable = retryable
+        self.overload = False          # шлюз перегружен — запрос стоит повторить с паузой
+
+
+_OVERLOAD_MARKS = ("overload", "try again", "too many", "rate limit",
+                   "capacity", "busy", "throttl")
+
+
+def _overload_error(message: str, code: int = 529) -> GatewayError:
+    """Ошибка шлюза «сейчас перегружен»: помечается для автоповтора с паузой."""
+    low = message.lower()
+    overload = any(m in low for m in _OVERLOAD_MARKS)
+    text = f"шлюз перегружен: {message}" if overload else message
+    err = GatewayError(text, code=code, retryable=True)
+    err.overload = overload
+    return err
 
 
 class AuthError(GatewayError):
@@ -456,7 +471,8 @@ class SmartAPI:
              stream: Optional[bool] = None,
              on_text: Optional[Callable[[str], None]] = None,
              on_tool: Optional[Callable[[str, Dict[str, Any]], None]] = None,
-             cancel: Optional[threading.Event] = None) -> Turn:
+             cancel: Optional[threading.Event] = None,
+             on_note: Optional[Callable[[str], None]] = None) -> Turn:
         """Отправляет запрос модели и собирает ответ (со стримингом, если включён).
 
         ``on_text`` вызывается на каждый пришедший кусок текста — так интерфейс
@@ -477,33 +493,44 @@ class SmartAPI:
 
         cached_system, cached_tools, sent_messages = self.apply_cache(system, tools, messages)
         last_error: Optional[GatewayError] = None
-        for kind in endpoints:
-            if cancel is not None and cancel.is_set():
-                raise Cancelled("остановлено пользователем")
-            try:
-                turn = self._call(kind, resolved, cached_system if kind == "anthropic" else system,
-                                  sent_messages, cached_tools if kind == "anthropic" else tools,
-                                  max_tokens, temperature, want_stream, on_text, on_tool, cancel)
-            except GatewayError as e:
-                last_error = e
-                self.errors.append(f"{kind}: {e}")
-                if isinstance(e, (AuthError, DailyLimitError, Cancelled)):
-                    raise
-                if e.code == 400 and "cache_control" in str(e):
-                    self.cache_supported = False
-                    cached_system, cached_tools, sent_messages = system, tools, messages
-                    continue                       # повторяем без пометок кэша
-                if e.code in (401, 403):
-                    raise AuthError(str(e), code=e.code) from e
-                if not e.retryable and e.code and e.code < 500 and kind == "openai":
-                    raise
-                continue
-            turn.usage.charged = self._account(resolved, mult, turn.usage)
-            turn.cache_enabled = self.cache_enabled and self.cache_supported
-            self.last_model = resolved
-            self.last_endpoint = kind
-            return turn
+        delays = tuple(self.cfg.get("gateway.overload_delays") or (3, 8))
+        for attempt in range(3):
+            for kind in endpoints:
+                if cancel is not None and cancel.is_set():
+                    raise Cancelled("остановлено пользователем")
+                try:
+                    turn = self._call(kind, resolved, cached_system if kind == "anthropic" else system,
+                                      sent_messages, cached_tools if kind == "anthropic" else tools,
+                                      max_tokens, temperature, want_stream, on_text, on_tool, cancel)
+                except GatewayError as e:
+                    last_error = e
+                    self.errors.append(f"{kind}: {e}")
+                    if isinstance(e, (AuthError, DailyLimitError, Cancelled)):
+                        raise
+                    if e.code == 400 and "cache_control" in str(e):
+                        self.cache_supported = False
+                        cached_system, cached_tools, sent_messages = system, tools, messages
+                        continue                       # повторяем без пометок кэша
+                    if e.code in (401, 403):
+                        raise AuthError(str(e), code=e.code) from e
+                    if not e.retryable and e.code and e.code < 500 and kind == "openai":
+                        raise
+                    continue
+                turn.usage.charged = self._account(resolved, mult, turn.usage)
+                turn.cache_enabled = self.cache_enabled and self.cache_supported
+                self.last_model = resolved
+                self.last_endpoint = kind
+                return turn
 
+            if (last_error is not None and last_error.overload and attempt < 2):
+                delay = float(delays[min(attempt, len(delays) - 1)])
+                if on_note:
+                    on_note(f"шлюз перегружен — повторяю через {delay:.0f} с "
+                            f"(попытка {attempt + 2} из 3)")
+                if cancel is not None and cancel.wait(delay):
+                    raise Cancelled("остановлено пользователем")
+                continue
+            break
         if last_error is not None and len(self.errors) >= 2:
             prev = self.errors[-2]
             if not prev.startswith("openai") and str(last_error).startswith(("поток", "обрыв")):
@@ -576,7 +603,10 @@ class SmartAPI:
             if status >= 400:
                 detail = _safe_read(resp, 800)
                 conn.close()
-                raise self._http_error(kind, status, detail)
+                err = self._http_error(kind, status, detail)
+                if status in (429, 503, 529):
+                    err.overload = True
+                raise err
 
             if not stream:
                 raw = json.loads(_safe_read(resp, 4_000_000) or "{}")
@@ -629,6 +659,11 @@ class SmartAPI:
     # --- разбор ответов ---
 
     def _parse_full(self, kind: str, raw: Dict[str, Any], model: str) -> Turn:
+        if raw.get("error") and not (raw.get("content") or raw.get("choices")):
+            err = raw.get("error")
+            msg = str(err.get("message") or err.get("type") or "ошибка") \
+                if isinstance(err, dict) else str(err)
+            raise _overload_error(msg)
         if kind == "anthropic":
             turn = Turn(model=model, endpoint="anthropic", stop_reason=str(raw.get("stop_reason") or ""))
             for block in raw.get("content") or []:
@@ -702,6 +737,8 @@ class SmartAPI:
             while True:
                 if cancel is not None and cancel.is_set():
                     raise Cancelled("остановлено пользователем")
+                if state.get("stop"):
+                    break
                 chunk = _read1(resp)
                 if not chunk:
                     break
@@ -739,6 +776,15 @@ class SmartAPI:
                     if kind == "anthropic":
                         self._anthropic_event(obj, state, turn, on_text, on_tool)
                     else:
+                        if obj.get("error") and not obj.get("choices"):
+                            err = obj.get("error")
+                            msg = str(err.get("message") or err.get("type") or "ошибка") \
+                                if isinstance(err, dict) else str(err)
+                            over = _overload_error(msg)
+                            if over.overload:
+                                raise over          # автоповтор поймает выше
+                            state["error_msg"] = msg
+                            state["stop"] = True
                         text_piece, _ = from_openai_chunk(state, obj)
                         if text_piece:
                             turn.text += text_piece
@@ -778,7 +824,8 @@ class SmartAPI:
             if not turn.text and not turn.tool_calls:
                 tail = " · хвост потока: " + " | ".join(state.get("tail") or []) \
                     if state.get("tail") else ""
-                err = GatewayError(f"поток оборвался до конца ответа ({kind}){tail}",
+                said = f" · шлюз сказал: {state['error_msg']}" if state.get("error_msg") else ""
+                err = GatewayError(f"поток оборвался до конца ответа ({kind}){said}{tail}",
                                    retryable=True)
                 err.empty_stream = not state.get("lines")
                 raise err
@@ -791,6 +838,16 @@ class SmartAPI:
                          on_text: Optional[Callable[[str], None]],
                          on_tool: Optional[Callable[[str, Dict[str, Any]], None]]) -> None:
         etype = obj.get("type")
+        if etype == "error":
+            err = obj.get("error") or {}
+            msg = str(err.get("message") or err.get("type") or "ошибка") \
+                if isinstance(err, dict) else str(err)
+            over = _overload_error(msg)
+            if over.overload:
+                raise over
+            state["error_msg"] = msg
+            state["stop"] = True
+            return
         if etype == "message_start":
             msg = obj.get("message") or {}
             state["usage"] = dict(msg.get("usage") or {})

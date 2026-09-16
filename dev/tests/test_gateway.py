@@ -313,6 +313,33 @@ class TestStreamOddities(GatewayCase):
         self.assertEqual(turn.text, "ответ со второй попытки")
 
 
+    def test_stream_error_event_raises_overload(self):
+        body = ('data: {"type":"message_start","message":{"usage":{}}}\n'
+                'data: {"type":"error","error":{"message":"Our servers are currently '
+                'overloaded. Please try again later.","type":"api_error"}}\n').encode("utf-8")
+        with self.assertRaises(GatewayError) as ctx:
+            self.stream("anthropic", body)
+        self.assertTrue(getattr(ctx.exception, "overload", False))
+        self.assertIn("перегружен", str(ctx.exception).lower())
+
+    def test_openai_error_chunk_raises_overload(self):
+        body = ('data: {"error":{"message":"Our servers are currently overloaded. '
+                'Please try again later."}}\n').encode("utf-8")
+        with self.assertRaises(GatewayError) as ctx:
+            self.stream("openai", body)
+        self.assertTrue(getattr(ctx.exception, "overload", False))
+
+    def test_overload_retried_after_pause_with_note(self):
+        self.gw.cfg.set("gateway.overload_delays", [0.05, 0.05])
+        self.mock.queue(text("дошло после перегруза"))
+        self.mock.error_next = 2          # оба формата один раз отвергают запрос
+        notes = []
+        turn = self.gw.chat(MODEL, SYSTEM, [dict(m) for m in USER], stream=False,
+                            on_note=notes.append)
+        self.assertEqual(turn.text, "дошло после перегруза")
+        self.assertTrue(notes and "перегружен" in notes[0])
+
+
 class TestAccounting(GatewayCase):
     def test_daily_spend_with_multiplier(self):
         self.mock.queue(text("ок", tokens_in=1000, tokens_out=200))

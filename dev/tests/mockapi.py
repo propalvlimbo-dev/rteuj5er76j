@@ -121,6 +121,11 @@ class _Handler(BaseHTTPRequestHandler):
         if api.unknown_model and payload.get("model") not in api.catalog:
             return self._error(404, f"The requested model '{payload.get('model')}' does not exist")
 
+        if api.error_next:
+            api.error_next -= 1
+            return self._error(api.error_status, "Our servers are currently "
+                                                  "overloaded. Please try again later.")
+
         step = api.next_step()
         if step is None:
             step = text("[mock] сценарий пуст")
@@ -313,6 +318,8 @@ class MockGateway:
         self.cut_stream = False
         self.cut_empty = False
         self.cut_once = False
+        self.error_next = 0
+        self.error_status = 503
         self._httpd: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
         self.host = host

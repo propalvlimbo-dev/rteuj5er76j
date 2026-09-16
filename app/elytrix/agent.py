@@ -291,16 +291,18 @@ class Agent:
 
         tools = None if self.text_protocol else TOOL_SCHEMAS
         try:
+            note = lambda t: self._send("note", text=t, kind="warn")  # noqa: E731
             turn = self.gw.chat(self.model, self.system_prompt(), self.messages,
                                 tools=tools, on_text=on_text, on_tool=on_tool,
-                                cancel=self.cancel)
+                                cancel=self.cancel, on_note=note)
         except GatewayError as e:
             if not self.text_protocol and _tools_rejected(e):
                 # шлюз не поддержал инструменты — переходим на текстовый протокол
                 self.text_protocol = True
                 self._send(self.EVENT_STATUS, text="шлюз без tools — переключаюсь на JSON-протокол")
                 turn = self.gw.chat(self.model, self.system_prompt(), self.messages,
-                                    tools=None, on_text=on_text, cancel=self.cancel)
+                                    tools=None, on_text=on_text, cancel=self.cancel,
+                                    on_note=note)
                 parsed = parse_text_action(turn.text)
                 if parsed:
                     from .gateway import ToolCall
