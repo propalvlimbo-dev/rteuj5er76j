@@ -275,13 +275,16 @@ class KeyReader:
         else:
             self._open_posix()
         # modifyOtherKeys: просим терминал присылать Ctrl+Shift+буква отдельной
-        # последовательностью — иначе её не отличить от Ctrl+буква
-        try:
-            sys.stdout.write("\x1b[>4;2m")
-            sys.stdout.flush()
-            self._mod_keys = True
-        except Exception:  # noqa: BLE001
-            pass
+        # последовательностью — иначе её не отличить от Ctrl+буква.
+        # В Windows не просим: сочетания ловим по состоянию Shift, а conhost
+        # от незнакомых последовательностей иногда ведёт себя странно.
+        if not IS_WINDOWS:
+            try:
+                sys.stdout.write("\x1b[>4;2m")
+                sys.stdout.flush()
+                self._mod_keys = True
+            except Exception:  # noqa: BLE001
+                pass
 
     def close(self) -> None:
         if self._mod_keys:
@@ -342,12 +345,15 @@ class KeyReader:
                 MOUSE_INPUT = 0x0010
                 QUICK_EDIT = 0x0040
                 self._win_old = mode.value
-                new_mode = (mode.value & ~0x0001 & ~0x0004 & ~MOUSE_INPUT & ~QUICK_EDIT) \
-                    | ENABLE_WINDOW_INPUT | ENABLE_VT_INPUT | ENABLE_EXTENDED
+                # QuickEdit/мышь выключаем ОТДЕЛЬНЫМ вызовом: даже если VT-вход
+                # не поддержан, заморозка выделения не должна оставаться
+                no_quick = (mode.value & ~MOUSE_INPUT & ~QUICK_EDIT) | ENABLE_EXTENDED
+                kernel32.SetConsoleMode(handle, no_quick)
+                new_mode = (no_quick & ~0x0001 & ~0x0004) \
+                    | ENABLE_WINDOW_INPUT | ENABLE_VT_INPUT
                 self._win_vt = bool(kernel32.SetConsoleMode(handle, new_mode))
                 if not self._win_vt:
-                    kernel32.SetConsoleMode(handle, mode.value)
-                    self._win_old = None
+                    kernel32.SetConsoleMode(handle, no_quick)
         except Exception:  # noqa: BLE001
             self._win_vt = False
 
@@ -396,6 +402,9 @@ class KeyReader:
             if msvcrt.kbhit():
                 ch = msvcrt.getwch()
                 if ch in ("\x00", "\xe0"):
+                    if not msvcrt.kbhit():
+                        events.append(KeyEvent("unknown"))   # хвост без продолжения
+                        continue
                     code = msvcrt.getwch()
                     mapped = {"H": "up", "P": "down", "M": "right", "K": "left",
                               "G": "home", "O": "end", "S": "delete", "I": "pageup",
