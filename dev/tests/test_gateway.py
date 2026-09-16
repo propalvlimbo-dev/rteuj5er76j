@@ -226,6 +226,59 @@ class TestResilience(GatewayCase):
             self.chat(stream=True, cancel=cancel)
 
 
+class FakeStream:
+    """Подставной поток ответа: отдаёт байты порциями, как read1 у http.client."""
+
+    def __init__(self, data: bytes, piece: int = 7):
+        self._buf = data
+        self._piece = piece
+
+    def read1(self, n: int) -> bytes:
+        chunk, self._buf = self._buf[:self._piece], self._buf[self._piece:]
+        return chunk
+
+    def close(self) -> None:
+        pass
+
+
+class TestStreamOddities(GatewayCase):
+    """Причуды шлюзов: JSON без data:, закрытие без [DONE], мусор в потоке."""
+
+    def stream(self, kind: str, body: bytes):
+        import time as _time
+        return self.gw._read_stream(kind, FakeStream(body), MODEL, None, None, None,
+                                    _time.time())
+
+    def test_openai_raw_json_lines_without_done(self):
+        body = ("{\"choices\":[{\"delta\":{\"content\":\"привет\"}}]}\n"
+                "{\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n"
+                ).encode("utf-8")
+        turn = self.stream("openai", body)
+        self.assertEqual(turn.text, "привет")
+        self.assertEqual(turn.stop_reason, "stop")
+
+    def test_openai_no_done_but_finish_reason_is_complete(self):
+        body = ("data: {\"choices\":[{\"delta\":{\"content\":\"ку\"}}]}\n"
+                "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n"
+                ).encode("utf-8")
+        turn = self.stream("openai", body)
+        self.assertEqual(turn.text, "ку")
+        self.assertNotEqual(turn.stop_reason, "incomplete")
+
+    def test_empty_stream_error_contains_tail(self):
+        body = b"event: ping\ndata: {\"error\":\"boom\"}\n"
+        with self.assertRaises(GatewayError) as ctx:
+            self.stream("openai", body)
+        self.assertIn("хвост потока", str(ctx.exception))
+        self.assertIn("boom", str(ctx.exception))
+
+    def test_bom_at_stream_start_is_ignored(self):
+        body = b"\xef\xbb\xbf" + ("data: {\"choices\":[{\"delta\":{\"content\":\"ок\"}}]}\n"
+                                      "data: [DONE]\n").encode("utf-8")
+        turn = self.stream("openai", body)
+        self.assertEqual(turn.text, "ок")
+
+
 class TestAccounting(GatewayCase):
     def test_daily_spend_with_multiplier(self):
         self.mock.queue(text("ок", tokens_in=1000, tokens_out=200))

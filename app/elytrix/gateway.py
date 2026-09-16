@@ -211,6 +211,12 @@ def from_openai_chunk(state: Dict[str, Any], obj: Dict[str, Any]) -> Tuple[str, 
     for choice in obj.get("choices") or []:
         delta = choice.get("delta") or {}
         piece = delta.get("content")
+        if not isinstance(piece, str) or not piece:
+            # шлюзы-причудники: контент в message.content или legacy text
+            message = choice.get("message") or {}
+            piece = message.get("content") if isinstance(message, dict) else None
+            if not (isinstance(piece, str) and piece):
+                piece = choice.get("text") if isinstance(choice.get("text"), str) else ""
         if isinstance(piece, str) and piece:
             delta_text += piece
         for call in delta.get("tool_calls") or []:
@@ -645,10 +651,19 @@ class SmartAPI:
                 buffer += chunk
                 while b"\n" in buffer:
                     raw_line, buffer = buffer.split(b"\n", 1)
-                    line = raw_line.decode("utf-8", "replace").strip()
-                    if not line or not line.startswith("data:"):
+                    line = raw_line.decode("utf-8", "replace").strip().lstrip("\ufeff")
+                    if not line:
                         continue
-                    data = line[5:].strip()
+                    if line.startswith("data:"):
+                        data = line[5:].strip()
+                    elif line.startswith("{"):
+                        data = line          # некоторые шлюзы льют JSON без data:
+                    else:
+                        continue
+                    if len(state.setdefault("tail", [])) < 3:
+                        state["tail"].append(data[:160])
+                    else:
+                        state["tail"][:] = state["tail"][-2:] + [data[:160]]
                     if data == "[DONE]":
                         state["complete"] = True
                         break
@@ -667,6 +682,9 @@ class SmartAPI:
                             turn.text += text_piece
                             if on_text:
                                 on_text(text_piece)
+            if not state.get("complete") and state.get("stop_reason"):
+                # шлюз закрыл поток без [DONE]/message_stop, но finish_reason пришёл
+                state["complete"] = True
             if kind == "openai":
                 self._finish_openai_stream(state, turn)
         except (Cancelled, GatewayError):
@@ -694,7 +712,10 @@ class SmartAPI:
             # поток оборвался: пустой ответ считать успехом нельзя, иначе задача
             # «выполнится» молча, а повторный запрос стоит токенов
             if not turn.text and not turn.tool_calls:
-                raise GatewayError(f"поток оборвался до конца ответа ({kind})", retryable=True)
+                tail = " · хвост потока: " + " | ".join(state.get("tail") or []) \
+                    if state.get("tail") else ""
+                raise GatewayError(f"поток оборвался до конца ответа ({kind}){tail}",
+                                   retryable=True)
             turn.stop_reason = turn.stop_reason or "incomplete"
         if turn.usage.ttfb == 0.0:
             turn.usage.ttfb = time.time() - t0
