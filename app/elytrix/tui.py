@@ -414,6 +414,7 @@ class App:
         self.dirty_stats = True
         self._last_lines: Optional[List[str]] = None   # прошлый кадр для диф-отрисовки
         self._force_full = True
+        self._log = None                                 # журнал при ELYTRIX_LOG
 
         agent.emit = self.post
         agent.confirm = self.confirm_async
@@ -455,10 +456,19 @@ class App:
         self.start_screen()
         self.banner()
         self.onboard()
+        log_path = os.environ.get("ELYTRIX_LOG") or ""
+        self._log = None
+        if log_path:
+            try:
+                self._log = open(log_path, "a", encoding="utf-8", buffering=1)
+                self._log.write(f"\n=== запуск {time.strftime('%H:%M:%S')} ===\n")
+            except OSError:
+                self._log = None
         try:
             while self.exit_code is None:
                 events = self._read_keys()
                 for ev in events:
+                    self._log_event(f"key {ev.name}" + (f" {ev.text!r}" if ev.text else ""))
                     self.on_key(ev)
                     if self.exit_code is not None:
                         break
@@ -477,8 +487,24 @@ class App:
         except KeyboardInterrupt:
             self.exit_code = 0
         finally:
+            self._log_event("выход")
+            if self._log is not None:
+                try:
+                    self._log.close()
+                except OSError:
+                    pass
+                self._log = None
             self.stop_screen()
         return self.exit_code or 0
+
+    def _log_event(self, text: str) -> None:
+        """Строчка в журнал диагностики (только если задан ELYTRIX_LOG)."""
+        if self._log is None:
+            return
+        try:
+            self._log.write(f"{time.time():.3f} {text}\n")
+        except OSError:
+            self._log = None
 
     def start_screen(self) -> None:
         try:
@@ -1426,8 +1452,9 @@ class App:
             return
         if value == "?":
             self.open_dialog(PromptDialog("Путь к папке проекта",
-                                          hint="Можно вставить путь из проводника (кавычки не нужны).",
-                                          default=os.path.expanduser("~")),
+                                          hint=f"Сейчас: {self.ws.root} · вставьте путь "
+                                               f"из проводника или напишите свой",
+                                          default=""),
                              lambda v: self._set_workspace(v) if v else None)
             return
         self._set_workspace(str(value))
@@ -1735,6 +1762,7 @@ class App:
                 out.append(move(row, max(1, col + 1)))
                 out.append(SHOW_CURSOR)
         out.append("\x1b[0m")
+        self._log_event(f"draw {sum(len(p) for p in out)} байт")
         try:
             sys.stdout.write("".join(out))
             sys.stdout.flush()

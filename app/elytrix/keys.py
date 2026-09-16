@@ -34,6 +34,12 @@ TILDE_NAMES = {
     "11": "f1", "12": "f2", "13": "f3", "14": "f4", "15": "f5",
 }
 
+WIN_SPECIAL = {
+    "H": "up", "P": "down", "M": "right", "K": "left",
+    "G": "home", "O": "end", "S": "delete", "I": "pageup",
+    "Q": "pagedown", "R": "insert",
+}
+
 CTRL_NAMES = {
     "\x00": "ctrl+space", "\x01": "ctrl+a", "\x02": "ctrl+b", "\x03": "ctrl+c",
     "\x04": "ctrl+d", "\x05": "ctrl+e", "\x06": "ctrl+f", "\x07": "ctrl+g",
@@ -345,14 +351,17 @@ class KeyReader:
                 MOUSE_INPUT = 0x0010
                 QUICK_EDIT = 0x0040
                 self._win_old = mode.value
-                # QuickEdit/мышь выключаем ОТДЕЛЬНЫМ вызовом: даже если VT-вход
+                # QuickEdit/мышь выключаем ОТДЕЛЬНЫм вызовом: даже если VT-вход
                 # не поддержан, заморозка выделения не должна оставаться
                 no_quick = (mode.value & ~MOUSE_INPUT & ~QUICK_EDIT) | ENABLE_EXTENDED
                 kernel32.SetConsoleMode(handle, no_quick)
-                new_mode = (no_quick & ~0x0001 & ~0x0004) \
-                    | ENABLE_WINDOW_INPUT | ENABLE_VT_INPUT
-                self._win_vt = bool(kernel32.SetConsoleMode(handle, new_mode))
-                if not self._win_vt:
+                # VT-вход legacy-консоли (conhost) ненадёжен в паре с msvcrt —
+                # включаем только по явному запросу ELYTRIX_VT=1
+                vt_wanted = os.environ.get("ELYTRIX_VT", "").lower() in ("1", "yes", "true", "on")
+                new_mode = (no_quick & ~0x0001 & ~0x0004) | ENABLE_WINDOW_INPUT \
+                    | (ENABLE_VT_INPUT if vt_wanted else 0)
+                self._win_vt = bool(vt_wanted) and bool(kernel32.SetConsoleMode(handle, new_mode))
+                if vt_wanted and not self._win_vt:
                     kernel32.SetConsoleMode(handle, no_quick)
         except Exception:  # noqa: BLE001
             self._win_vt = False
@@ -405,23 +414,42 @@ class KeyReader:
                     if not msvcrt.kbhit():
                         events.append(KeyEvent("unknown"))   # хвост без продолжения
                         continue
-                    code = msvcrt.getwch()
-                    mapped = {"H": "up", "P": "down", "M": "right", "K": "left",
-                              "G": "home", "O": "end", "S": "delete", "I": "pageup",
-                              "Q": "pagedown", "R": "insert"}
-                    events.append(KeyEvent(mapped.get(code, "unknown")))
-                elif ch in ("\x03", "\x16") and self._shift_held():
+                    events.append(KeyEvent(WIN_SPECIAL.get(msvcrt.getwch(), "unknown")))
+                    continue
+                if ch in ("\x03", "\x16") and self._shift_held():
                     # консоль не отличает Ctrl+Shift+C от Ctrl+C — смотрим на Shift
                     events.append(KeyEvent("ctrl+shift+c" if ch == "\x03"
                                              else "ctrl+shift+v"))
-                else:
-                    events.extend(self.parser.feed(ch.encode("utf-8", "replace")))
+                    continue
+                # дочитываем всё, что уже накопилось: так многострочная вставка
+                # видна одним куском и Enter внутри неё не отправит задачу
+                raw = [ch]
+                while msvcrt.kbhit() and len(raw) < 4096:
+                    nxt = msvcrt.getwch()
+                    if nxt in ("\x00", "\xe0"):
+                        events.extend(self._feed_raw(raw))
+                        raw = []
+                        if msvcrt.kbhit():
+                            events.append(KeyEvent(WIN_SPECIAL.get(msvcrt.getwch(),
+                                                                   "unknown")))
+                        break
+                    raw.append(nxt)
+                if raw:
+                    events.extend(self._feed_raw(raw))
                 continue
             if events or time.time() >= deadline:
                 break
             time.sleep(0.005)
         events.extend(self.parser.feed(b""))
         return events
+
+    def _feed_raw(self, raw: List[str]) -> List[KeyEvent]:
+        """Пакет символов из консоли: обычная печать или многострочная вставка."""
+        text = "".join(raw)
+        body = text[:-1] if text and text[-1] in "\r\n" else text
+        if "\r" in body or "\n" in body:
+            return [KeyEvent("paste", text.replace("\r\n", "\n").replace("\r", "\n"))]
+        return self.parser.feed(text.encode("utf-8", "replace"))
 
     def drain(self) -> List[KeyEvent]:
         """Собрать то, что уже накопилось в буфере (одиночный Esc и хвосты вставки)."""

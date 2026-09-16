@@ -212,6 +212,19 @@ class TestKeys(unittest.TestCase):
         self.assertEqual(self.parse(b"\x1b[99;6u"), [("ctrl+shift+c", "")])
         self.assertEqual(self.parse(b"\x1b[118;6u"), [("ctrl+shift+v", "")])
 
+    def test_windows_burst_feed_typing_and_enter(self):
+        reader = KeyReader()
+        events = reader._feed_raw(list("задача\r"))
+        self.assertEqual([e.name for e in events][-1], "enter")
+        self.assertEqual("".join(e.text for e in events if e.is_char), "задача")
+
+    def test_windows_burst_feed_multiline_paste(self):
+        reader = KeyReader()
+        events = reader._feed_raw(list("первая\r\nвторая\r\nтретья"))
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].name, "paste")
+        self.assertEqual(events[0].text, "первая\nвторая\nтретья")
+
     def test_reader_is_safe_without_tty(self):
         reader = KeyReader()
         reader.open()
