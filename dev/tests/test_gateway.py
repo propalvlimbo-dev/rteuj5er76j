@@ -305,8 +305,7 @@ class TestStreamOddities(GatewayCase):
         self.assertEqual(state2["calls"][0]["name"], "read")
 
     def test_empty_stream_is_retried_on_fresh_connection(self):
-        # первый шаг сценария сгорает вместе с оборванным потоком, второй доходит
-        self.mock.queue(text("сгоревший шаг"), text("ответ со второй попытки"))
+        self.mock.queue(text("ответ со второй попытки"))
         self.mock.cut_empty = True
         self.mock.cut_once = True
         turn = self.chat(stream=True)
@@ -337,6 +336,24 @@ class TestStreamOddities(GatewayCase):
         turn = self.gw.chat(MODEL, SYSTEM, [dict(m) for m in USER], stream=False,
                             on_note=notes.append)
         self.assertEqual(turn.text, "дошло после перегруза")
+        self.assertTrue(notes and "перегружен" in notes[0])
+
+
+    def test_plain_text_overload_body_recognised(self):
+        body = b"Our servers are currently overloaded. Please try again later.\n"
+        with self.assertRaises(GatewayError) as ctx:
+            self.stream("openai", body)
+        self.assertTrue(ctx.exception.overload)
+
+    def test_retry_when_one_endpoint_overloaded_other_cut(self):
+        self.gw.cfg.set("gateway.overload_delays", [0.05, 0.05])
+        self.mock.queue(text("дошёл после двух бед"))
+        self.mock.error_next = 1        # anthropic: 503 «перегружен»
+        self.mock.cut_next = 2          # openai: два пустых обрыва (внутренний повтор и основной)
+        notes = []
+        turn = self.gw.chat(MODEL, SYSTEM, [dict(m) for m in USER], stream=True,
+                            on_note=notes.append)
+        self.assertEqual(turn.text, "дошёл после двух бед")
         self.assertTrue(notes and "перегружен" in notes[0])
 
 

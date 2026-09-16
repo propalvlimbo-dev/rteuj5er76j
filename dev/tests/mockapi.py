@@ -126,14 +126,13 @@ class _Handler(BaseHTTPRequestHandler):
             return self._error(api.error_status, "Our servers are currently "
                                                   "overloaded. Please try again later.")
 
-        step = api.next_step()
-        if step is None:
-            step = text("[mock] сценарий пуст")
         if api.stall:
             time.sleep(api.stall)
-        if api.cut_stream or api.cut_empty:
+        if api.cut_stream or api.cut_empty or api.cut_next:
             # обрыв потока: кусок мусора (или ничего) и закрытие соединения без [DONE]
-            empty = api.cut_empty
+            empty = api.cut_empty or bool(api.cut_next)
+            if api.cut_next:
+                api.cut_next -= 1
             if api.cut_once:
                 api.cut_stream = False
                 api.cut_empty = False
@@ -149,6 +148,10 @@ class _Handler(BaseHTTPRequestHandler):
                 pass
             self.close_connection = True
             return
+
+        step = api.next_step()
+        if step is None:
+            step = text("[mock] сценарий пуст")
 
         if payload.get("stream"):
             return self._stream(step, payload, anthropic)
@@ -320,6 +323,7 @@ class MockGateway:
         self.cut_once = False
         self.error_next = 0
         self.error_status = 503
+        self.cut_next = 0
         self._httpd: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
         self.host = host

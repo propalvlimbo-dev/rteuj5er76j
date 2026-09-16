@@ -495,6 +495,7 @@ class SmartAPI:
         last_error: Optional[GatewayError] = None
         delays = tuple(self.cfg.get("gateway.overload_delays") or (3, 8))
         for attempt in range(3):
+            overload_seen = False
             for kind in endpoints:
                 if cancel is not None and cancel.is_set():
                     raise Cancelled("остановлено пользователем")
@@ -504,6 +505,7 @@ class SmartAPI:
                                       max_tokens, temperature, want_stream, on_text, on_tool, cancel)
                 except GatewayError as e:
                     last_error = e
+                    overload_seen = overload_seen or getattr(e, "overload", False)
                     self.errors.append(f"{kind}: {e}")
                     if isinstance(e, (AuthError, DailyLimitError, Cancelled)):
                         raise
@@ -522,7 +524,7 @@ class SmartAPI:
                 self.last_endpoint = kind
                 return turn
 
-            if (last_error is not None and last_error.overload and attempt < 2):
+            if (last_error is not None and overload_seen and attempt < 2):
                 delay = float(delays[min(attempt, len(delays) - 1)])
                 if on_note:
                     on_note(f"шлюз перегружен — повторяю через {delay:.0f} с "
@@ -757,12 +759,17 @@ class SmartAPI:
                     elif line.startswith("{"):
                         data = line          # некоторые шлюзы льют JSON без data:
                     else:
-                        continue
+                        data = ""
                     state["lines"] += 1
                     if len(state.setdefault("tail", [])) < 3:
-                        state["tail"].append(data[:160])
+                        state["tail"].append((data or line)[:160])
                     else:
-                        state["tail"][:] = state["tail"][-2:] + [data[:160]]
+                        state["tail"][:] = state["tail"][-2:] + [(data or line)[:160]]
+                    if not data:
+                        # шлюз может ответить plain-текстом: читаем и его
+                        if any(m in line.lower() for m in _OVERLOAD_MARKS):
+                            raise _overload_error(line[:200])
+                        continue
                     if data == "[DONE]":
                         state["complete"] = True
                         break
