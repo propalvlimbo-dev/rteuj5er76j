@@ -22,7 +22,7 @@ jobs:
           mvn --batch-mode clean package 2>&1 | tee build.log
           code=${PIPESTATUS[0]}
           if [ "$code" -eq 0 ]; then
-            mvn --batch-mode -f bungee/pom.xml clean package 2>&1 | tee -a build.log
+            mvn --batch-mode --update-snapshots -f bungee/pom.xml clean package 2>&1 | tee -a build.log
             code=${PIPESTATUS[0]}
           fi
           if [ "$code" -ne 0 ]; then
