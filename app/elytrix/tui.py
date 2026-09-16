@@ -243,7 +243,9 @@ COMMANDS: List[Tuple[str, str]] = [
     ("/copy", "копировать строку ввода или последний ответ в буфер обмена"),
     ("/paste", "вставить буфер обмена в строку ввода"),
     ("/theme", "тема оформления"),
-    ("/cd", "сменить рабочую папку"),
+    ("/cd", "сменить рабочую папку (недавние — 5)"),
+    ("/session", "сессии: переключить/создать именную — ИИ помнит историю"),
+    ("/effort", "reasoning_effort: low/medium/high (токены на «думание»)"),
     ("/key", "синоним /api: загрузить ключ SmartAPI"),
     ("/doctor", "диагностика: ключ, шлюз, модели, лимиты"),
     ("/models", "обновить каталог моделей шлюза: /models reload"),
@@ -613,6 +615,77 @@ class App:
                 self.add(KIND_ERROR, f"в файле {path} ключ не найден (пусто)")
                 return
         self._set_key(arg)
+
+    def cmd_effort(self, arg: str) -> None:
+        arg = (arg or "").strip().lower()
+        if arg not in ("low", "medium", "high"):
+            cur = str(self.agent.cfg.get("gateway.reasoning_effort") or "low")
+            self.add(KIND_INFO, f"reasoning_effort сейчас: {cur} · применение: "
+                                f"/effort low|medium|high (low — думает короче и дешевле)")
+            return
+        self.agent.cfg.set("gateway.reasoning_effort", arg)
+        try:
+            self.agent.cfg.save()
+        except Exception:  # noqa: BLE001
+            pass
+        how = "короче и дешевле" if arg == "low" else "глубже и дороже"
+        self.add(KIND_INFO, f"reasoning_effort: {arg} — новые запросы думают {how}")
+
+    def cmd_session(self, arg: str) -> None:
+        arg = (arg or "").strip()
+        if arg:
+            self._switch_session(arg)
+            return
+        items: List[Tuple[str, Any, str]] = []
+        for s in self.agent.list_sessions()[:7]:
+            when = time.strftime("%d.%m %H:%M", time.localtime(s["saved_at"]))
+            items.append((s["name"], s["name"], f"{s['messages']} сообщ. · {when}"))
+        items.append(("новая пустая сессия…", "?", "начать с чистого листа"))
+        self.open_dialog(ListDialog(
+            "Сессии — ИИ помнит историю и ориентиры внутри сессии", items, allow_text=True,
+            hint="↑↓ + Enter — открыть · или впишите имя новой · Esc — остаться"),
+            self._on_session_choice)
+
+    def _on_session_choice(self, value: Any) -> None:
+        if value is None:
+            return
+        if value == "?":
+            self.open_dialog(PromptDialog("Имя новой сессии", "",
+                                          hint="например: airdrop-плагины · Esc — отмена"),
+                             self._switch_session)
+            return
+        self._switch_session(str(value))
+
+    def _switch_session(self, name: str) -> None:
+        name = name.strip()
+        if not name:
+            return
+        if name == self.agent.session_name:
+            self.add(KIND_INFO, f"вы уже в сессии «{name}»")
+            return
+        self.agent.save_session()                    # прежнюю не теряем
+        if self.agent.load_session(name):
+            n = len(self.agent.messages)
+            self.add(KIND_INFO, f"сессия «{name}»: восстановлено {n} сообщ. истории — "
+                                f"продолжения не требуют пересказа")
+        else:
+            self.agent.messages = []
+            self.agent.memory = []
+            self.agent.session_name = name
+            self.add(KIND_INFO, f"новая сессия «{name}» (история с нуля; заметки проекта "
+                                f"и память задач общие)")
+        self.state.set("last_session", name)
+        self.set_title(f"ELYTRIX · {self.catalog.resolve(self.agent.model)} · "
+                       f"{os.path.basename(self.ws.root)} · {name}")
+        self.dirty = True
+
+    def restore_session(self) -> None:
+        name = str(self.state.get("last_session") or "")
+        if name and self.agent.load_session(name):
+            self.add(KIND_INFO, f"сессия «{name}»: {len(self.agent.messages)} сообщ. "
+                                f"истории на месте — продолжаем без пересказа")
+            self.set_title(f"ELYTRIX · {self.catalog.resolve(self.agent.model)} · "
+                           f"{os.path.basename(self.ws.root)} · {name}")
 
     def check_key_async(self) -> None:
         """Проверяет связь со шлюзом в фоне — интерфейс не подвисает."""
@@ -1139,6 +1212,7 @@ class App:
     def quit(self, code: int = 0) -> None:
         if self.busy:
             self.agent.cancel.set()
+        self.agent.save_session()
         self.exit_code = code
         self.dirty = True
 
@@ -1209,6 +1283,8 @@ class App:
             "/copy": self.cmd_copy, "/paste": self.cmd_paste,
             "/prompt": self.cmd_prompt,
             "/theme": self.cmd_theme, "/cd": self.cmd_cd,
+            "/session": self.cmd_session, "/sessions": self.cmd_session,
+            "/effort": self.cmd_effort,
             "/doctor": self.cmd_doctor, "/router": self.cmd_router,
             "/exit": lambda a: self.quit(), "/quit": lambda a: self.quit(),
             "/q": lambda a: self.quit(),
@@ -1505,7 +1581,7 @@ class App:
         recent = [p for p in (self.state.get("recent_workspaces") or []) if os.path.isdir(p)]
         if last and os.path.isdir(last):
             items.append((last, last, "последняя папка"))
-        for path in recent[:8]:
+        for path in recent[:5]:
             if path != last:
                 items.append((path, path, "недавняя"))
         items.append((os.getcwd(), os.getcwd(), "текущая папка"))
@@ -1554,7 +1630,7 @@ class App:
         self.state.set("last_workspace", target)
         recent = [p for p in (self.state.get("recent_workspaces") or []) if p != target]
         recent.insert(0, target)
-        self.state.set("recent_workspaces", recent[:8])
+        self.state.set("recent_workspaces", recent[:5])
         self.banner()
 
     def cmd_key(self, arg: str) -> None:

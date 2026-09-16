@@ -31,6 +31,7 @@ DEFAULT_GATEWAY = {
     "openai_base_url": "https://api.smartapi.shop/v1",
     "key_env": "SMARTAPI_KEY",
     "anthropic_version": "2023-06-01",
+    "reasoning_effort": "low",  # «думание» reasoning-моделей: low дешевле в разы
     "timeout": 300,
     "connect_timeout": 15,
     "retries": 1,
@@ -75,6 +76,7 @@ DEFAULT_ECONOMY = {
     "bash_output_chars": 4000,  # предел вывода команды
     "grep_hits": 40,            # сколько совпадений отдаём модели
     "keep_recent": 2,           # сколько последних результатов не сжимаем
+    "step_cap": 32000,          # стоимостной потолок истории внутри задачи
     "read_chars": 12000,        # сколько символов файла читаем за раз
 }
 

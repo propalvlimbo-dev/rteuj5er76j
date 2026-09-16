@@ -26,6 +26,23 @@ MODEL = "claude-sonnet-4-6"
 
 
 class AgentCase(unittest.TestCase):
+    def test_sessions_roundtrip_and_listing(self):
+        from elytrix.agent import Agent
+        a = self.agent
+        a.messages = [{"role": "user", "content": [{"type": "text", "text": "правим аирдроп"}]}]
+        a.memory = [{"task": "правим аирдроп", "result": "ok [Airdrop.java]"}]
+        a.save_session("airdrop-плагины")
+        names = [x["name"] for x in a.list_sessions()]
+        self.assertIn("airdrop-плагины", names)
+        fresh = Agent(a.gw, a.tools, a.cfg, a.catalog, a.state)
+        self.assertTrue(fresh.load_session("airdrop-плагины"))
+        self.assertEqual(fresh.messages[0]["content"][0]["text"], "правим аирдроп")
+        self.assertEqual(fresh.session_name, "airdrop-плагины")
+
+    def test_auto_note_learns_touched_files(self):
+        self.agent._auto_note("удалил привет", ["src/AirdropManager.java", "src/X.java"])
+        self.assertIn("AirdropManager.java", self.agent.tools.notes_text())
+
     def test_step_cap_flattens_history_growth(self):
         self.agent.cfg.set("economy.step_cap", 500)
         for i in range(30):

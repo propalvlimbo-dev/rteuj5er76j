@@ -315,6 +315,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         args.plain = True
     theme = make_theme(args, cfg, state)
     app = App(cfg, catalog, state, gateway, toolbox, agent, theme, key_source=key_source)
+    app.restore_session()       # именованная сессия: история на месте с первого кадра
     if gateway.key:
         gateway.warm()          # рукопожатия TLS параллельно со стартовым экраном
     app.set_title(f"ELYTRIX · {catalog.resolve(agent.model)} · {os.path.basename(workspace)}")

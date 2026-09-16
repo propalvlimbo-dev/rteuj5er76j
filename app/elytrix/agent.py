@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from .config import Catalog, Config, State, home_dir
+from .config import Catalog, Config, State, home_dir, sessions_dir
 from .gateway import Cancelled, GatewayError, SmartAPI, Turn, Usage, estimate_tokens, messages_tokens
 from .tools import Toolbox, ToolResult, TOOL_SCHEMAS
 
@@ -185,6 +185,7 @@ class Agent:
         self._last_sig = ""
         self._repeat = 0
         self._quick = False
+        self.session_name = ""
         self._load_memory()
         self.steps_history: List[StepInfo] = []
         self.last_task = ""
@@ -242,6 +243,79 @@ class Agent:
         if not keep_memory:
             self.memory = []
         self.squeezed_total = 0
+
+    # ------------------------------------------------------------ сессии
+
+    def session_path(self, name: str) -> str:
+        slug = re.sub(r"[^a-zа-яё0-9_-]+", "_", (name or "").strip().lower())[:40] or "main"
+        return os.path.join(sessions_dir(), slug + ".json")
+
+    def list_sessions(self) -> List[Dict[str, Any]]:
+        """Именованные сессии: имя, когда сохранена, сколько сообщений истории."""
+        out: List[Dict[str, Any]] = []
+        try:
+            names = os.listdir(sessions_dir())
+        except OSError:
+            return out
+        for fn in names:
+            if not fn.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(sessions_dir(), fn), encoding="utf-8") as f:
+                    d = json.load(f)
+                out.append({"name": str(d.get("name") or fn[:-5]),
+                            "saved_at": float(d.get("saved_at") or 0),
+                            "messages": len(d.get("messages") or [])})
+            except (OSError, ValueError):
+                continue
+        return sorted(out, key=lambda x: -x["saved_at"])
+
+    def save_session(self, name: str = "") -> str:
+        """История и память задачи — в файл сессии: продолжение не стоит токенов."""
+        name = (name or self.session_name or "main").strip() or "main"
+        self.session_name = name
+        data = {"name": name, "saved_at": time.time(),
+                "messages": self.messages[-80:], "memory": self.memory[-MEMORY_TASKS:]}
+        try:
+            os.makedirs(sessions_dir(), exist_ok=True)
+            with open(self.session_path(name), "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False)
+        except OSError:
+            pass
+        return name
+
+    def load_session(self, name: str) -> bool:
+        try:
+            with open(self.session_path(name), encoding="utf-8") as f:
+                d = json.load(f)
+        except (OSError, ValueError):
+            return False
+        self.messages = [m for m in (d.get("messages") or []) if isinstance(m, dict)][-80:]
+        self.memory = [m for m in (d.get("memory") or []) if isinstance(m, dict)][-MEMORY_TASKS:]
+        self.session_name = str(d.get("name") or name)
+        self._last_sig, self._repeat = "", 0
+        return True
+
+    def _auto_note(self, task: str, files: List[str]) -> None:
+        """Обучение на своих же задачах: ориентиры оседают в заметках проекта."""
+        if not files:
+            return
+        line = f"· {task.strip()[:60]} → {', '.join(os.path.basename(f) for f in files[:4])}"
+        try:
+            path = self.tools.notes_path()
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            try:
+                with open(path, encoding="utf-8") as f:
+                    lines = [ln.rstrip("\n") for ln in f if ln.strip()]
+            except OSError:
+                lines = []
+            if line in lines[-8:]:
+                return
+            lines.append(line)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines[-60:]) + "\n")
+        except OSError:
+            pass
 
     def _memory_path(self) -> str:
         return os.path.join(home_dir(), "memory.json")
@@ -342,6 +416,8 @@ class Agent:
         report.tool_calls = sum(len(s.tools) for s in self.steps_history)
         self._remember(task, report)
         self._save_memory()
+        self._auto_note(task, report.files)
+        self.save_session()
         if self.prompt_tokens() > self.context_budget() * 0.8:
             self.compact(aggressive=True)   # следующая задача стартует лёгкой
         return report
