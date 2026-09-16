@@ -1,0 +1,7 @@
+name: ElytrixBots
+version: 0.1.0
+main: ru.elytrix.bots.ElytrixBotsPlugin
+api-version: '1.16'
+depend: [VirtualEntityApi]
+authors: [Elytrix]
+description: Lightweight packet-only fake players for Paper 1.16.5
