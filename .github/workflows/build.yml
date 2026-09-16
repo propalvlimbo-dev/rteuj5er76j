@@ -21,6 +21,10 @@ jobs:
           set +e
           mvn --batch-mode clean package 2>&1 | tee build.log
           code=${PIPESTATUS[0]}
+          if [ "$code" -eq 0 ]; then
+            mvn --batch-mode -f bungee/pom.xml clean package 2>&1 | tee -a build.log
+            code=${PIPESTATUS[0]}
+          fi
           if [ "$code" -ne 0 ]; then
             grep -E '^\[ERROR\]' build.log | tail -30 | while IFS= read -r line; do echo "::error::$line"; done
             exit "$code"
@@ -31,4 +35,5 @@ jobs:
           name: ElytrixBots
           path: |
             target/ElytrixBots-*.jar
+            bungee/target/ElytrixBots-Bungee-*.jar
             build.log

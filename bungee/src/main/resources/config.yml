@@ -1,0 +1,4 @@
+# Backend-серверы с установленным ElytrixBots Paper.
+# Пустой список = проверять все серверы proxy.
+servers: []
+refresh-seconds: 10

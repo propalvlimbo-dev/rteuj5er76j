@@ -1,0 +1,4 @@
+name: ElytrixBots-Bungee
+version: 0.1.0
+main: ru.elytrix.bots.bungee.ElytrixBotsBungee
+author: Elytrix
