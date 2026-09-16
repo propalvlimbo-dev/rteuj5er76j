@@ -363,9 +363,11 @@ class Agent:
         tools = None if self.text_protocol else TOOL_SCHEMAS
         try:
             note = lambda t: self._send("note", text=t, kind="warn")  # noqa: E731
+            effort = "low" if self._quick else (
+                str(self.cfg.get("gateway.reasoning_effort") or "") or None)
             turn = self.gw.chat(self.model, self.system_prompt(), self.messages,
                                 tools=tools, on_text=on_text, on_tool=on_tool,
-                                cancel=self.cancel, on_note=note)
+                                cancel=self.cancel, on_note=note, effort=effort or None)
         except GatewayError as e:
             if not self.text_protocol and _tools_rejected(e):
                 # шлюз не поддержал инструменты — переходим на текстовый протокол
@@ -526,12 +528,18 @@ class Agent:
     # ------------------------------------------------------------------ сжатие
 
     def _auto_compact(self) -> None:
-        budget = self.context_budget()
+        # порог — минимум из доли контекста и стоимостного потолка: история не
+        # должна расти бесконечно внутри задачи, иначе каждый шаг дороже прошлого
+        budget = min(self.context_budget(),
+                     int(self.cfg.get("economy.step_cap", 32000)) or self.context_budget())
         size = self.prompt_tokens()
         if size <= budget:
             return
         before = size
         saved = self.compact()
+        if self.prompt_tokens() > budget:
+            # стоимостной потолок пробит даже после лёгкого сжатия — жмём сильнее
+            saved += self.compact(aggressive=True)
         if saved:
             self._send(self.EVENT_COMPACT, before=before, after=self.prompt_tokens(), saved=saved)
 

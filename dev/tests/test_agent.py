@@ -26,6 +26,17 @@ MODEL = "claude-sonnet-4-6"
 
 
 class AgentCase(unittest.TestCase):
+    def test_step_cap_flattens_history_growth(self):
+        self.agent.cfg.set("economy.step_cap", 500)
+        for i in range(30):
+            self.agent.messages.append(
+                {"role": "user", "content": [{"type": "text", "text": f"шаг {i} " + "данные " * 40}]})
+            self.agent.messages.append(
+                {"role": "assistant", "content": [{"type": "text", "text": f"ответ {i} " + "ещё " * 40}]})
+        before = self.agent.prompt_tokens()
+        self.agent._auto_compact()
+        self.assertLess(self.agent.prompt_tokens(), before)
+
     def test_quick_task_heuristic(self):
         from elytrix.agent import _is_quick
         self.assertTrue(_is_quick("удали сообщение «Привет» из AirdropManager.java"))

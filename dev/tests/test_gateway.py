@@ -357,6 +357,13 @@ class TestStreamOddities(GatewayCase):
         self.assertTrue(notes and "перегружен" in notes[0])
 
 
+    def test_reasoning_effort_goes_to_openai_payload(self):
+        turn = self.gw._call("openai", MODEL, SYSTEM, [dict(m) for m in USER], None,
+                             512, 0.2, False, None, None, None, "low")
+        self.assertEqual(self.mock.last["payload"].get("reasoning_effort"), "low")
+        self.assertEqual(turn.endpoint, "openai")
+
+
 class TestAccounting(GatewayCase):
     def test_daily_spend_with_multiplier(self):
         self.mock.queue(text("ок", tokens_in=1000, tokens_out=200))

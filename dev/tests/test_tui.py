@@ -1099,10 +1099,10 @@ class TestFrameDiff(ConsoleCase):
     def test_second_draw_repaints_only_changed_rows(self):
         self.app.banner()
         first = self.draw()
-        self.assertIn("ELYTRIX 3.3.1", frame_text(first))
+        self.assertIn("ELYTRIX 3.3.2", frame_text(first))
         self.type_text("привет")
         second = self.draw()
-        self.assertNotIn("ELYTRIX 3.3.1", frame_text(second),
+        self.assertNotIn("ELYTRIX 3.3.2", frame_text(second),
                          "шапка не изменилась — не перерисовывается")
         self.assertIn("привет", frame_text(second))
 

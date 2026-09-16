@@ -472,7 +472,8 @@ class SmartAPI:
              on_text: Optional[Callable[[str], None]] = None,
              on_tool: Optional[Callable[[str, Dict[str, Any]], None]] = None,
              cancel: Optional[threading.Event] = None,
-             on_note: Optional[Callable[[str], None]] = None) -> Turn:
+             on_note: Optional[Callable[[str], None]] = None,
+             effort: Optional[str] = None) -> Turn:
         """Отправляет запрос модели и собирает ответ (со стримингом, если включён).
 
         ``on_text`` вызывается на каждый пришедший кусок текста — так интерфейс
@@ -502,7 +503,8 @@ class SmartAPI:
                 try:
                     turn = self._call(kind, resolved, cached_system if kind == "anthropic" else system,
                                       sent_messages, cached_tools if kind == "anthropic" else tools,
-                                      max_tokens, temperature, want_stream, on_text, on_tool, cancel)
+                                      max_tokens, temperature, want_stream, on_text, on_tool,
+                                      cancel, effort)
                 except GatewayError as e:
                     last_error = e
                     overload_seen = overload_seen or getattr(e, "overload", False)
@@ -562,7 +564,8 @@ class SmartAPI:
               temperature: Optional[float], stream: bool,
               on_text: Optional[Callable[[str], None]],
               on_tool: Optional[Callable[[str, Dict[str, Any]], None]],
-              cancel: Optional[threading.Event]) -> Turn:
+              cancel: Optional[threading.Event],
+              effort: Optional[str] = None) -> Turn:
         if kind == "anthropic":
             url = self.base_url + "/v1/messages"
             payload: Dict[str, Any] = {
@@ -584,6 +587,10 @@ class SmartAPI:
             payload = to_openai(system, messages, tools, max_tokens, temperature)
             payload["model"] = model
             payload["stream"] = stream
+            if effort:
+                # reasoning-модели (GPT-5.x Luna и подобные) тратят выходные токены на
+                # «думание»: effort=low резко режет вторую колонку расхода
+                payload["reasoning_effort"] = effort
             if stream:
                 payload["stream_options"] = {"include_usage": True}
 
