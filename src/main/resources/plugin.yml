@@ -6,3 +6,10 @@ depend: [VirtualEntityApi]
 softdepend: [LuckPerms, Essentials, EssentialsSpawn]
 authors: [Elytrix]
 description: Lightweight packet-only fake players for Paper 1.16.5
+commands:
+  elytrixbots:
+    aliases: [ebots]
+    description: ElytrixBots management
+permissions:
+  elytrixbots.dataset:
+    default: op

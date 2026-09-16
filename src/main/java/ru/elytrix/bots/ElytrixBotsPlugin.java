@@ -9,6 +9,7 @@ import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.command.*;
 import org.bukkit.entity.Player;
 import org.bukkit.event.*;
 import org.bukkit.event.player.*;
@@ -20,17 +21,21 @@ import org.by1337.blib.geom.Vec3d;
 import java.io.File;
 import java.util.*;
 
-public final class ElytrixBotsPlugin extends JavaPlugin implements Listener {
+public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, CommandExecutor {
     private final List<VirtualPlayer> tabBots = new ArrayList<>();
     private final List<MovingBot> liveBots = new ArrayList<>();
     private BukkitTask ticker;
     private YamlConfiguration bots;
+    private DatasetManager datasets;
+    private final Random random = new Random();
     private final NmsFakePlayerRegistry registry = new NmsFakePlayerRegistry();
 
     @Override public void onEnable() {
         saveDefaultConfig(); saveResource("bots.yml", false);
         bots = YamlConfiguration.loadConfiguration(new File(getDataFolder(), "bots.yml"));
+        datasets = new DatasetManager(this);
         loadBots(); Bukkit.getPluginManager().registerEvents(this, this);
+        Objects.requireNonNull(getCommand("elytrixbots")).setExecutor(this);
         int period = Math.max(1, getConfig().getInt("settings.movement-period-ticks", 2));
         ticker = Bukkit.getScheduler().runTaskTimer(this, () -> tick(period), 1L, period);
         getLogger().info("Loaded " + tabBots.size() + " TAB and " + liveBots.size() + " live bots.");
@@ -124,12 +129,29 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener {
     }
 
     private void tick(int ticks) {
+        datasets.tick();
         for (MovingBot b : liveBots) {
             b.move(ticks / 20D);
             Set<Player> viewers = new HashSet<>();
             for (Player player : b.world.getPlayers()) if (!registry.isFake(player.getUniqueId())) viewers.add(player);
             b.player.tick(viewers);
         }
+    }
+
+    @Override public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (!(sender instanceof Player player)) { sender.sendMessage("Player only"); return true; }
+        if (!player.hasPermission("elytrixbots.dataset")) { player.sendMessage(ChatColor.RED + "Нет прав."); return true; }
+        if (args.length >= 3 && args[0].equalsIgnoreCase("dataset") && args[1].equalsIgnoreCase("start")) {
+            if (datasets.start(player, args[2])) player.sendMessage(ChatColor.GREEN + "Запись dataset началась.");
+            else player.sendMessage(ChatColor.RED + "Неверное имя или запись уже идёт.");
+            return true;
+        }
+        if (args.length >= 2 && args[0].equalsIgnoreCase("dataset") && args[1].equalsIgnoreCase("stop")) {
+            String result=datasets.stop(player);
+            player.sendMessage(result == null ? ChatColor.RED + "Запись не запущена." : ChatColor.GREEN + "Сохранено: " + result);
+            return true;
+        }
+        player.sendMessage(ChatColor.YELLOW + "/elytrixbots dataset start <имя> | stop"); return true;
     }
 
     private Location spawn(ConfigurationSection explicit) {
@@ -162,18 +184,30 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener {
         void move(double seconds) {
             if (arrived) return; Vec3d p=player.getPos(); double dx=target.x-p.x,dz=target.z-p.z, horizontal=Math.sqrt(dx*dx+dz*dz), step=speed*seconds;
             if(horizontal<.03){arrived=true;player.setSprinting(false);return;}
-            double amount=Math.min(step,horizontal), nx=p.x+dx/horizontal*amount,nz=p.z+dz/horizontal*amount,ground=groundY(nx,p.y,nz);
+            double amount=Math.min(step,horizontal), nx=p.x+dx/horizontal*amount,nz=p.z+dz/horizontal*amount;
+            boolean obstacle=!world.getBlockAt((int)Math.floor(nx),(int)Math.floor(p.y),(int)Math.floor(nz)).isPassable();
+            DatasetManager.MotionSample learned=datasets.imitate(obstacle, random);
+            if (learned != null) {
+                player.setShiftKeyDown(learned.sneak);
+                player.setSprinting(learned.sprint);
+                player.setYaw(player.getYaw() + learned.yawDelta * 0.15F);
+                if (obstacle && learned.vertical > 0.01) verticalVelocity=Math.max(verticalVelocity, Math.min(5.2, learned.vertical/seconds));
+            }
+            double ground=groundY(nx,p.y,nz);
             if(Double.isNaN(ground)) { player.setSprinting(false); return; }
             double ny;
-            if (ground > p.y + 0.05) { // короткий плавный шаг/прыжок вместо телепорта вверх
-                verticalVelocity = Math.max(verticalVelocity, 4.2);
+            if (ground > p.y + 0.05) {
+                verticalVelocity = Math.max(verticalVelocity, learned != null && learned.vertical > 0 ? Math.min(5.2, learned.vertical/seconds) : 4.2);
                 ny = Math.min(ground, p.y + verticalVelocity * seconds);
             } else if (ground < p.y - 0.05) { // плавное падение с обычным ускорением
                 verticalVelocity = Math.max(-7.0, verticalVelocity - 9.8 * seconds);
                 ny = Math.max(ground, p.y + verticalVelocity * seconds);
             } else { ny = ground; verticalVelocity = 0; }
             player.setOnGround(Math.abs(ny-ground)<0.02);
-            player.setSprinting(true); player.setYaw((float)Math.toDegrees(Math.atan2(-dx,dz))); player.setPos(new Vec3d(nx,ny,nz));
+            if (learned == null) player.setSprinting(true);
+            float targetYaw=(float)Math.toDegrees(Math.atan2(-dx,dz));
+            player.setYaw(targetYaw + (learned == null ? 0 : learned.yawDelta * 0.15F));
+            player.setPos(new Vec3d(nx,ny,nz));
         }
         double groundY(double x,double y,double z) {
             if(!getConfig().getBoolean("settings.physics.enabled",true)) return y;
