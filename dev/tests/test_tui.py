@@ -35,8 +35,8 @@ from elytrix.keys import KeyEvent  # noqa: E402
 from elytrix.screen import Palette, text_width  # noqa: E402
 from elytrix.theme import Theme  # noqa: E402
 from elytrix.tui import (COMMANDS, App, Completion, InputBuffer, PlainUI,  # noqa: E402
-                         KIND_ASSISTANT, KIND_ERROR, KIND_INFO, KIND_LOGO, KIND_SPACER,
-                         KIND_TOOL, KIND_USER)
+                         KIND_ASSISTANT, KIND_CUSTOM, KIND_ERROR, KIND_INFO, KIND_LOGO,
+                         KIND_SPACER, KIND_TOOL, KIND_USER)
 
 
 def key(name: str, ch: str = "") -> KeyEvent:
@@ -514,7 +514,7 @@ class TestCommands(ConsoleCase):
         self.app.command("/clear")
         self.assertEqual(self.agent.messages, [])
         self.assertEqual(self.agent.memory, [])
-        self.assertTrue(all(b.kind in (KIND_INFO, KIND_SPACER, KIND_LOGO)
+        self.assertTrue(all(b.kind in (KIND_INFO, KIND_SPACER, KIND_LOGO, KIND_CUSTOM)
                             for b in self.app.blocks),
                         f"лента очищается, остаётся шапка: {[b.kind for b in self.app.blocks]}")
         self.assertNotIn("ответ", " ".join(self.block_texts()))
@@ -999,21 +999,64 @@ class TestPtySmoke(unittest.TestCase):
 class TestStartupBanner(ConsoleCase):
     """Стартовый экран: логотип и две строки сути вместо стены текста."""
 
-    def test_banner_is_logo_and_two_hints(self):
+    def test_banner_is_logo_and_centered_tagline(self):
         self.app.banner()
         kinds = [b.kind for b in self.app.blocks]
         self.assertEqual(kinds[0], KIND_LOGO)
-        info = [b.text for b in self.app.blocks if b.kind == KIND_INFO]
-        self.assertEqual(len(info), 2)
-        self.assertIn("папка", info[0])
-        self.assertIn("модель", info[0])
-        self.assertIn("Ctrl+Shift+C/V", info[1])
+        self.assertEqual(kinds[1], KIND_CUSTOM, "под логотипом — центрированный подзаголовок")
+        frame = frame_text(self.draw())
+        self.assertIn("режим", frame)
+        self.assertIn("напишите задачу и Enter", frame)
+        self.assertNotIn("• папка", frame, "служебных «простыней» слева на старте нет")
 
     def test_frame_shows_logo_art(self):
         self.app.banner()
         frame = frame_text(self.draw())
         self.assertIn("███", frame)
         self.assertIn("напишите задачу и Enter", frame)
+
+
+class TestFrameDiff(ConsoleCase):
+    """Кадр перерисовывается дифференциально — без мерцания всего экрана."""
+
+    def test_second_draw_repaints_only_changed_rows(self):
+        self.app.banner()
+        first = self.draw()
+        self.assertIn("ELYTRIX 3.0.0", frame_text(first))
+        self.type_text("привет")
+        second = self.draw()
+        self.assertNotIn("ELYTRIX 3.0.0", frame_text(second),
+                         "шапка не изменилась — не перерисовывается")
+        self.assertIn("привет", frame_text(second))
+
+    def test_idle_frame_without_changes_is_empty(self):
+        self.app.banner()
+        self.draw()
+        third = self.draw()
+        self.assertEqual(frame_text(third).strip(), "",
+                         "ничего не изменилось — в канал ничего не пишем")
+
+    def test_dialog_has_no_background_slab(self):
+        self.app.command("/cd")
+        frame = self.draw()
+        self.assertNotIn("\x1b[48", frame, "вокруг диалога не должно быть цветной подложки")
+
+
+class TestTypeahead(ConsoleCase):
+    """Пока агент работает, ввод не теряется: печать идёт в строку заранее."""
+
+    def test_chars_typed_while_busy_are_kept(self):
+        self.mock.queue(text("думаю…"))
+        self.type_text("задача")
+        self.keys(key("enter"))
+        self.assertTrue(self.app.busy)
+        self.type_text("следующая")
+        self.keys(key("backspace"))
+        self.assertIn("следующ", self.app.input.text, "печать во время работы попадает в строку")
+        self.keys(key("enter"))
+        self.assertTrue(self.app.busy, "Enter во время работы не отправляет задачу")
+        self.assertTrue(self.pump(lambda: not self.app.busy))
+        self.assertIn("следующ", self.app.input.text, "текст дожидается отправки")
 
 
 class TestClipboard(ConsoleCase):

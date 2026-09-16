@@ -258,6 +258,7 @@ class KeyReader:
         self._fd: Optional[int] = None
         self._old = None
         self._win_vt = False
+        self._win_old = None
         self._mod_keys = False
 
     # -- режим терминала ----------------------------------------------------
@@ -291,6 +292,15 @@ class KeyReader:
                 pass
             self._mod_keys = False
         if IS_WINDOWS:
+            if self._win_old is not None:
+                try:
+                    import ctypes
+
+                    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+                    kernel32.SetConsoleMode(kernel32.GetStdHandle(-10), self._win_old)
+                except Exception:  # noqa: BLE001
+                    pass
+                self._win_old = None
             return
         if self._fd is not None and self._old is not None:
             try:
@@ -314,6 +324,10 @@ class KeyReader:
 
         Дополнительно пробуем включить VT-вход (Windows 10+): тогда консоль сама
         присылает ESC-последовательности и bracketed paste для вставки.
+
+        QuickEdit и мышиный ввод на время работы выключаем: случайный клик по
+        окну в классической консоли включает выделение и замораживает ввод
+        и вывод программы — «буквы пропадают», пока не нажмёшь Esc/Enter.
         """
         try:
             import ctypes
@@ -324,10 +338,16 @@ class KeyReader:
             if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
                 ENABLE_WINDOW_INPUT = 0x0008
                 ENABLE_VT_INPUT = 0x0200
-                new_mode = (mode.value & ~0x0001 & ~0x0004) | ENABLE_WINDOW_INPUT | ENABLE_VT_INPUT
+                ENABLE_EXTENDED = 0x0080      # нужен, чтобы менять QuickEdit
+                MOUSE_INPUT = 0x0010
+                QUICK_EDIT = 0x0040
+                self._win_old = mode.value
+                new_mode = (mode.value & ~0x0001 & ~0x0004 & ~MOUSE_INPUT & ~QUICK_EDIT) \
+                    | ENABLE_WINDOW_INPUT | ENABLE_VT_INPUT | ENABLE_EXTENDED
                 self._win_vt = bool(kernel32.SetConsoleMode(handle, new_mode))
                 if not self._win_vt:
                     kernel32.SetConsoleMode(handle, mode.value)
+                    self._win_old = None
         except Exception:  # noqa: BLE001
             self._win_vt = False
 

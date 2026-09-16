@@ -27,8 +27,9 @@ from .dialogs import ConfirmDialog, Dialog, ListDialog, MessageDialog, PromptDia
 from .gateway import Cancelled, GatewayError, SmartAPI
 from .keys import KeyEvent, KeyReader
 from . import clip
-from .render import (KIND_ASSISTANT, KIND_ERROR, KIND_INFO, KIND_LOGO, KIND_SPACER,
-                      KIND_TOOL, KIND_USER, LOGO_ART, Block, activity, header, status_bar)
+from .render import (KIND_ASSISTANT, KIND_CUSTOM, KIND_ERROR, KIND_INFO, KIND_LOGO,
+                      KIND_SPACER, KIND_TOOL, KIND_USER, LOGO_ART, Block, activity,
+                      header, status_bar)
 from .screen import (ALT_OFF, ALT_ON, BRACKETED_OFF, BRACKETED_ON, CLEAR, ERASE_DOWN,
                      HOME, HIDE_CURSOR, Line, SHOW_CURSOR, move, pad, supports_unicode,
                      terminal_size, text_width, truncate, wrap_line)
@@ -411,6 +412,8 @@ class App:
         self._stats_cache: Optional[Dict[str, Any]] = None
         self._stats_at = 0.0
         self.dirty_stats = True
+        self._last_lines: Optional[List[str]] = None   # прошлый кадр для диф-отрисовки
+        self._force_full = True
 
         agent.emit = self.post
         agent.confirm = self.confirm_async
@@ -423,12 +426,22 @@ class App:
         model = self.catalog.resolve(self.agent.model)
         mult = self.catalog.multiplier(model)
         self.add(KIND_LOGO, LOGO_ART)
-        self.add(KIND_INFO,
-                 f"папка {ws.root} · модель {model} ×{mult:g} · "
-                 f"режим «{self.agent.confirm_mode}»")
-        self.add(KIND_INFO,
-                 "напишите задачу и Enter · /help — команды · "
-                 "Ctrl+Shift+C/V — копировать/вставить")
+
+        def tagline(theme: Theme, width: int) -> List[Line]:
+            """Подзаголовок под логотипом, по центру — как стартовый экран opencode."""
+            first = f"{os.path.basename(ws.root) or ws.root} · {model} ×{mult:g} · " \
+                    f"режим «{self.agent.confirm_mode}»"
+            second = "напишите задачу и Enter · /help — команды · " \
+                     "Ctrl+Shift+C/V — копировать/вставить"
+            out: List[Line] = []
+            for text, role in ((first, "dim"), (second, "faint")):
+                text = truncate(text, width)
+                left = max(0, (width - text_width(text)) // 2)
+                out.append([(" " * left, theme.style("fg")),
+                            (text, theme.style(role))])
+            return out
+
+        self.add(KIND_CUSTOM, renderer=tagline)
         spend = self.state.tokens_day
         if spend:
             limit = self.gw.daily_limit
@@ -472,6 +485,8 @@ class App:
             sys.stdout.write(ALT_ON + HIDE_CURSOR + BRACKETED_ON + CLEAR)
             sys.stdout.flush()
             self.alt_screen = True
+            self._force_full = True
+            self._last_lines = None
         except Exception:  # noqa: BLE001
             self.alt_screen = False
         self.reader.open()
@@ -789,6 +804,8 @@ class App:
             return
         if ev.name == "ctrl+l":
             sys.stdout.write(CLEAR)
+            self._force_full = True
+            self._last_lines = None
             self.dirty = True
             return
         if ev.name in ("ctrl+d",):
@@ -853,10 +870,6 @@ class App:
 
     def do_paste(self) -> None:
         """Ctrl+Shift+V / /paste: вставить буфер обмена в строку ввода."""
-        if self.busy:
-            self.add(KIND_INFO, "вставка — когда задача закончит (Esc — прервать)")
-            self.dirty = True
-            return
         text, backend = clip.paste()
         if not text:
             self.activity_text = "! буфер обмена пуст"
@@ -869,16 +882,85 @@ class App:
         self.dirty = True
 
     def _busy_key(self, ev: KeyEvent) -> None:
-        """Во время работы задачи доступны прокрутка и остановка."""
+        """Пока задача работает: прокрутка, остановка — и ввод не теряется.
+
+        Символы печатаются в строку заранее (typeahead, как в opencode): когда
+        агент освободится, текст уже на месте и Enter отправит его сразу.
+        """
         if ev.name == "esc":
             self._ctrl_c()
             return
         if ev.name in ("pageup", "ctrl+up"):
             self.scroll_page(-1)
-        elif ev.name in ("pagedown", "ctrl+down"):
+            return
+        if ev.name in ("pagedown", "ctrl+down"):
             self.scroll_page(1)
-        elif ev.name == "ctrl+v":
+            return
+        if ev.name == "ctrl+v":
             self.toggle_verbose()
+            return
+        if ev.name == "ctrl+shift+c":
+            self.do_copy()
+            return
+        if ev.name == "ctrl+shift+v":
+            self.do_paste()
+            return
+        if ev.name == "enter":
+            if not self.input.is_empty():
+                self.add(KIND_INFO, "агент работает: текст в строке, Enter отправит его, "
+                                    "когда агент освободится (Esc — остановить)")
+            else:
+                self.add(KIND_INFO, "агент ещё работает — Esc, чтобы остановить")
+            self.dirty = True
+            return
+        if self._input_edit(ev):
+            return
+
+    def _input_edit(self, ev: KeyEvent) -> bool:
+        """Клавиши правки строки ввода — общие для покоя и typeahead."""
+        name = ev.name
+        if name == "char":
+            self.input.insert(ev.text)
+            self.input.reset_history_cursor()
+            self._refresh_completion()
+            return True
+        if name == "paste":
+            self.input.insert(ev.text)
+            self._refresh_completion()
+            return True
+        if name in ("alt+enter", "newline", "ctrl+j"):
+            self.input.newline()
+            self.dirty = True
+            return True
+        if name == "backspace":
+            self.input.backspace()
+            self._refresh_completion()
+            return True
+        if name == "delete":
+            self.input.delete()
+            return True
+        if name == "left":
+            self.input.left()
+            return True
+        if name == "right":
+            self.input.right()
+            return True
+        if name in ("home", "ctrl+a"):
+            self.input.home()
+            return True
+        if name in ("end", "ctrl+e"):
+            self.input.end()
+            return True
+        if name == "ctrl+u":
+            self.input.kill_to_start()
+            return True
+        if name == "ctrl+k":
+            self.input.kill_line()
+            return True
+        if name == "ctrl+w":
+            self.input.kill_word()
+            return True
+        return False
 
     def _idle_key(self, ev: KeyEvent) -> None:
         name = ev.name
@@ -902,21 +984,8 @@ class App:
                 self.dirty = True
                 return
 
-        if name == "char":
-            self.input.insert(ev.text)
-            self.input.reset_history_cursor()
-            self._refresh_completion()
-            return
-        if name == "paste":
-            self.input.insert(ev.text)
-            self._refresh_completion()
-            return
         if name == "enter":
             self.submit()
-            return
-        if name in ("alt+enter", "newline", "ctrl+j"):
-            self.input.newline()
-            self.dirty = True
             return
         if name == "tab":
             if self.completion.active:
@@ -925,39 +994,13 @@ class App:
                 self._refresh_completion(force=True)
             self.dirty = True
             return
-        if name == "backspace":
-            self.input.backspace()
-            self._refresh_completion()
-            return
-        if name == "delete":
-            self.input.delete()
-            return
-        if name == "left":
-            self.input.left()
-            return
-        if name == "right":
-            self.input.right()
-            return
         if name == "up":
             self.input.up()
             return
         if name == "down":
             self.input.down()
             return
-        if name in ("home", "ctrl+a"):
-            self.input.home()
-            return
-        if name in ("end", "ctrl+e"):
-            self.input.end()
-            return
-        if name == "ctrl+u":
-            self.input.kill_to_start()
-            return
-        if name == "ctrl+k":
-            self.input.kill_line()
-            return
-        if name == "ctrl+w":
-            self.input.kill_word()
+        if self._input_edit(ev):
             return
         if name == "esc":
             if not self.input.is_empty():
@@ -1372,9 +1415,8 @@ class App:
         items.append((os.getcwd(), os.getcwd(), "текущая папка"))
         items.append(("ввести путь…", "?", "вставить путь из проводника"))
         self.open_dialog(ListDialog(
-            "Рабочая папка", items, allow_text=True,
-            hint="консоль стартовала в папке программы — выберите, где лежит ваш код: "
-                 "↑↓ + Enter или впишите путь"),
+            "Рабочая папка — где лежит ваш код?", items, allow_text=True,
+            hint="↑↓ + Enter — выбрать · или впишите путь · Esc — остаться здесь"),
             self._on_workspace_choice)
 
     def _on_workspace_choice(self, value: Any) -> None:
@@ -1398,6 +1440,7 @@ class App:
                              lambda v: self._set_workspace(v) if v else None)
             return
         if target == self.ws.root:
+            self.state.set("last_workspace", target)
             self.add(KIND_INFO, f"уже работаем здесь: {target}")
             return
         limits = dict(self.cfg.get("economy", {}) or {})
@@ -1598,8 +1641,11 @@ class App:
         if (width, height) != self.size:
             self.size = (width, height)
             self.invalidate_blocks()
+            self._force_full = True
         if width < 40 or height < 12:
             self._draw_too_small(width, height)
+            self._force_full = True
+            self._last_lines = None
             return
 
         model = self.catalog.resolve(self.agent.model)
@@ -1654,12 +1700,30 @@ class App:
 
     def _emit(self, rows: List[Line], width: int, cursor_rc: Optional[Tuple[int, int]],
               cursor_base: int) -> None:
+        """Дифференциальный вывод: перерисовываются только изменившиеся строки.
+
+        Полная перерисовка всего кадра на каждое нажатие — это мерцание на
+        классической консоли Windows и лишние десятки килобайт в канал; здесь
+        же кадр «доедает» только то, что реально изменилось (строка ввода,
+        активность, новая строка ленты).
+        """
         palette = self.theme.palette
-        out: List[str] = [HOME, HIDE_CURSOR]
-        for row in rows:
-            out.append(pad(row, width, palette))
-            out.append("\x1b[K\r\n")
-        out.append(ERASE_DOWN)
+        lines = [pad(row, width, palette) for row in rows]
+        last = self._last_lines
+        forced = self._force_full or last is None or len(last) != len(lines)
+        out: List[str] = []
+        if forced:
+            out.append(HOME)
+            out.append(ERASE_DOWN)
+        for i, ln in enumerate(lines):
+            if forced or last[i] != ln:
+                out.append(move(i + 1, 1))
+                out.append(ln)
+                out.append("\x1b[K")
+                if i != len(lines) - 1:
+                    out.append("\r\n")   # кроме последней строки: иначе экран уедет
+        self._last_lines = lines
+        self._force_full = False
         cursor_at = None
         if self.dialog is not None:
             cursor_at = self._dialog_cursor(rows, width, body_top=0)
@@ -1702,7 +1766,7 @@ class App:
             ow = sum(text_width(t) for t, _ in orow)
             prefix_w = min(left, max(0, width - ow))
             filler = max(0, width - prefix_w - ow)
-            out[index] = ([(" " * prefix_w, self.theme.style("panel", bg_role="panel"))]
+            out[index] = ([(" " * prefix_w, self.theme.style("fg"))]
                           + orow
                           + [(" " * filler, self.theme.style("fg"))])
         return out
