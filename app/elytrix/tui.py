@@ -45,6 +45,7 @@ TIPS = [
     "Esc — остановить задачу, /clear — новая тема без старой истории (дешевле)",
     "/confirm auto — править без вопросов, /confirm ask — спрашивать на каждую правку",
     "чем конкретнее задача (файлы, ожидаемое поведение), тем меньше шагов и токенов",
+    "/cd — сменить рабочую папку без перезапуска консоли",
 ]
 
 
@@ -482,8 +483,14 @@ class App:
                     self.tip_at = now
                     need = True
                 if need:
-                    self.draw()
-                    self.dirty = False
+                    # чаще 20 кадров/с не перерисовываем: классическая консоль
+                    # Windows не успевает за перерисовкой на каждое нажатие,
+                    # и ввод ощущается рывками; dirty остаётся — докадрим чуть позже
+                    if self.dirty and now - self.last_frame < 0.05:
+                        need = False
+                    else:
+                        self.draw()
+                        self.dirty = False
         except KeyboardInterrupt:
             self.exit_code = 0
         finally:
@@ -1497,6 +1504,7 @@ class App:
             lines: List[str] = ["# Диагностика ELYTRIX", ""]
             lines += [f"- версия: {__version__} · python {sys.version.split()[0]} · "
                       f"{sys.platform}",
+                      f"- терминал: {self._terminal_name()}",
                       f"- ключ: {mask_key(self.gw.key) or '(нет)'} · источник: "
                       f"{self.key_source or 'не задан'}",
                       f"- шлюз (Anthropic): {self.gw.base_url}",
@@ -1526,6 +1534,17 @@ class App:
             lines.append(f"- журнал сессий: {os.path.join(self.ws.root, '.elytrix')}")
             self.post("dialog", {"title": "Диагностика", "text": "\n".join(lines)})
         threading.Thread(target=work, daemon=True).start()
+
+    def _terminal_name(self) -> str:
+        """Какой терминал нас рисует: от этого зависит плавность отрисовки."""
+        if os.name != "nt":
+            return os.environ.get("TERM_PROGRAM") or os.environ.get("TERM") or "posix"
+        if os.environ.get("WT_SESSION"):
+            return "Windows Terminal"
+        if os.environ.get("ConEmuPID"):
+            return "ConEmu"
+        return ("классическая консоль (conhost) — отрисовка медленнее, чем в "
+                "Windows Terminal")
 
     def cmd_router(self, arg: str) -> None:
         """Поднимает OpenAI-совместимый шлюз для редакторов (Cline, Continue, opencode)."""
