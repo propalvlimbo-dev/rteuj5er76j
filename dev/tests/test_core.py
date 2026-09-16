@@ -213,17 +213,44 @@ class TestKeys(unittest.TestCase):
         self.assertEqual(self.parse(b"\x1b[118;6u"), [("ctrl+shift+v", "")])
 
     def test_windows_burst_feed_typing_and_enter(self):
-        reader = KeyReader()
-        events = reader._feed_raw(list("задача\r"))
+        events = KeyReader.feed_raw(list("задача\r"))
         self.assertEqual([e.name for e in events][-1], "enter")
         self.assertEqual("".join(e.text for e in events if e.is_char), "задача")
 
     def test_windows_burst_feed_multiline_paste(self):
-        reader = KeyReader()
-        events = reader._feed_raw(list("первая\r\nвторая\r\nтретья"))
+        events = KeyReader.feed_raw(list("первая\r\nвторая\r\nтретья"))
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].name, "paste")
         self.assertEqual(events[0].text, "первая\nвторая\nтретья")
+
+    def test_windows_console_events_mapping(self):
+        from elytrix.keys import win_key_events
+
+        items = [(ch, 0, False, False, False) for ch in "привет"] + [("\r", 0, False, False, False)]
+        events = win_key_events(items)
+        self.assertEqual([e.name for e in events][-1], "enter")
+        self.assertEqual("".join(e.text for e in events if e.is_char), "привет")
+
+    def test_windows_console_clipboard_combos(self):
+        from elytrix.keys import win_key_events
+
+        events = win_key_events([("\x03", 67, True, True, False),
+                                 ("\x16", 86, True, True, False)])
+        self.assertEqual([e.name for e in events], ["ctrl+shift+c", "ctrl+shift+v"])
+
+    def test_windows_console_arrows_and_alt(self):
+        from elytrix.keys import win_key_events
+
+        events = win_key_events([("", 0x25, True, False, False),
+                                 ("\r", 0, False, False, True)])
+        self.assertEqual([e.name for e in events], ["ctrl+left", "alt+enter"])
+
+    def test_windows_console_multiline_paste_burst(self):
+        from elytrix.keys import win_key_events
+
+        events = win_key_events([(ch, 0, False, False, False) for ch in "а\r\nб"])
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].name, "paste")
 
     def test_reader_is_safe_without_tty(self):
         reader = KeyReader()

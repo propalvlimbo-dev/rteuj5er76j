@@ -34,6 +34,87 @@ TILDE_NAMES = {
     "11": "f1", "12": "f2", "13": "f3", "14": "f4", "15": "f5",
 }
 
+VK_NAMES = {
+    0x26: "up", 0x28: "down", 0x27: "right", 0x25: "left",
+    0x24: "home", 0x23: "end", 0x21: "pageup", 0x22: "pagedown",
+    0x2D: "insert", 0x2E: "delete",
+}
+
+#: маски dwControlKeyState
+_WIN_CTRL = 0x000C     # LEFT_CTRL | RIGHT_CTRL
+_WIN_SHIFT = 0x0010
+_WIN_ALT = 0x0003
+
+_INPUT_RECORD_CLS = None
+
+
+def _input_record_cls():
+    """INPUT_RECORD из WinAPI: лениво, чтобы не трогать ctypes вне Windows."""
+    global _INPUT_RECORD_CLS
+    if _INPUT_RECORD_CLS is None:
+        import ctypes
+
+        class _KeyEvent(ctypes.Structure):
+            _fields_ = [("bKeyDown", ctypes.c_int32),
+                        ("wRepeatCount", ctypes.c_uint16),
+                        ("wVirtualKeyCode", ctypes.c_uint16),
+                        ("wVirtualScanCode", ctypes.c_uint16),
+                        ("uChar", ctypes.c_wchar),
+                        ("dwControlKeyState", ctypes.c_uint32)]
+
+        class _InputRecord(ctypes.Structure):
+            _fields_ = [("EventType", ctypes.c_uint16), ("Event", _KeyEvent)]
+
+        _INPUT_RECORD_CLS = _InputRecord
+    return _INPUT_RECORD_CLS
+
+
+def win_key_events(items) -> List["KeyEvent"]:
+    """События клавиш Windows в события ELYTRIX.
+
+    ``items`` — последовательность (символ, vk, ctrl, shift, alt). Обычные
+    символы копятся пакетом: многострочная вставка из меню консоли приходит
+    одним событием ``paste`` и не отправляет задачу переводом строки внутри.
+    """
+    events: List[KeyEvent] = []
+    run: List[str] = []
+
+    def flush() -> None:
+        if run:
+            events.extend(KeyReader.feed_raw(run[:]))
+            run.clear()
+
+    for ch, vk, ctrl, shift, alt in items:
+        if not ch or ch == "\x00":
+            flush()
+            name = VK_NAMES.get(vk, "unknown")
+            if name != "unknown":
+                name = ("ctrl+" if ctrl else "") + ("shift+" if shift else "") \
+                    + ("alt+" if alt else "") + name
+            events.append(KeyEvent(name))
+            continue
+        if ctrl and ch in CTRL_NAMES:
+            flush()
+            if shift and ch in ("\x03", "\x16"):
+                events.append(KeyEvent("ctrl+shift+c" if ch == "\x03"
+                                         else "ctrl+shift+v"))
+            else:
+                events.append(KeyEvent(CTRL_NAMES[ch]))
+            continue
+        if alt:
+            flush()
+            if ch == "\r":
+                events.append(KeyEvent("alt+enter"))
+            else:
+                events.append(KeyEvent("alt+" + ch, ch))
+            continue
+        run.append(ch)
+    flush()
+    return events
+
+
+_SHARED_PARSER: Optional[KeyParser] = None
+
 WIN_SPECIAL = {
     "H": "up", "P": "down", "M": "right", "K": "left",
     "G": "home", "O": "end", "S": "delete", "I": "pageup",
@@ -265,6 +346,7 @@ class KeyReader:
         self._old = None
         self._win_vt = False
         self._win_old = None
+        self._win_ki = None
         self._mod_keys = False
 
     # -- режим терминала ----------------------------------------------------
@@ -365,6 +447,24 @@ class KeyReader:
                     kernel32.SetConsoleMode(handle, no_quick)
         except Exception:  # noqa: BLE001
             self._win_vt = False
+        self._win_ki = self._win_prepare()
+
+    def _win_prepare(self):
+        """Рекорды и хендл для неблокирующего чтения событий консоли."""
+        try:
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            handle = kernel32.GetStdHandle(-10)
+            if not handle or handle == -1:
+                return None
+            recs = (_input_record_cls() * 128)()
+            probe = ctypes.c_uint32(0)
+            if not kernel32.PeekConsoleInputW(handle, recs, 1, ctypes.byref(probe)):
+                return None
+            return (kernel32, handle, recs)
+        except Exception:  # noqa: BLE001
+            return None
 
     # -- чтение -------------------------------------------------------------
 
@@ -403,6 +503,53 @@ class KeyReader:
         return events
 
     def _read_windows(self, timeout: float) -> List[KeyEvent]:
+        """Читает нажатия событиями консоли, без блокировок.
+
+        msvcrt.getwch() умеет встать на служебном событии окна (focus/resize),
+        из-за чего символы копятся и вываливаются пачкой — «залагивает».
+        PeekConsoleInputW не блокируется никогда: посмотрели, есть ли события,
+        и только тогда забираем их ReadConsoleInputW.
+        """
+        if self._win_ki is None:
+            return self._read_windows_msvcrt(timeout)
+        events: List[KeyEvent] = []
+        deadline = time.time() + max(0.0, timeout)
+        while True:
+            items = self._win_poll()
+            if items:
+                events.extend(win_key_events(items))
+                continue
+            if events or time.time() >= deadline:
+                break
+            time.sleep(0.005)
+        return events
+
+    def _win_poll(self, limit: int = 128):
+        import ctypes
+
+        kernel32, handle, recs = self._win_ki
+        peeked = ctypes.c_uint32(0)
+        if not kernel32.PeekConsoleInputW(handle, recs, limit, ctypes.byref(peeked)):
+            return []
+        if not peeked.value:
+            return []
+        got = ctypes.c_uint32(0)
+        if not kernel32.ReadConsoleInputW(handle, recs, peeked.value, ctypes.byref(got)):
+            return []
+        items = []
+        for i in range(got.value):
+            record = recs[i]
+            if record.EventType != 1 or not record.Event.bKeyDown:
+                continue          # focus/resize/отжатие — не клавиша
+            state = record.Event.dwControlKeyState
+            for _ in range(max(1, record.Event.wRepeatCount)):
+                items.append((record.Event.uChar, record.Event.wVirtualKeyCode,
+                              bool(state & _WIN_CTRL), bool(state & _WIN_SHIFT),
+                              bool(state & _WIN_ALT)))
+        return items
+
+    def _read_windows_msvcrt(self, timeout: float) -> List[KeyEvent]:
+        """Запасной путь, если события консоли недоступны: по символу за раз."""
         import msvcrt
 
         events: List[KeyEvent] = []
@@ -412,30 +559,14 @@ class KeyReader:
                 ch = msvcrt.getwch()
                 if ch in ("\x00", "\xe0"):
                     if not msvcrt.kbhit():
-                        events.append(KeyEvent("unknown"))   # хвост без продолжения
+                        events.append(KeyEvent("unknown"))
                         continue
                     events.append(KeyEvent(WIN_SPECIAL.get(msvcrt.getwch(), "unknown")))
-                    continue
-                if ch in ("\x03", "\x16") and self._shift_held():
-                    # консоль не отличает Ctrl+Shift+C от Ctrl+C — смотрим на Shift
+                elif ch in ("\x03", "\x16") and self._shift_held():
                     events.append(KeyEvent("ctrl+shift+c" if ch == "\x03"
                                              else "ctrl+shift+v"))
-                    continue
-                # дочитываем всё, что уже накопилось: так многострочная вставка
-                # видна одним куском и Enter внутри неё не отправит задачу
-                raw = [ch]
-                while msvcrt.kbhit() and len(raw) < 4096:
-                    nxt = msvcrt.getwch()
-                    if nxt in ("\x00", "\xe0"):
-                        events.extend(self._feed_raw(raw))
-                        raw = []
-                        if msvcrt.kbhit():
-                            events.append(KeyEvent(WIN_SPECIAL.get(msvcrt.getwch(),
-                                                                   "unknown")))
-                        break
-                    raw.append(nxt)
-                if raw:
-                    events.extend(self._feed_raw(raw))
+                else:
+                    events.extend(self.parser.feed(ch.encode("utf-8", "replace")))
                 continue
             if events or time.time() >= deadline:
                 break
@@ -443,13 +574,22 @@ class KeyReader:
         events.extend(self.parser.feed(b""))
         return events
 
-    def _feed_raw(self, raw: List[str]) -> List[KeyEvent]:
+    @staticmethod
+    def feed_raw(raw: List[str]) -> List[KeyEvent]:
         """Пакет символов из консоли: обычная печать или многострочная вставка."""
         text = "".join(raw)
         body = text[:-1] if text and text[-1] in "\r\n" else text
         if "\r" in body or "\n" in body:
             return [KeyEvent("paste", text.replace("\r\n", "\n").replace("\r", "\n"))]
-        return self.parser.feed(text.encode("utf-8", "replace"))
+        return KeyReader._parser_static().feed(text.encode("utf-8", "replace"))
+
+    @staticmethod
+    def _parser_static() -> KeyParser:
+        """Общий разборчик для пакетов символов (вне экземпляра читалки)."""
+        global _SHARED_PARSER
+        if _SHARED_PARSER is None:
+            _SHARED_PARSER = KeyParser()
+        return _SHARED_PARSER
 
     def drain(self) -> List[KeyEvent]:
         """Собрать то, что уже накопилось в буфере (одиночный Esc и хвосты вставки)."""
