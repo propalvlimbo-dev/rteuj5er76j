@@ -550,7 +550,8 @@ class SmartAPI:
         hint = ""
         if status in (401, 403):
             hint = ("Ключ не принят. Проверьте SMARTAPI_KEY: кабинет "
-                    "https://smartapi.shop/api-keys, затем /key внутри ELYTRIX.")
+                    "https://smartapi.shop/api-keys, затем /api внутри ELYTRIX "
+                    "(ключ или файл с ключом).")
             return AuthError(hint + (" " + detail[:200] if detail else ""), code=status)
         if status == 404 or "does not exist" in low or "not available" in low or "model_not_found" in low:
             hint = (f"Модели нет в каталоге шлюза ({kind}). Список: /model, "

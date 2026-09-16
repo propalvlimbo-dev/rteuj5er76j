@@ -1016,6 +1016,51 @@ class TestStartupBanner(ConsoleCase):
         self.assertIn("напишите задачу и Enter", frame)
 
 
+class TestApiKey(ConsoleCase):
+    """/api: ключ из диалога, строкой или из файла; ошибка не дублируется."""
+
+    def setUp(self):
+        super().setUp()
+        self.home = tempfile.mkdtemp(prefix="elytrix-api-")
+        os.environ["ELYTRIX_HOME"] = self.home
+
+    def tearDown(self):
+        shutil.rmtree(self.home, ignore_errors=True)
+        os.environ.pop("ELYTRIX_HOME", None)
+        super().tearDown()
+
+    def test_api_command_reads_key_from_file(self):
+        path = os.path.join(self.ws, "key.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("sk-smart-test1234567890\n")
+        self.app.command("/api key.txt")
+        self.assertEqual(self.app.gw.key, "sk-smart-test1234567890")
+        self.assertTrue(any("ключ сохранён" in t for t in self.block_texts(KIND_INFO)))
+
+    def test_api_command_accepts_key_directly(self):
+        self.app.command("/api sk-smart-abcdef")
+        self.assertEqual(self.app.gw.key, "sk-smart-abcdef")
+
+    def test_api_without_arg_opens_dialog(self):
+        self.app.command("/api")
+        self.assertIsNotNone(self.app.dialog)
+        self.app.close_dialog(False)
+
+    def test_error_not_duplicated_in_task_report(self):
+        import types
+
+        self.app.post("error", {"text": "boom error"})
+        self.app.drain()
+        report = types.SimpleNamespace(error="boom error", cancelled=False, answer="",
+                                       usage=None, files=[], elapsed=0.1, steps=1,
+                                       squeezed_tokens=0)
+        self.app.post("task_done", {"report": report})
+        self.app.drain()
+        errors = [b.text for b in self.app.blocks
+                  if b.kind == KIND_ERROR and b.text == "boom error"]
+        self.assertEqual(len(errors), 1, "одна и та же ошибка печатается один раз")
+
+
 class TestBigPrompts(ConsoleCase):
     """Большие промты: /prompt грузит файл в строку, cli читает задачу из файла."""
 
@@ -1054,10 +1099,10 @@ class TestFrameDiff(ConsoleCase):
     def test_second_draw_repaints_only_changed_rows(self):
         self.app.banner()
         first = self.draw()
-        self.assertIn("ELYTRIX 3.1.0", frame_text(first))
+        self.assertIn("ELYTRIX 3.1.1", frame_text(first))
         self.type_text("привет")
         second = self.draw()
-        self.assertNotIn("ELYTRIX 3.1.0", frame_text(second),
+        self.assertNotIn("ELYTRIX 3.1.1", frame_text(second),
                          "шапка не изменилась — не перерисовывается")
         self.assertIn("привет", frame_text(second))
 

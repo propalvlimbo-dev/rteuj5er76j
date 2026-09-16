@@ -238,12 +238,13 @@ COMMANDS: List[Tuple[str, str]] = [
     ("/limit", "дневной лимит зачётных токенов: /limit 600000"),
     ("/confirm", "режим правок: ask | auto | readonly"),
     ("/verbose", "показывать содержимое результатов инструментов"),
+    ("/api", "загрузить ключ SmartAPI: /api — диалог, /api sk-smart-… или /api ключ.txt"),
     ("/prompt", "загрузить большой промт из файла в строку ввода: /prompt spec.md"),
     ("/copy", "копировать строку ввода или последний ответ в буфер обмена"),
     ("/paste", "вставить буфер обмена в строку ввода"),
     ("/theme", "тема оформления"),
     ("/cd", "сменить рабочую папку"),
-    ("/key", "сменить ключ SmartAPI"),
+    ("/key", "синоним /api: загрузить ключ SmartAPI"),
     ("/doctor", "диагностика: ключ, шлюз, модели, лимиты"),
     ("/models", "обновить каталог моделей шлюза: /models reload"),
     ("/router", "поднять OpenAI-совместимый шлюз для редакторов"),
@@ -409,6 +410,7 @@ class App:
         self.alt_screen = False
         self.task_started_at = 0.0
         self.tasks_done = 0
+        self._shown_error = ""
         self.router_thread: Optional[threading.Thread] = None
         self.router_url = ""
         self._stats_cache: Optional[Dict[str, Any]] = None
@@ -580,14 +582,37 @@ class App:
     def _on_key_entered(self, value: Any) -> None:
         if not value:
             if not self.gw.key:
-                self.add(KIND_ERROR, "без ключа агент работать не может: введите его командой /key")
+                self.add(KIND_ERROR, "без ключа агент работать не может: "
+                                     "загрузите его командой /api")
             return
+        self._set_key(value)
+        self.maybe_ask_workspace()
+
+    def _set_key(self, value: str) -> None:
         self.gw.key = value
         path = save_key(value)
         self.key_source = "file"
         self.add(KIND_INFO, f"ключ сохранён: {path or 'в переменные окружения'} · {mask_key(value)}")
         self.check_key_async()
-        self.maybe_ask_workspace()
+
+    def cmd_api(self, arg: str) -> None:
+        """/api — загрузить ключ: диалог, сам ключ или файл с ключом."""
+        arg = (arg or "").strip().strip('"').strip("'")
+        if not arg:
+            self.ask_key()
+            return
+        path = arg if os.path.isabs(arg) else os.path.join(self.ws.root, arg)
+        if os.path.isfile(path):
+            try:
+                with open(path, "r", encoding="utf-8", errors="replace") as f:
+                    arg = next((ln.strip() for ln in f if ln.strip()), "")
+            except OSError as e:
+                self.add(KIND_ERROR, f"не удалось прочитать файл с ключом: {e}")
+                return
+            if not arg:
+                self.add(KIND_ERROR, f"в файле {path} ключ не найден (пусто)")
+                return
+        self._set_key(arg)
 
     def check_key_async(self) -> None:
         """Проверяет связь со шлюзом в фоне — интерфейс не подвисает."""
@@ -667,7 +692,8 @@ class App:
                                 f"{human_number(after)} токенов на входе "
                                 f"(−{human_number(max(0, before - after))})")
         elif kind == "error":
-            self.add(KIND_ERROR, str(data.get("text") or "ошибка"))
+            self._shown_error = str(data.get("text") or "ошибка")
+            self.add(KIND_ERROR, self._shown_error)
             self.activity_text = "ошибка"
         elif kind == "note":
             style_kind = str(data.get("kind") or "info")
@@ -761,7 +787,10 @@ class App:
         usage = getattr(report, "usage", None)
         files = list(getattr(report, "files", []) or [])
         if getattr(report, "error", ""):
-            self.add(KIND_ERROR, report.error)
+            # ту же ошибку уже напечатали событием error — второй раз не надо
+            if report.error != self._shown_error:
+                self.add(KIND_ERROR, report.error)
+            self._shown_error = ""
             self.activity_text = "ошибка"
         elif getattr(report, "cancelled", False):
             self.activity_text = "! остановлено"
@@ -1168,9 +1197,10 @@ class App:
             "/session": self.cmd_session, "/history": self.cmd_session,
             "/steps": self.cmd_steps, "/limit": self.cmd_limit,
             "/confirm": self.cmd_confirm, "/verbose": self.cmd_verbose,
+            "/api": self.cmd_api, "/key": self.cmd_api,
             "/copy": self.cmd_copy, "/paste": self.cmd_paste,
             "/prompt": self.cmd_prompt,
-            "/theme": self.cmd_theme, "/cd": self.cmd_cd, "/key": self.cmd_key,
+            "/theme": self.cmd_theme, "/cd": self.cmd_cd,
             "/doctor": self.cmd_doctor, "/router": self.cmd_router,
             "/exit": lambda a: self.quit(), "/quit": lambda a: self.quit(),
             "/q": lambda a: self.quit(),
@@ -1519,8 +1549,8 @@ class App:
         self.state.set("recent_workspaces", recent[:8])
         self.banner()
 
-    def cmd_key(self, _arg: str) -> None:
-        self.ask_key()
+    def cmd_key(self, arg: str) -> None:
+        self.cmd_api(arg)
 
     def cmd_doctor(self, _arg: str) -> None:
         self.add(KIND_INFO, "диагностика: ключ, шлюз, каталог моделей, лимиты…")
