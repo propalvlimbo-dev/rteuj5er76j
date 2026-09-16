@@ -16,7 +16,15 @@ jobs:
           java-version: '16'
           cache: maven
       - name: Build
-        run: mvn --batch-mode clean package 2>&1 | tee build.log
+        shell: bash
+        run: |
+          set +e
+          mvn --batch-mode clean package 2>&1 | tee build.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            grep -E '^\[ERROR\]' build.log | tail -30 | while IFS= read -r line; do echo "::error::$line"; done
+            exit "$code"
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
