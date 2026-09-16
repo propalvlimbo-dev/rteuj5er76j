@@ -1,660 +1,709 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Тесты FreeCoder Router: failover, ротация ключей, учёт квот, стриминг, алиасы.
+"""Тесты роутера — локального HTTP-шлюза для Cline, Continue, opencode и Cursor.
 
-Запуск:  python dev/tests/test_router.py       (или python -m unittest discover dev/tests)
+Проверяются и чистые переводы форматов (OpenAI ↔ Anthropic ↔ внутренний), и живой
+сервер на случайном порту: обычные и потоковые ответы, инструменты, учёт расхода,
+ошибки и служебные маршруты.
+
+Запуск:  python dev/tests/test_router.py
 """
 
+from __future__ import annotations
+
+import http.client
 import json
 import os
 import shutil
 import sys
-import tempfile
 import threading
-import time
 import unittest
-from unittest import mock
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "app"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import router as fcr  # noqa: E402
+from mockapi import MockGateway, Stack, call, make_workspace, text, tool  # noqa: E402
 
-
-# --------------------------------------------------------------------------
-# Фальшивый апстрим: управляется словарём control
-# --------------------------------------------------------------------------
-
-
-class FakeUpstream(BaseHTTPRequestHandler):
-    protocol_version = "HTTP/1.1"
-    control = {
-        "hits": [],            # список полученных (key, model)
-        "status_by_key": {},   # "Bearer key" -> http код
-        "default_status": 200,
-        "delay": 0.0,
-        "stream": False,
-    }
-
-    def log_message(self, *a):
-        pass
-
-    def do_POST(self):
-        n = int(self.headers.get("Content-Length") or 0)
-        body = json.loads(self.rfile.read(n) or b"{}")
-        auth = self.headers.get("Authorization", "")
-        FakeUpstream.control["hits"].append((auth, body.get("model"), bool(body.get("stream"))))
-        if FakeUpstream.control["delay"]:
-            time.sleep(FakeUpstream.control["delay"])
-
-        code = FakeUpstream.control["status_by_key"].get(auth, FakeUpstream.control["default_status"])
-        if code != 200:
-            payload = json.dumps({"error": {"message": f"fake {code}"}}).encode()
-            self.send_response(code)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(payload)))
-            if code == 429:
-                self.send_header("retry-after", "2")
-            self.end_headers()
-            self.wfile.write(payload)
-            return
-
-        if FakeUpstream.control["stream"]:
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream")
-            self.send_header("Transfer-Encoding", "chunked")
-            self.end_headers()
-            for piece in ("Привет", ", мир"):
-                chunk = json.dumps({"choices": [{"delta": {"content": piece}}], "model": "up"}).encode()
-                data = b"data: " + chunk + b"\n\n"
-                self.wfile.write(b"%x\r\n" % len(data) + data + b"\r\n")
-                self.wfile.flush()
-            usage = json.dumps({"choices": [], "usage": {"prompt_tokens": 7, "completion_tokens": 3}}).encode()
-            data = b"data: " + usage + b"\n\n"
-            self.wfile.write(b"%x\r\n" % len(data) + data + b"\r\n")
-            self.wfile.write(b"0\r\n\r\n")
-            self.wfile.flush()
-            return
-
-        payload = json.dumps({
-            "id": "x", "object": "chat.completion", "created": 0, "model": body.get("model"),
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"},
-                         "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7},
-        }).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(payload)))
-        self.end_headers()
-        self.wfile.write(payload)
+from elytrix.gateway import ToolCall, Turn, Usage  # noqa: E402
+from elytrix.router import (_looks_like_agent, anthropic_to_internal,  # noqa: E402
+                            openai_to_internal, serve_in_thread, turn_to_anthropic,
+                            turn_to_openai)
+from elytrix.tools import TOOL_SCHEMAS  # noqa: E402
 
 
-def start_fake(port):
-    srv = ThreadingHTTPServer(("127.0.0.1", port), FakeUpstream)
-    srv.daemon_threads = True
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    return srv
+def sse_events(body: bytes):
+    """Разбирает ответ text/event-stream в список (событие, данные)."""
+    out = []
+    event = ""
+    for raw in body.decode("utf-8", "replace").split("\n"):
+        line = raw.rstrip("\r")
+        if line.startswith("event:"):
+            event = line[6:].strip()
+        elif line.startswith("data:"):
+            payload = line[5:].strip()
+            if payload == "[DONE]":
+                out.append((event or "message", "[DONE]"))
+                event = ""
+                continue
+            try:
+                out.append((event, json.loads(payload)))
+            except ValueError:
+                out.append((event, payload))
+            event = ""
+    return out
 
 
-class RouterTestBase(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.tmp = tempfile.mkdtemp(prefix="fcr-test-")
-        FakeUpstream.control.update({
-            "hits": [], "status_by_key": {}, "default_status": 200, "delay": 0.0, "stream": False,
-        })
-        cls.up_a = start_fake(18101)
-        cls.up_b = start_fake(18102)
-
-    @classmethod
-    def tearDownClass(cls):
-        for srv in (cls.up_a, cls.up_b):
-            srv.shutdown()
-            srv.server_close()
-        shutil.rmtree(cls.tmp, ignore_errors=True)
-
-    def make_router(self, providers, aliases=None, **extra):
-        cfg = {"providers": providers, "aliases": aliases or {}, "default_alias": "auto"}
-        cfg.update(extra)
-        cfg.setdefault("log_requests", False)
-        r = fcr.Router(cfg, os.path.join(self.tmp, f"state-{time.time_ns()}.json"))
-        server = ThreadingHTTPServer(("127.0.0.1", 0), fcr.Handler)
-        server.daemon_threads = True
-        fcr.Handler.router = r
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-        self.addCleanup(server.server_close)
-        self.addCleanup(server.shutdown)
-        return r, server.server_address[1]
-
-    def post(self, port, payload, raw=False):
-        import urllib.request
-
-        req = urllib.request.Request(
-            f"http://127.0.0.1:{port}/v1/chat/completions",
-            data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                body = resp.read().decode()
-                return resp.status, (body if raw else json.loads(body))
-        except urllib.error.HTTPError as e:  # noqa: F821
-            body = e.read().decode()
-            return e.code, (body if raw else json.loads(body))
+# ---------------------------------------------------------------------------
+# Перевод форматов (без сети)
+# ---------------------------------------------------------------------------
 
 
-class TestFailover(RouterTestBase):
-    def test_first_provider_ok(self):
-        FakeUpstream.control["default_status"] = 200
-        r, port = self.make_router([{
-            "name": "a", "base_url": "http://127.0.0.1:18101/v1", "keys": ["k1"],
-            "models": ["m1"], "priority": 1, "limits": {"rpm": 10, "rpd": 10},
-        }])
-        code, out = self.post(port, {"model": "auto", "messages": [{"role": "user", "content": "hi"}]})
-        self.assertEqual(code, 200)
-        self.assertEqual(out["x_freecoder_provider"], "a")
-        self.assertEqual(r.stats["a"]["ok"], 1)
+class TestConversions(unittest.TestCase):
+    def test_openai_system_messages_are_joined(self):
+        system, messages, tools = openai_to_internal([
+            {"role": "system", "content": "ты агент"},
+            {"role": "developer", "content": "работай в папке"},
+            {"role": "user", "content": "привет"},
+        ], None)
+        self.assertEqual(system, "ты агент\n\nработай в папке")
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0]["role"], "user")
+        self.assertEqual(messages[0]["content"][0]["text"], "привет")
+        self.assertEqual(tools, [])
 
-    def test_failover_on_429(self):
-        FakeUpstream.control["status_by_key"] = {"Bearer bad": 429}
-        r, port = self.make_router([
-            {"name": "a", "base_url": "http://127.0.0.1:18101/v1", "keys": ["bad"],
-             "models": ["m1"], "priority": 1, "limits": {"rpd": 100}},
-            {"name": "b", "base_url": "http://127.0.0.1:18102/v1", "keys": ["good"],
-             "models": ["m2"], "priority": 2, "limits": {"rpd": 100}},
+    def test_openai_system_as_blocks(self):
+        system, _m, _t = openai_to_internal(
+            [{"role": "system", "content": [{"type": "text", "text": "правила"}]},
+             {"role": "user", "content": "делай"}], None)
+        self.assertEqual(system, "правила")
+
+    def test_openai_no_system_is_none(self):
+        system, _m, _t = openai_to_internal([{"role": "user", "content": "делай"}], None)
+        self.assertIsNone(system)
+
+    def test_openai_tool_calls_become_tool_use(self):
+        _system, messages, _tools = openai_to_internal([
+            {"role": "user", "content": "прочитай файл"},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "call_1", "type": "function",
+                 "function": {"name": "read", "arguments": '{"path": "a.py"}'}}]},
+            {"role": "tool", "tool_call_id": "call_1", "content": "print(1)"},
+        ], None)
+        self.assertEqual(messages[1]["content"][0]["type"], "tool_use")
+        self.assertEqual(messages[1]["content"][0]["input"], {"path": "a.py"})
+        self.assertEqual(messages[2]["role"], "user")
+        self.assertEqual(messages[2]["content"][0]["type"], "tool_result")
+        self.assertEqual(messages[2]["content"][0]["tool_use_id"], "call_1")
+
+    def test_openai_parallel_tool_results_are_grouped(self):
+        """Два результата подряд — одно сообщение: иначе шлюз вернёт 400."""
+        _system, messages, _tools = openai_to_internal([
+            {"role": "assistant", "tool_calls": [
+                {"id": "a", "function": {"name": "read", "arguments": "{}"}},
+                {"id": "b", "function": {"name": "ls", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "a", "content": "первый"},
+            {"role": "tool", "tool_call_id": "b", "content": "второй"},
+        ], None)
+        results = [m for m in messages if m["role"] == "user"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(len(results[0]["content"]), 2)
+
+    def test_openai_broken_arguments_do_not_crash(self):
+        _system, messages, _tools = openai_to_internal([
+            {"role": "assistant", "tool_calls": [
+                {"id": "x", "function": {"name": "write", "arguments": "{не json"}}]},
+        ], None)
+        self.assertEqual(messages[0]["content"][0]["input"], {})
+
+    def test_openai_tools_are_converted(self):
+        _s, _m, tools = openai_to_internal([], [
+            {"type": "function", "function": {"name": "read", "description": "читает",
+                                              "parameters": {"type": "object"}}},
+            {"type": "function", "function": {"description": "без имени"}},
         ])
-        code, out = self.post(port, {"model": "auto", "messages": [{"role": "user", "content": "hi"}]})
-        self.assertEqual(code, 200, out)
-        self.assertEqual(out["x_freecoder_provider"], "b")
-        self.assertGreater(r.states["a|0"].blocked_until, time.time())
-        self.assertEqual(r.states["a|0"].last_error, "429 (квота/лимит)")
+        self.assertEqual(len(tools), 1)
+        self.assertEqual(tools[0]["name"], "read")
+        self.assertEqual(tools[0]["input_schema"], {"type": "object"})
 
-    def test_failover_on_500(self):
-        FakeUpstream.control["status_by_key"] = {"Bearer boom": 500}
-        _, port = self.make_router([
-            {"name": "a", "base_url": "http://127.0.0.1:18101/v1", "keys": ["boom"],
-             "models": ["m1"], "priority": 1},
-            {"name": "b", "base_url": "http://127.0.0.1:18102/v1", "keys": ["good"],
-             "models": ["m2"], "priority": 2},
-        ])
-        code, out = self.post(port, {"model": "auto", "messages": [{"role": "user", "content": "x"}]})
-        self.assertEqual(code, 200, out)
-        self.assertEqual(out["x_freecoder_provider"], "b")
+    def test_openai_empty_message_keeps_block(self):
+        _s, messages, _t = openai_to_internal([{"role": "user", "content": ""}], None)
+        self.assertEqual(messages[0]["content"], [{"type": "text", "text": ""}])
 
-    def test_all_failed_returns_429_with_hint(self):
-        FakeUpstream.control["status_by_key"] = {"Bearer bad": 429, "Bearer bad2": 429}
-        _, port = self.make_router([
-            {"name": "a", "base_url": "http://127.0.0.1:18101/v1", "keys": ["bad"], "models": ["m1"]},
-            {"name": "b", "base_url": "http://127.0.0.1:18102/v1", "keys": ["bad2"], "models": ["m2"]},
-        ])
-        code, out = self.post(port, {"model": "auto", "messages": [{"role": "user", "content": "x"}]})
-        self.assertEqual(code, 429)
-        self.assertIn("Дневной лимит", out["error"]["message"])
+    def test_anthropic_is_pass_through(self):
+        payload = {
+            "system": "ты агент",
+            "messages": [{"role": "user", "content": "привет"},
+                         {"role": "assistant", "content": [
+                             {"type": "text", "text": "думаю"},
+                             {"type": "tool_use", "id": "t1", "name": "read",
+                              "input": {"path": "a.py"}}]},
+                         {"role": "user", "content": [
+                             {"type": "tool_result", "tool_use_id": "t1",
+                              "content": [{"type": "text", "text": "код"}],
+                              "is_error": False}]}],
+            "tools": [{"name": "read", "description": "читает",
+                       "input_schema": {"type": "object"}}],
+        }
+        system, messages, tools = anthropic_to_internal(payload)
+        self.assertEqual(system, "ты агент")
+        self.assertEqual(messages[0]["content"][0]["text"], "привет")
+        self.assertEqual(messages[1]["content"][1]["name"], "read")
+        result = messages[2]["content"][0]
+        self.assertEqual(result["type"], "tool_result")
+        self.assertIn("код", result["content"], "список блоков становится текстом")
+        self.assertFalse(result["is_error"])
+        self.assertEqual(tools[0]["name"], "read")
 
-    def test_key_rotation_within_provider(self):
-        """Первый ключ исчерпан — второй должен подхватить в том же запросе."""
-        FakeUpstream.control["status_by_key"] = {"Bearer k1": 429, "Bearer k2": 200}
-        r, port = self.make_router([{
-            "name": "a", "base_url": "http://127.0.0.1:18101/v1", "keys": ["k1", "k2"],
-            "models": ["m1"], "priority": 1, "limits": {"rpd": 100},
-        }])
-        code, out = self.post(port, {"model": "auto", "messages": [{"role": "user", "content": "x"}]})
-        self.assertEqual(code, 200, out)
-        self.assertGreater(r.states["a|0"].blocked_until, time.time())
-        self.assertEqual(r.states["a|1"].blocked_until, 0)
-        self.assertEqual(r.stats["a"]["ok"], 1)
+    def test_anthropic_unknown_blocks_are_dropped(self):
+        _s, messages, _t = anthropic_to_internal({"messages": [
+            {"role": "user", "content": [{"type": "image", "source": {}},
+                                         {"type": "text", "text": "что тут"}]}]})
+        self.assertEqual(len(messages[0]["content"]), 1)
 
-    def test_quota_exhausted_skips_provider(self):
-        FakeUpstream.control["status_by_key"] = {}
-        r, port = self.make_router([
-            {"name": "a", "base_url": "http://127.0.0.1:18101/v1", "keys": ["k1"],
-             "models": ["m1"], "priority": 1, "limits": {"rpd": 2}},
-            {"name": "b", "base_url": "http://127.0.0.1:18102/v1", "keys": ["k2"],
-             "models": ["m2"], "priority": 2, "limits": {"rpd": 100}},
-        ])
-        hits_before = len(FakeUpstream.control["hits"])
-        for _ in range(3):
-            code, _ = self.post(port, {"model": "auto", "messages": [{"role": "user", "content": "x"}]})
-            self.assertEqual(code, 200)
-        new_hits = FakeUpstream.control["hits"][hits_before:]
-        # 2 запроса ушли в "a", третий обязан уйти в "b" без обращения к "a"
-        self.assertEqual(sum(1 for h in new_hits if h[0] == "Bearer k1"), 2)
-        self.assertEqual(r.states["a|0"].requests_day, 2)
+    def test_turn_to_openai_text(self):
+        turn = Turn(text="готово", stop_reason="end_turn", model="claude-sonnet-4-6",
+                    endpoint="anthropic", usage=Usage(100, 20, charged=240))
+        out = turn_to_openai(turn, "auto")
+        self.assertEqual(out["object"], "chat.completion")
+        self.assertEqual(out["model"], "auto")
+        self.assertEqual(out["choices"][0]["message"]["content"], "готово")
+        self.assertEqual(out["choices"][0]["finish_reason"], "stop")
+        self.assertEqual(out["usage"], {"prompt_tokens": 100, "completion_tokens": 20,
+                                        "total_tokens": 120})
+        self.assertEqual(out["x_elytrix"]["charged"], 240)
 
-    def test_local_fallback_when_everything_exhausted(self):
-        r, port = self.make_router([
-            {"name": "a", "base_url": "http://127.0.0.1:18101/v1", "keys": ["k1"],
-             "models": ["m1"], "priority": 1, "limits": {"rpd": 1}},
-            {"name": "local", "base_url": "http://127.0.0.1:18102/v1", "keys": ["l"],
-             "models": ["qwen"], "priority": 900, "kind": "ollama"},
-        ])
-        self.post(port, {"model": "auto", "messages": [{"role": "user", "content": "x"}]})
-        attempts = r.pick_attempts("auto")
-        self.assertTrue(any(p.name == "local" for p, _, _ in attempts),
-                        "после исчерпания квоты должен остаться локальный резерв")
+    def test_turn_to_openai_tools(self):
+        turn = Turn(tool_calls=[ToolCall(id="c1", name="read", args={"path": "a.py"})],
+                    stop_reason="tool_use", usage=Usage(10, 5))
+        out = turn_to_openai(turn, "gpt-5.6-luna")
+        message = out["choices"][0]["message"]
+        self.assertEqual(out["choices"][0]["finish_reason"], "tool_calls")
+        self.assertEqual(message["tool_calls"][0]["function"]["name"], "read")
+        self.assertEqual(json.loads(message["tool_calls"][0]["function"]["arguments"]),
+                         {"path": "a.py"})
 
+    def test_turn_to_openai_length_stop(self):
+        turn = Turn(text="оборвано", stop_reason="max_tokens", usage=Usage(1, 2))
+        self.assertEqual(turn_to_openai(turn, "m")["choices"][0]["finish_reason"], "length")
 
-class TestProtocol(RouterTestBase):
-    def test_models_endpoint(self):
-        _, port = self.make_router([{
-            "name": "a", "base_url": "http://127.0.0.1:18101/v1", "keys": ["k"],
-            "models": ["m1", "m2"], "priority": 1,
-        }], aliases={"smart": ["a/m1"], "fast": ["a/m2"]})
-        import urllib.request
+    def test_turn_to_anthropic(self):
+        turn = Turn(text="привет", tool_calls=[ToolCall(id="c1", name="ls", args={})],
+                    stop_reason="tool_use", usage=Usage(50, 10))
+        out = turn_to_anthropic(turn, "claude-sonnet-4-6")
+        self.assertEqual(out["type"], "message")
+        self.assertEqual(out["stop_reason"], "tool_use")
+        self.assertEqual(out["content"][0], {"type": "text", "text": "привет"})
+        self.assertEqual(out["content"][1]["name"], "ls")
+        self.assertEqual(out["usage"], {"input_tokens": 50, "output_tokens": 10})
 
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/models", timeout=10) as resp:
-            data = json.loads(resp.read())
-        ids = {m["id"] for m in data["data"]}
-        self.assertIn("smart", ids)
-        self.assertIn("fast", ids)
-        self.assertIn("a/m1", ids)
+    def test_turn_to_anthropic_empty(self):
+        out = turn_to_anthropic(Turn(stop_reason="end_turn"), "m")
+        self.assertEqual(out["content"], [{"type": "text", "text": ""}])
+        self.assertEqual(out["stop_reason"], "end_turn")
 
-    def test_streaming_passthrough(self):
-        FakeUpstream.control["stream"] = True
-        try:
-            r, port = self.make_router([{
-                "name": "a", "base_url": "http://127.0.0.1:18101/v1", "keys": ["k"],
-                "models": ["m1"], "priority": 1, "limits": {"rpd": 100},
-            }])
-            code, body = self.post(port, {"model": "auto", "stream": True,
-                                          "messages": [{"role": "user", "content": "hi"}]}, raw=True)
-            self.assertEqual(code, 200)
-            self.assertIn("data:", body)
-            self.assertIn("Привет", body)
-            time.sleep(0.2)
-            self.assertEqual(r.states["a|0"].tokens_day, 10)
-        finally:
-            FakeUpstream.control["stream"] = False
+    def test_turn_to_anthropic_max_tokens(self):
+        out = turn_to_anthropic(Turn(text="x", stop_reason="max_tokens"), "m")
+        self.assertEqual(out["stop_reason"], "max_tokens")
 
-    def test_unknown_model_falls_back_to_auto(self):
-        _, port = self.make_router([{
-            "name": "a", "base_url": "http://127.0.0.1:18101/v1", "keys": ["k"],
-            "models": ["m1"], "priority": 1,
-        }])
-        code, out = self.post(port, {"model": "не-существует-такая", "messages": [{"role": "user", "content": "x"}]})
-        self.assertEqual(code, 200)
-        self.assertEqual(out["model"], "не-существует-такая")
-
-    def test_400_tools_are_stripped_and_retried(self):
-        """Часть бесплатных тарифов не умеет tools — запрос должен пройти без них."""
-        class ToolsRejecting(FakeUpstream):
-            control = dict(FakeUpstream.control)
-
-            def do_POST(self):
-                n = int(self.headers.get("Content-Length") or 0)
-                body = json.loads(self.rfile.read(n) or b"{}")
-                ToolsRejecting.control["hits"].append((self.headers.get("Authorization"), body.get("model"), bool(body.get("tools"))))
-                if "tools" in body:
-                    payload = json.dumps({"error": {"message": "tools are not supported"}}).encode()
-                    self.send_response(400)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Content-Length", str(len(payload)))
-                    self.end_headers()
-                    self.wfile.write(payload)
-                    return
-                payload = json.dumps({"choices": [{"message": {"role": "assistant", "content": "ok"}}],
-                                      "usage": {}}).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(payload)))
-                self.end_headers()
-                self.wfile.write(payload)
-
-        srv = ThreadingHTTPServer(("127.0.0.1", 18103), ToolsRejecting)
-        srv.daemon_threads = True
-        threading.Thread(target=srv.serve_forever, daemon=True).start()
-        self.addCleanup(srv.shutdown)
-
-        _, port = self.make_router([{
-            "name": "a", "base_url": "http://127.0.0.1:18103/v1", "keys": ["k"],
-            "models": ["m1"], "priority": 1,
-        }])
-        code, out = self.post(port, {
-            "model": "auto", "messages": [{"role": "user", "content": "x"}],
-            "tools": [{"type": "function", "function": {"name": "f", "parameters": {}}}],
-        })
-        self.assertEqual(code, 200, out)
-        self.assertEqual(out["choices"][0]["message"]["content"], "ok")
-
-    def test_state_survives_restart(self):
-        state = os.path.join(self.tmp, f"persist-{time.time_ns()}.json")
-        cfg = {"providers": [{"name": "a", "base_url": "http://127.0.0.1:18101/v1",
-                              "keys": ["k"], "models": ["m1"], "limits": {"rpd": 5}}],
-               "log_requests": False}
-        r1 = fcr.Router(cfg, state)
-        r1.account_request(r1.providers[0], 0, 10, 5, ok=True)
-        r1.save_state()
-        r2 = fcr.Router(cfg, state)
-        self.assertEqual(r2.states["a|0"].requests_day, 1)
-        self.assertEqual(r2.states["a|0"].tokens_day, 15)
+    def test_looks_like_agent(self):
+        self.assertTrue(_looks_like_agent({"messages": [
+            {"role": "system", "content": "You are an agent. Use tools to read files."}]}))
+        self.assertFalse(_looks_like_agent({"messages": [
+            {"role": "system", "content": "ты переводчик"}]}))
+        self.assertFalse(_looks_like_agent({}))
 
 
+# ---------------------------------------------------------------------------
+# Живой сервер
+# ---------------------------------------------------------------------------
 
 
-# --------------------------------------------------------------------------
-# Адаптер Anthropic: клиент говорит на OpenAI, шлюз требует /v1/messages
-# --------------------------------------------------------------------------
-
-
-class FakeAnthropic(BaseHTTPRequestHandler):
-    """Фальшивый шлюз в формате Anthropic: принимает /v1/messages, отвечает своими блоками."""
-
-    protocol_version = "HTTP/1.1"
-    requests = []
-    mode = "text"          # text | tool
-
-    def log_message(self, *a):
-        pass
-
-    def do_POST(self):
-        n = int(self.headers.get("Content-Length") or 0)
-        body = json.loads(self.rfile.read(n) or b"{}")
-        FakeAnthropic.requests.append({"path": self.path, "body": body,
-                                       "headers": dict(self.headers)})
-        if not self.path.endswith("/messages"):
-            payload = json.dumps({"error": {"message": "use /v1/messages"}}).encode()
-            self.send_response(404)
-            self.send_header("Content-Length", str(len(payload)))
-            self.end_headers()
-            self.wfile.write(payload)
-            return
-
-        content = [{"type": "text", "text": "Готово: файл прочитан"}]
-        stop = "end_turn"
-        if FakeAnthropic.mode == "tool":
-            content = [{"type": "tool_use", "id": "toolu_1", "name": "read_file",
-                        "input": {"path": "main.py"}}]
-            stop = "tool_use"
-        payload = json.dumps({
-            "id": "msg_1", "type": "message", "role": "assistant", "model": body.get("model"),
-            "content": content, "stop_reason": stop,
-            "usage": {"input_tokens": 120, "output_tokens": 35},
-        }, ensure_ascii=False).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(payload)))
-        self.end_headers()
-        self.wfile.write(payload)
-
-
-class TestAnthropicAdapter(RouterTestBase):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        ThreadingHTTPServer.allow_reuse_address = True
-        cls.anthropic = ThreadingHTTPServer(("127.0.0.1", 18150), FakeAnthropic)
-        cls.anthropic.daemon_threads = True
-        threading.Thread(target=cls.anthropic.serve_forever, daemon=True).start()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.anthropic.shutdown()
-        cls.anthropic.server_close()
-        super().tearDownClass()
-
+class RouterCase(unittest.TestCase):
     def setUp(self):
-        FakeAnthropic.requests = []
-        FakeAnthropic.mode = "text"
+        self.mock = MockGateway()
+        self.mock.start()
+        self.ws = make_workspace("elytrix-router-")
+        self.stack = Stack(self.mock, self.ws)
+        self.httpd, self.thread, self.url = serve_in_thread(
+            self.stack.cfg, self.stack.catalog, self.stack.state, self.stack.gw, port=0)
+        self.port = int(self.url.rsplit(":", 1)[1])
+        self.router_gateway = self.httpd.RequestHandlerClass.gateway
 
-    def make_anthropic_router(self, **extra):
-        return self.make_router([{
-            "name": "smartapi", "kind": "anthropic",
-            "base_url": "http://127.0.0.1:18150",
-            "keys": ["sk-smart-test"], "models": ["opus-4.8"],
-            "priority": 1, "limits": {"tpd": 1000}, **extra,
-        }], aliases={"smart": ["smartapi/opus-4.8"]})
+    def tearDown(self):
+        try:
+            self.httpd.shutdown()
+            self.httpd.server_close()
+        except Exception:  # noqa: BLE001
+            pass
+        self.router_gateway.close()
+        self.mock.stop()
+        self.stack.cleanup()
+        shutil.rmtree(self.ws, ignore_errors=True)
 
-    def test_request_translated_to_anthropic(self):
-        _, port = self.make_anthropic_router()
-        code, out = self.post(port, {
-            "model": "smart", "messages": [
-                {"role": "system", "content": "Ты помощник"},
-                {"role": "user", "content": "прочитай main.py"},
-            ], "max_tokens": 100})
-        self.assertEqual(code, 200, out)
-        req = FakeAnthropic.requests[0]
-        self.assertTrue(req["path"].endswith("/v1/messages"), req["path"])
-        self.assertEqual(req["body"]["system"], "Ты помощник")
-        self.assertEqual(req["body"]["messages"][0]["role"], "user")
-        self.assertEqual(req["body"]["max_tokens"], 100)
-        lower_headers = {k.lower(): v for k, v in req["headers"].items()}
-        self.assertEqual(lower_headers.get("x-api-key"), "sk-smart-test")
-        self.assertIn("anthropic-version", lower_headers)
+    # -- помощники --
 
-    def test_response_translated_to_openai(self):
-        _, port = self.make_anthropic_router()
-        code, out = self.post(port, {"model": "smart",
-                                     "messages": [{"role": "user", "content": "привет"}]})
-        self.assertEqual(code, 200)
-        self.assertEqual(out["choices"][0]["message"]["content"], "Готово: файл прочитан")
-        self.assertEqual(out["usage"]["prompt_tokens"], 120)
-        self.assertEqual(out["usage"]["completion_tokens"], 35)
-        self.assertEqual(out["model"], "smart")
+    def request(self, method, path, payload=None, headers=None, timeout=25):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=timeout)
+        try:
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8") \
+                if payload is not None else None
+            # роутеру всё равно, какой ключ прислал редактор: настоящий ключ он держит у себя
+            sent = {"Content-Type": "application/json",
+                    "Authorization": "Bearer sk-editor-key"}
+            sent.update(headers or {})
+            conn.request(method, path, body=body, headers=sent)
+            resp = conn.getresponse()
+            data = resp.read()
+            return resp.status, {k.lower(): v for k, v in resp.getheaders()}, data
+        finally:
+            conn.close()
 
-    def test_tool_use_converted(self):
-        FakeAnthropic.mode = "tool"
-        _, port = self.make_anthropic_router()
-        code, out = self.post(port, {
-            "model": "smart", "messages": [{"role": "user", "content": "файл"}],
+    def get(self, path, **kw):
+        return self.request("GET", path, **kw)
+
+    def post(self, path, payload, **kw):
+        return self.request("POST", path, payload, **kw)
+
+    def json_post(self, path, payload, **kw):
+        status, _headers, data = self.post(path, payload, **kw)
+        return status, json.loads(data.decode("utf-8"))
+
+
+class TestServiceRoutes(RouterCase):
+    def test_health(self):
+        status, headers, data = self.get("/health")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["access-control-allow-origin"], "*")
+        body = json.loads(data)
+        self.assertEqual(body["status"], "ok")
+        self.assertEqual(body["model"], "claude-sonnet-4-6")
+
+    def test_healthz_alias(self):
+        self.assertEqual(self.get("/healthz")[0], 200)
+
+    def test_status_json(self):
+        self.stack.state.record("gpt-5.6-luna", 1000, 100, 1.7)
+        status, _headers, data = self.get("/status.json")
+        body = json.loads(data)
+        self.assertEqual(status, 200)
+        self.assertEqual(body["app"], "ELYTRIX")
+        self.assertEqual(body["day_tokens"], 1870)
+        self.assertEqual(body["day_limit"], 1000000)
+        self.assertEqual(body["day_requests"], 1)
+        self.assertIn("gpt-5.6-luna", body["by_model"])
+        self.assertEqual(body["gateway"]["anthropic"], self.mock.base_url)
+        self.assertIn("cache", body)
+
+    def test_status_text(self):
+        status, headers, data = self.get("/")
+        body = data.decode("utf-8")
+        self.assertEqual(status, 200)
+        self.assertIn("text/plain", headers["content-type"])
+        self.assertIn("ELYTRIX router", body)
+        self.assertIn(f"127.0.0.1:{self.port}/v1", body, "адрес должен содержать настоящий порт")
+        self.assertIn("за сегодня", body)
+
+    def test_models_list(self):
+        status, _headers, data = self.get("/v1/models")
+        body = json.loads(data)
+        self.assertEqual(status, 200)
+        self.assertEqual(body["object"], "list")
+        ids = {item["id"]: item for item in body["data"]}
+        self.assertIn("auto", ids)
+        self.assertTrue(ids["auto"]["alias"])
+        self.assertEqual(ids["auto"]["model"], "claude-sonnet-4-6")
+        self.assertEqual(ids["gpt-5.6-luna"]["multiplier"], 1.7)
+        self.assertFalse(ids["gpt-5.6-luna"]["alias"])
+        self.assertEqual(ids["claude-fable-5"]["multiplier"], 10.0)
+
+    def test_models_sorted_cheap_first(self):
+        _s, _h, data = self.get("/v1/models")
+        models = [item["id"] for item in json.loads(data)["data"] if not item["alias"]]
+        self.assertEqual(models[0], "gpt-5.6-luna")
+
+    def test_unknown_get_is_404(self):
+        status, _headers, data = self.get("/v1/unknown")
+        self.assertEqual(status, 404)
+        self.assertIn("error", json.loads(data))
+
+    def test_options_preflight(self):
+        status, headers, data = self.request("OPTIONS", "/v1/chat/completions")
+        self.assertEqual(status, 204)
+        self.assertEqual(headers["access-control-allow-methods"], "GET, POST, OPTIONS")
+        self.assertEqual(data, b"")
+
+    def test_bad_json_is_400(self):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=15)
+        conn.request("POST", "/v1/chat/completions", body="{не json".encode("utf-8"),
+                     headers={"Content-Type": "application/json"})
+        resp = conn.getresponse()
+        body = json.loads(resp.read())
+        conn.close()
+        self.assertEqual(resp.status, 400)
+        self.assertIn("bad json", body["error"]["message"])
+
+    def test_unknown_post_is_404(self):
+        status, _headers, _data = self.post("/v1/embeddings", {"model": "x"})
+        self.assertEqual(status, 404)
+
+
+class TestOpenAIEndpoint(RouterCase):
+    def test_chat_completion(self):
+        self.mock.queue(text("всё готово"))
+        status, body = self.json_post("/v1/chat/completions", {
+            "model": "gpt-5.6-luna",
+            "messages": [{"role": "system", "content": "ты помощник"},
+                         {"role": "user", "content": "почини тест"}],
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(body["object"], "chat.completion")
+        self.assertEqual(body["model"], "gpt-5.6-luna")
+        self.assertEqual(body["choices"][0]["message"]["content"], "всё готово")
+        self.assertEqual(body["choices"][0]["finish_reason"], "stop")
+        self.assertGreater(body["usage"]["total_tokens"], 0)
+
+    def test_request_reaches_gateway_in_right_shape(self):
+        self.mock.queue(text("ок"))
+        self.json_post("/v1/chat/completions", {
+            "model": "auto",
+            "messages": [{"role": "user", "content": "привет"}],
+            "max_tokens": 77,
+            "temperature": 0.3,
+        })
+        payload = self.mock.payloads()[-1]
+        self.assertEqual(payload["max_tokens"], 77)
+        self.assertEqual(payload["temperature"], 0.3)
+        self.assertEqual(payload["messages"][-1]["content"][0]["text"], "привет")
+
+    def test_tools_round_trip(self):
+        self.mock.queue(tool(call("read", path="a.py")), text("прочитал"))
+        status, body = self.json_post("/v1/chat/completions", {
+            "model": "auto",
+            "messages": [{"role": "user", "content": "прочитай a.py"}],
             "tools": [{"type": "function", "function": {
-                "name": "read_file", "description": "читать",
+                "name": "read", "description": "читает файл",
                 "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}}],
         })
-        self.assertEqual(code, 200, out)
-        sent = FakeAnthropic.requests[0]["body"]
-        self.assertEqual(sent["tools"][0]["name"], "read_file")
-        self.assertIn("input_schema", sent["tools"][0])
-        calls = out["choices"][0]["message"]["tool_calls"]
-        self.assertEqual(calls[0]["function"]["name"], "read_file")
-        self.assertEqual(json.loads(calls[0]["function"]["arguments"]), {"path": "main.py"})
-        self.assertEqual(out["choices"][0]["finish_reason"], "tool_calls")
-
-    def test_tool_result_roundtrip(self):
-        FakeAnthropic.mode = "tool"
-        _, port = self.make_anthropic_router()
-        self.post(port, {"model": "smart", "messages": [{"role": "user", "content": "файл"}],
-                         "tools": [{"type": "function", "function": {"name": "read_file",
-                                                                     "parameters": {}}}]})
-        FakeAnthropic.requests = []
-        self.post(port, {
-            "model": "smart",
-            "messages": [
-                {"role": "user", "content": "файл"},
-                {"role": "assistant", "content": None, "tool_calls": [
-                    {"id": "toolu_1", "type": "function",
-                     "function": {"name": "read_file", "arguments": "{\"path\": \"main.py\"}"}}]},
-                {"role": "tool", "tool_call_id": "toolu_1", "content": "print('hello')"},
-            ],
-            "tools": [{"type": "function", "function": {"name": "read_file", "parameters": {}}}],
-        })
-        body = FakeAnthropic.requests[0]["body"]
-        assistant = [m for m in body["messages"] if m["role"] == "assistant"][0]
-        self.assertEqual(assistant["content"][0]["type"], "tool_use")
-        tool_msg = body["messages"][-1]
-        self.assertEqual(tool_msg["role"], "user")
-        self.assertEqual(tool_msg["content"][0]["type"], "tool_result")
-        self.assertEqual(tool_msg["content"][0]["tool_use_id"], "toolu_1")
-
-    def test_streaming_client_gets_valid_sse(self):
-        _, port = self.make_anthropic_router()
-        code, body = self.post(port, {"model": "smart", "stream": True,
-                                      "messages": [{"role": "user", "content": "привет"}]}, raw=True)
-        self.assertEqual(code, 200)
-        self.assertIn("data:", body)
-        self.assertIn("Готово", body)
-        self.assertIn("[DONE]", body)
-
-    def test_cost_multiplier_counts_credits(self):
-        r, port = self.make_anthropic_router(cost_multiplier=4)
-        self.post(port, {"model": "smart", "messages": [{"role": "user", "content": "x"}]})
-        # 120 входных + 35 выходных = 155 токенов, коэффициент 4 → 620 зачётных
-        self.assertEqual(r.states["smartapi|0"].tokens_day, 620)
-
-    def test_budget_blocks_provider_then_falls_back(self):
-        """Дневной лимит зачётных токенов: после исчерпания шлюз больше не используется."""
-        r, port = self.make_router([
-            {"name": "smartapi", "kind": "anthropic", "base_url": "http://127.0.0.1:18150",
-             "keys": ["k"], "models": ["opus-4.8"], "priority": 1, "cost_multiplier": 4,
-             "limits": {"tpd": 200}},
-            {"name": "zen-free", "kind": "openai", "base_url": "http://127.0.0.1:18102/v1",
-             "keys": ["z"], "models": ["big-pickle"], "priority": 20},
-        ], aliases={"smart": ["smartapi/opus-4.8", "zen-free/big-pickle"]})
-        code, out = self.post(port, {"model": "smart", "messages": [{"role": "user", "content": "1"}]})
-        self.assertEqual(out.get("x_freecoder_provider"), "smartapi")
-        code, out = self.post(port, {"model": "smart", "messages": [{"role": "user", "content": "2"}]})
-        self.assertEqual(out.get("x_freecoder_provider"), "zen-free",
-                         "после исчерпания дневного лимита запрос должен уйти на бесплатный резерв")
-
-
-class TestModelCatalogProbe(unittest.TestCase):
-    """Сверка моделей с каталогом шлюза: подстановка имени и предупреждение о неверном ID."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.port = 18160
-        cls.catalog = {"data": [
-            {"id": "claude-sonnet-4-6"},
-            {"id": "claude-opus-4-8"},
-            {"id": "gpt-5.6-luna"},
-        ]}
-        cls.seen_models = []
-        catalog = cls.catalog
-        seen = cls.seen_models
-
-        class Gateway(BaseHTTPRequestHandler):
-            def log_message(self, *a):
-                pass
-
-            def do_GET(self):
-                if self.path.endswith("/models"):
-                    body = json.dumps(catalog).encode()
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
-                else:
-                    self.send_response(404)
-                    self.end_headers()
-
-            def do_POST(self):
-                length = int(self.headers.get("Content-Length") or 0)
-                payload = json.loads(self.rfile.read(length).decode())
-                seen.append(payload.get("model"))
-                out = json.dumps({
-                    "id": "x", "object": "chat.completion", "model": payload.get("model"),
-                    "choices": [{"index": 0, "finish_reason": "stop",
-                                 "message": {"role": "assistant", "content": "ok"}}],
-                    "usage": {"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4},
-                }).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(out)))
-                self.end_headers()
-                self.wfile.write(out)
-
-        cls.httpd = ThreadingHTTPServer(("127.0.0.1", cls.port), Gateway)
-        cls.thread = threading.Thread(target=cls.httpd.serve_forever, daemon=True)
-        cls.thread.start()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.httpd.shutdown()
-
-    def test_norm_model_strips_vendor_and_separators(self):
-        self.assertEqual(fcr._norm_model("sonnet-4.6"), "sonnet46")
-        self.assertEqual(fcr._norm_model("claude-sonnet-4-6"), "sonnet46")
-        self.assertEqual(fcr._norm_model("Claude Sonnet 4.6"), "sonnet46")
-        self.assertEqual(fcr._norm_model("gpt-5.6-luna"), "56luna")
-
-    def test_probe_substitutes_name_and_warns_about_unknown(self):
-        p = fcr.Provider(
-            name="fake", base_url=f"http://127.0.0.1:{self.port}", keys=["k"],
-            models=["sonnet-4.6", "opus-4.8", "несуществующая-модель"],
-        )
-        with mock.patch.dict(os.environ, {"FREECODER_PROBE_LOCAL": "1"}):
-            fcr.probe_model_catalog([p])
-        self.assertEqual(p.model_map.get("sonnet-4.6"), "claude-sonnet-4-6")
-        self.assertEqual(p.model_map.get("opus-4.8"), "claude-opus-4-8")
-        self.assertNotIn("несуществующая-модель", p.model_map)
-
-    def test_substituted_name_goes_to_the_gateway(self):
-        """В шлюз уходит настоящее имя модели, а не то, что написано в конфиге."""
-        self.seen_models.clear()
-        fake = fcr.Provider(
-            name="fake", base_url=f"http://127.0.0.1:{self.port}", keys=["k"],
-            models=["sonnet-4.6"], kind="openai",
-        )
-        fake.model_map["sonnet-4.6"] = "claude-sonnet-4-6"
-        cfg = {"providers": [dict(
-            name="fake", base_url=f"http://127.0.0.1:{self.port}", keys=["k"],
-            models=["sonnet-4.6"], priority=1,
-        )], "aliases": {"auto": ["fake/sonnet-4.6"]}, "default_alias": "auto"}
-        r = fcr.Router(cfg, "/tmp/probe-state.json")
-        r.providers[0].model_map["sonnet-4.6"] = "claude-sonnet-4-6"
-        status, body = self._post(r, {"model": "auto", "messages": [{"role": "user", "content": "привет"}]})
         self.assertEqual(status, 200)
-        self.assertEqual(self.seen_models, ["claude-sonnet-4-6"])
+        calls = body["choices"][0]["message"]["tool_calls"]
+        self.assertEqual(calls[0]["function"]["name"], "read")
+        self.assertEqual(json.loads(calls[0]["function"]["arguments"]), {"path": "a.py"})
+        self.assertEqual(body["choices"][0]["finish_reason"], "tool_calls")
+        sent = self.mock.payloads()[-1]
+        self.assertEqual(sent["tools"][0]["name"], "read")
 
-    def _post(self, router, payload):
-        handler = fcr.Handler.__new__(fcr.Handler)
-        handler.router = router
-        captured = {}
-        handler._send_json = lambda obj, code=200: (captured.update({"code": code, "obj": obj}), (code, obj))[1]
-        handler._read_json = lambda: payload
-        handler.path = "/v1/chat/completions"
-        handler.headers = {"Content-Type": "application/json"}
-        handler.do_POST()
-        return captured["code"], captured["obj"]
+    def test_agent_without_tools_gets_elytrix_toolbox(self):
+        """Редактор не прислал tools, но по промпту это агент — даём ему свой набор."""
+        self.mock.queue(text("ок"))
+        self.json_post("/v1/chat/completions", {
+            "model": "auto",
+            "messages": [{"role": "system",
+                          "content": "You are a coding agent. Use tools to read and write files."},
+                         {"role": "user", "content": "почини"}],
+        })
+        sent = self.mock.payloads()[-1]
+        names = {t["name"] for t in sent.get("tools") or []}
+        self.assertEqual(names, {spec["name"] for spec in TOOL_SCHEMAS})
+
+    def test_plain_chat_gets_no_tools(self):
+        self.mock.queue(text("ок"))
+        self.json_post("/v1/chat/completions", {
+            "model": "auto",
+            "messages": [{"role": "system", "content": "ты переводчик"},
+                         {"role": "user", "content": "переведи"}],
+        })
+        sent = self.mock.payloads()[-1]
+        self.assertFalse(sent.get("tools"), "обычному чату инструменты не нужны — это токены")
+
+    def test_max_tokens_defaults_from_config(self):
+        self.mock.queue(text("ок"))
+        self.json_post("/v1/chat/completions", {
+            "model": "auto", "messages": [{"role": "user", "content": "привет"}]})
+        self.assertEqual(self.mock.payloads()[-1]["max_tokens"], 512)
+
+    def test_alias_is_resolved_by_gateway(self):
+        self.mock.queue(text("ок"))
+        self.json_post("/v1/chat/completions", {
+            "model": "max", "messages": [{"role": "user", "content": "привет"}]})
+        self.assertEqual(self.mock.payloads()[-1]["model"], "claude-opus-5")
+
+    def test_stream(self):
+        self.mock.queue(text("поточный ответ модели"))
+        status, headers, data = self.post("/v1/chat/completions", {
+            "model": "auto", "messages": [{"role": "user", "content": "расскажи"}],
+            "stream": True,
+        })
+        self.assertEqual(status, 200)
+        self.assertIn("text/event-stream", headers["content-type"])
+        events = sse_events(data)
+        payloads = [e for _name, e in events if isinstance(e, dict)]
+        self.assertEqual(payloads[0]["choices"][0]["delta"]["role"], "assistant")
+        joined = "".join(p["choices"][0]["delta"].get("content") or "" for p in payloads)
+        self.assertEqual(joined, "поточный ответ модели")
+        self.assertEqual(payloads[-1]["choices"][0]["finish_reason"], "stop")
+        self.assertEqual(events[-1][1], "[DONE]")
+
+    def test_stream_with_usage_option(self):
+        self.mock.queue(text("ответ"))
+        _s, _h, data = self.post("/v1/chat/completions", {
+            "model": "auto", "messages": [{"role": "user", "content": "расскажи"}],
+            "stream": True, "stream_options": {"include_usage": True}})
+        events = sse_events(data)
+        with_usage = [e for _n, e in events if isinstance(e, dict) and e.get("usage")]
+        self.assertTrue(with_usage)
+        self.assertGreater(with_usage[0]["usage"]["total_tokens"], 0)
+
+    def test_stream_with_tool_calls(self):
+        self.mock.queue(tool(call("write", path="a.txt", content="данные")), text("готово"))
+        _s, _h, data = self.post("/v1/chat/completions", {
+            "model": "auto", "messages": [{"role": "user", "content": "создай"}],
+            "stream": True, "tools": [{"type": "function", "function": {
+                "name": "write", "parameters": {"type": "object"}}}]})
+        events = sse_events(data)
+        calls = [e for _n, e in events
+                 if isinstance(e, dict) and e["choices"][0]["delta"].get("tool_calls")]
+        self.assertTrue(calls)
+        self.assertEqual(calls[-1]["choices"][0]["delta"]["tool_calls"][0]["function"]["name"],
+                         "write")
+        finishes = [e["choices"][0]["finish_reason"] for _n, e in events
+                    if isinstance(e, dict) and e.get("choices")]
+        self.assertIn("tool_calls", finishes)
+
+    def test_cyrillic_round_trip(self):
+        self.mock.queue(text("ответ на русском — всё хорошо"))
+        _s, body = self.json_post("/v1/chat/completions", {
+            "model": "auto",
+            "messages": [{"role": "user", "content": "напиши по-русски"}]})
+        self.assertIn("всё хорошо", body["choices"][0]["message"]["content"])
 
 
-class TestPerModelMultiplier(unittest.TestCase):
-    """Коэффициент зависит от модели: Sonnet ×2, Opus ×4 — дневной лимит считается честно."""
+class TestAnthropicEndpoint(RouterCase):
+    def test_messages(self):
+        self.mock.queue(text("сделано"))
+        status, body = self.json_post("/v1/messages", {
+            "model": "claude-sonnet-4-6",
+            "system": "ты агент",
+            "messages": [{"role": "user", "content": "почини"}],
+            "max_tokens": 300,
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(body["type"], "message")
+        self.assertEqual(body["role"], "assistant")
+        self.assertEqual(body["content"][0]["text"], "сделано")
+        self.assertEqual(body["stop_reason"], "end_turn")
+        self.assertIn("input_tokens", body["usage"])
 
-    def _router(self, tmp):
-        cfg = {
-            "default_alias": "auto",
-            "aliases": {"auto": ["smartapi/claude-sonnet-4-6"],
-                        "smart": ["smartapi/claude-opus-4-8"]},
-            "providers": [{
-                "name": "smartapi", "kind": "mock", "base_url": "http://127.0.0.1:1",
-                "keys": ["k"], "models": ["claude-sonnet-4-6", "claude-opus-4-8"],
-                "priority": 1, "cost_multiplier": 4,
-                "model_multipliers": {"claude-sonnet-4-6": 2, "claude-opus-4-8": 4},
-                "limits": {"tpd": 1000000},
-            }],
-        }
-        return fcr.Router(cfg, os.path.join(tmp, "state.json"))
+    def test_messages_with_tools(self):
+        self.mock.queue(tool(call("grep", pattern="TODO")), text("нашёл"))
+        _s, body = self.json_post("/v1/messages", {
+            "model": "auto",
+            "messages": [{"role": "user", "content": "найди TODO"}],
+            "max_tokens": 300,
+            "tools": [{"name": "grep", "description": "поиск",
+                       "input_schema": {"type": "object"}}],
+        })
+        block = [b for b in body["content"] if b["type"] == "tool_use"][0]
+        self.assertEqual(block["name"], "grep")
+        self.assertEqual(block["input"], {"pattern": "TODO"})
+        self.assertEqual(body["stop_reason"], "tool_use")
 
-    def test_multiplier_lookup(self):
-        tmp = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
-        p = self._router(tmp).providers[0]
-        self.assertEqual(p.multiplier("claude-sonnet-4-6"), 2.0)
-        self.assertEqual(p.multiplier("claude-opus-4-8"), 4.0)
-        self.assertEqual(p.multiplier("неизвестная"), 4.0, "иначе берётся общий коэффициент шлюза")
+    def test_messages_tool_result_history(self):
+        self.mock.queue(text("продолжаем"))
+        _s, body = self.json_post("/v1/messages", {
+            "model": "auto",
+            "messages": [
+                {"role": "user", "content": "прочитай a.py"},
+                {"role": "assistant", "content": [
+                    {"type": "tool_use", "id": "t1", "name": "read", "input": {"path": "a.py"}}]},
+                {"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": "t1", "content": "print(1)"}]},
+            ],
+            "max_tokens": 200,
+        })
+        self.assertEqual(body["content"][0]["text"], "продолжаем")
+        sent = self.mock.payloads()[-1]
+        self.assertEqual(sent["messages"][1]["content"][0]["type"], "tool_use")
+        self.assertEqual(sent["messages"][2]["content"][0]["type"], "tool_result")
 
-    def test_day_limit_uses_model_multiplier(self):
-        tmp = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
-        r = self._router(tmp)
-        p = r.providers[0]
-        r.account_request(p, 0, tokens_in=1000, tokens_out=0, model="claude-sonnet-4-6")
-        r.account_request(p, 0, tokens_in=1000, tokens_out=0, model="claude-opus-4-8")
-        self.assertEqual(r.states["smartapi|0"].tokens_day, 1000 * 2 + 1000 * 4)
+    def test_messages_stream(self):
+        self.mock.queue(text("поток антропик"))
+        status, headers, data = self.post("/v1/messages", {
+            "model": "auto", "messages": [{"role": "user", "content": "расскажи"}],
+            "max_tokens": 200, "stream": True})
+        self.assertEqual(status, 200)
+        self.assertIn("text/event-stream", headers["content-type"])
+        events = sse_events(data)
+        names = [name for name, _data in events if name]
+        self.assertEqual(names[0], "message_start")
+        self.assertIn("content_block_delta", names)
+        self.assertEqual(names[-1], "message_stop")
+        text_pieces = [d["delta"]["text"] for _n, d in events
+                       if isinstance(d, dict) and d.get("type") == "content_block_delta"]
+        self.assertEqual("".join(text_pieces), "поток антропик")
+        deltas = [d for _n, d in events
+                  if isinstance(d, dict) and d.get("type") == "message_delta"]
+        self.assertEqual(deltas[0]["delta"]["stop_reason"], "end_turn")
 
-    def test_models_payload_has_multipliers(self):
-        tmp = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
-        r = self._router(tmp)
-        data = {m["id"]: m for m in fcr.models_payload(r)["data"]}
-        self.assertEqual(data["auto"]["multiplier"], 2.0)
-        self.assertEqual(data["smart"]["multiplier"], 4.0)
-        self.assertTrue(data["auto"]["alias"])
-        self.assertEqual(data["smartapi/claude-opus-4-8"]["multiplier"], 4.0)
+    def test_messages_stream_with_tools(self):
+        self.mock.queue(tool(call("ls", path=".")), text("готово"))
+        _s, _h, data = self.post("/v1/messages", {
+            "model": "auto", "messages": [{"role": "user", "content": "покажи файлы"}],
+            "max_tokens": 200, "stream": True,
+            "tools": [{"name": "ls", "input_schema": {"type": "object"}}]})
+        events = sse_events(data)
+        starts = [d for _n, d in events
+                  if isinstance(d, dict) and d.get("type") == "content_block_start"]
+        kinds = [s["content_block"]["type"] for s in starts]
+        self.assertIn("tool_use", kinds)
+        tool_block = [s["content_block"] for s in starts if s["content_block"]["type"] == "tool_use"][0]
+        self.assertEqual(tool_block["name"], "ls")
+        json_deltas = [d["delta"]["partial_json"] for _n, d in events
+                       if isinstance(d, dict) and d.get("type") == "content_block_delta"
+                       and d["delta"].get("type") == "input_json_delta"]
+        self.assertEqual(json.loads("".join(json_deltas)), {"path": "."})
+        stops = [d for _n, d in events
+                 if isinstance(d, dict) and d.get("type") == "message_delta"]
+        self.assertEqual(stops[0]["delta"]["stop_reason"], "tool_use")
+
+
+class TestAccountingAndErrors(RouterCase):
+    def test_spend_is_recorded_with_multiplier(self):
+        self.mock.queue(text("ответ"))
+        self.json_post("/v1/chat/completions", {
+            "model": "gpt-5.6-luna",
+            "messages": [{"role": "user", "content": "привет"}]})
+        self.assertEqual(self.stack.state.tokens_day,
+                         self.stack.state.by_model()["gpt-5.6-luna"]["tokens"])
+        self.assertGreater(self.stack.state.tokens_day, 0)
+        self.assertEqual(self.stack.state.requests_day, 1)
+
+    def test_router_and_console_share_state(self):
+        self.mock.queue(text("через роутер"), text("через консоль"))
+        self.json_post("/v1/chat/completions", {
+            "model": "auto", "messages": [{"role": "user", "content": "раз"}]})
+        after_router = self.stack.state.tokens_day
+        self.stack.agent.run_task("два")
+        self.assertGreater(self.stack.state.tokens_day, after_router)
+
+    def test_gateway_error_is_502(self):
+        self.mock.fail_with = (500, "шлюз лёг")
+        self.mock.fail_once = False
+        self.mock.queue(text("не дойдёт"))
+        status, body = self.json_post("/v1/chat/completions", {
+            "model": "auto", "messages": [{"role": "user", "content": "привет"}]})
+        self.assertEqual(status, 502)
+        self.assertIn("error", body)
+        self.assertTrue(body["error"]["message"])
+
+    def test_rate_limit_is_429(self):
+        self.mock.fail_with = (429, "too many requests")
+        self.mock.fail_once = False
+        status, body = self.json_post("/v1/chat/completions", {
+            "model": "auto", "messages": [{"role": "user", "content": "привет"}]})
+        self.assertEqual(status, 429)
+        self.assertEqual(body["error"]["code"], 429)
+
+    def test_anthropic_error_shape(self):
+        self.mock.fail_with = (500, "шлюз лёг")
+        self.mock.fail_once = False
+        status, body = self.json_post("/v1/messages", {
+            "model": "auto", "messages": [{"role": "user", "content": "привет"}],
+            "max_tokens": 100})
+        self.assertEqual(status, 502)
+        self.assertEqual(body["type"], "error")
+        self.assertEqual(body["error"]["type"], "api_error")
+
+    def test_daily_limit_blocks_request(self):
+        self.stack.gw.daily_limit = 10
+        self.router_gateway.daily_limit = 10
+        self.stack.state.record("claude-sonnet-4-6", 100, 100, 2.0)
+        status, body = self.json_post("/v1/chat/completions", {
+            "model": "auto", "messages": [{"role": "user", "content": "привет"}]})
+        self.assertEqual(status, 502)
+        self.assertIn("лимит", body["error"]["message"].lower())
+
+    def test_stream_error_is_reported_inside_stream(self):
+        self.mock.fail_with = (500, "шлюз лёг")
+        self.mock.fail_once = False
+        _s, _h, data = self.post("/v1/chat/completions", {
+            "model": "auto", "messages": [{"role": "user", "content": "привет"}],
+            "stream": True})
+        events = sse_events(data)
+        errors = [e for _n, e in events if isinstance(e, dict) and e.get("error")]
+        self.assertTrue(errors, f"события: {events}")
+        self.assertEqual(events[-1][1], "[DONE]")
+
+    def test_unknown_model_falls_back(self):
+        """Редактор прислал имя, которого нет в каталоге, — расход считаем как ×1."""
+        self.mock.queue(text("ответ"))
+        self.json_post("/v1/chat/completions", {
+            "model": "какая-то-модель",
+            "messages": [{"role": "user", "content": "привет"}]})
+        self.assertEqual(self.mock.payloads()[-1]["model"], "какая-то-модель")
+        status, _h, data = self.get("/status.json")
+        self.assertEqual(status, 200)
+        self.assertIn("какая-то-модель", json.loads(data)["by_model"])
+
+
+class TestServerLifecycle(RouterCase):
+    def test_serve_in_thread_reports_bound_port(self):
+        self.assertRegex(self.url, r"^http://127\.0\.0\.1:[1-9]\d*$")
+        self.assertTrue(self.thread.is_alive())
+        self.assertEqual(self.get("/health")[0], 200)
+
+    def test_router_has_own_gateway_client(self):
+        """Стриминг редактора не должен мешать запросам консоли."""
+        self.assertIsNot(self.router_gateway, self.stack.gw)
+        self.assertEqual(self.router_gateway.key, self.stack.gw.key)
+
+    def test_parallel_requests(self):
+        for _ in range(4):
+            self.mock.queue(text("ответ"))
+        results = []
+        errors = []
+
+        def worker():
+            try:
+                status, body = self.json_post("/v1/chat/completions", {
+                    "model": "auto",
+                    "messages": [{"role": "user", "content": "привет"}]})
+                results.append((status, body["choices"][0]["message"]["content"]))
+            except Exception as e:  # noqa: BLE001
+                errors.append(e)
+
+        threads = [threading.Thread(target=worker) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(results), 4)
+        self.assertTrue(all(status == 200 for status, _ in results))
+        self.assertEqual(self.stack.state.requests_day, 4)
+
+    def test_keep_alive_connection(self):
+        """Одно соединение — несколько запросов: редакторы держат его открытым."""
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=20)
+        try:
+            for _ in range(3):
+                conn.request("GET", "/health")
+                resp = conn.getresponse()
+                self.assertEqual(resp.status, 200)
+                resp.read()
+        finally:
+            conn.close()
+
+    def test_shutdown_stops_server(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        self.thread.join(timeout=5)
+        self.assertFalse(self.thread.is_alive())
+        with self.assertRaises(OSError):
+            self.get("/health", timeout=2)
+        # tearDown повторит shutdown — он должен быть безопасным
+        self.httpd = type("Stub", (), {"shutdown": lambda self: None,
+                                       "server_close": lambda self: None})()
 
 
 if __name__ == "__main__":

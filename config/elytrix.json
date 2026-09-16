@@ -1,0 +1,87 @@
+{
+  "_about": [
+    "Настройки ELYTRIX. Файл можно править блокнотом — изменения подхватятся при следующем запуске.",
+    "Ключ здесь НЕ хранится: он в переменной окружения SMARTAPI_KEY или в профиле (~/.elytrix/credentials.json).",
+    "",
+    "Шлюз SmartAPI умеет два формата, ELYTRIX пробует их по очереди:",
+    "    base_url        https://api.smartapi.shop      — формат Anthropic (/v1/messages), основной",
+    "    openai_base_url https://api.smartapi.shop/v1   — формат OpenAI (/v1/chat/completions), запасной",
+    "",
+    "Коэффициенты расхода (mult) — во сколько раз дороже обычного токена. Баланс SmartAPI",
+    "списывает «зачётные токены» = токены × mult, и ELYTRIX считает ровно так же.",
+    "",
+    "Что менять чаще всего:",
+    "    models.default        маршрут или модель, с которой начинаем (auto | cheap | smart | max)",
+    "    limits.daily_tokens   дневной предохранитель: 400000 ≈ 20 дней работы на 8 млн баланса",
+    "    limits.max_steps      потолок шагов агента на одну задачу",
+    "    economy.compact_at    доля контекста, после которой история сжимается сама",
+    "    ui.theme              dark | night | light | mono",
+    "    ui.confirm            ask (спрашивать) | auto (править сразу) | readonly (только чтение)"
+  ],
+
+  "gateway": {
+    "base_url": "https://api.smartapi.shop",
+    "openai_base_url": "https://api.smartapi.shop/v1",
+    "key_env": "SMARTAPI_KEY",
+    "anthropic_version": "2023-06-01",
+    "timeout": 300,
+    "connect_timeout": 15,
+    "cooldown_429": 60
+  },
+
+  "models": {
+    "default": "auto",
+    "aliases": {
+      "auto":  { "model": "claude-sonnet-4-6", "note": "обычная работа — обычно хватает её" },
+      "cheap": { "model": "gpt-5.6-luna",      "note": "самая дешёвая: мелкие правки и вопросы" },
+      "smart": { "model": "claude-opus-4-8",   "note": "сложные задачи, заметно умнее" },
+      "max":   { "model": "claude-opus-5",     "note": "максимум качества, для тяжёлого" }
+    },
+    "catalog": {
+      "gpt-5.6-luna":      { "mult": 1.7, "ctx": 200000, "family": "GPT",    "note": "дёшево и быстро" },
+      "claude-sonnet-4-6": { "mult": 2.0, "ctx": 200000, "family": "Claude", "note": "рабочая лошадка" },
+      "claude-sonnet-5":   { "mult": 2.5, "ctx": 200000, "family": "Claude", "note": "свежий Sonnet" },
+      "gpt-5.6-terra":     { "mult": 3.0, "ctx": 200000, "family": "GPT",    "note": "средний GPT" },
+      "gpt-5.6-sol":       { "mult": 4.0, "ctx": 200000, "family": "GPT",    "note": "старший GPT" },
+      "codex-auto-review": { "mult": 4.0, "ctx": 200000, "family": "Codex",  "note": "ревью кода" },
+      "claude-opus-4-6":   { "mult": 4.0, "ctx": 200000, "family": "Claude", "note": "Opus 4.6" },
+      "claude-opus-4-7":   { "mult": 4.0, "ctx": 200000, "family": "Claude", "note": "Opus 4.7" },
+      "claude-opus-4-8":   { "mult": 4.0, "ctx": 200000, "family": "Claude", "note": "Opus 4.8" },
+      "claude-opus-5":     { "mult": 5.0, "ctx": 200000, "family": "Claude", "note": "самый сильный" },
+      "gpt-6-astra":       { "mult": 8.0, "ctx": 200000, "family": "GPT",    "note": "дорого, только по делу" },
+      "claude-fable-5":    { "mult": 10.0, "ctx": 200000, "family": "Claude", "note": "очень дорого" },
+      "claude-fable-5-1":  { "mult": 10.0, "ctx": 200000, "family": "Claude", "note": "очень дорого" }
+    }
+  },
+
+  "limits": {
+    "daily_tokens": 400000,
+    "max_steps": 24,
+    "max_output_tokens": 8192
+  },
+
+  "economy": {
+    "cache": true,
+    "compact_at": 0.55,
+    "tool_result_chars": 6000,
+    "bash_output_chars": 4000,
+    "grep_hits": 40,
+    "keep_recent": 2,
+    "read_chars": 12000
+  },
+
+  "ui": {
+    "theme": "dark",
+    "color": "auto",
+    "confirm": "ask",
+    "verbose": false,
+    "stream": true,
+    "show_tips": true,
+    "language": "ru"
+  },
+
+  "router": {
+    "port": 8789,
+    "host": "127.0.0.1"
+  }
+}

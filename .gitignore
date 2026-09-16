@@ -1,28 +1,27 @@
-# Локальное состояние (ключ живёт в переменной окружения SMARTAPI_KEY, не в файлах)
-app/state.json
-app/state.json.tmp
+# Профиль ELYTRIX: ключ, расход, последняя папка, тема — никогда не коммитим
+.elytrix/
+**/.elytrix/
+credentials.json
 state.json
 state.json.tmp
+
+# Логи и секреты
 *.log
 .env
 .env.*
 
-# Рабочие файлы агента
-.freecoder/
-**/.freecoder/
-
 # Python
 __pycache__/
 *.pyc
+*.pyo
 .venv/
 venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 
-# Node
+# Node (на случай, когда агент работает в вашем проекте)
 node_modules/
-package-lock.json
 
 # Системное
 .DS_Store

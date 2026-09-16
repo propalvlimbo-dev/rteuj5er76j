@@ -1,0 +1,27 @@
+# В репозитории храним LF, а в рабочей копии Windows — как нужно каждому типу файлов.
+# Без этого bat-файлы ломаются (cmd.exe не любит LF), а shell-скрипты — наоборот.
+
+* text=auto eol=lf
+
+# Windows-скрипты — только CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Код, конфиги и документы — LF
+*.py text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.txt text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# Двоичные файлы (если появятся картинки для документов)
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
