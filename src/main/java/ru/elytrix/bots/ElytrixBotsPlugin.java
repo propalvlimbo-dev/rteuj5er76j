@@ -42,6 +42,8 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private boolean rooyzeeMode;
     private long nextFanMessage;
     private final Map<UUID,User> luckPermsUsers=new java.util.concurrent.ConcurrentHashMap<>();
+    private final Set<UUID> joinedEvents=java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private boolean firstPopulationChange=true;
 
     @Override public void onEnable() {
         saveDefaultConfig(); saveResource("bots.yml", false);
@@ -92,9 +94,9 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
 
     private void ensureProfiles() {
         ConfigurationSection section=bots.getConfigurationSection("profiles");
-        if(section==null||bots.getInt("profiles-version",0)<3){
-            bots.set("profiles",null);bots.set("profiles-version",3);
-            String raw="Artemka,VladOS,Danya_777,Kot_Begemot,MrSova,Lisiy,Kirya,Maxwell,NeonBoy,Tihohod,Deffo4ka,Volk_13,Dimonчик,Alex_Rus,Steve228,Foxy,MinerPro,JustNikita,Kaktus,Pyatnica,Romashka,Skif,NorthWind,NoName,Levsha,Keksik,Fantik,Turbo,ChillGuy,WaterMelon,IceTea,Redstone,Enotik,DarkSoul,Sunny,Milashka,Grom,Kriperok,EnderMan,Akula,Toporik,Samurai,Pechenka,Drakon,Cheburek,Viking,Almazik,Baton,Pluton,Marik,GoodBoy,Stalker,Angel_05,Bober,Poison,Arbuzer,OldSchool,FreshMan,Bratishka,YaProstoYa,Windy,Quasar,Lunatik,Timoxa,Danilыч,ZloyKot,Dobryak,Kapitan,Spartak,Zenit,PixelMan,Monolit,Faraon,Bambuk,Shaman,Sever,Reactor,Marmelad,KingSize,LuckyMan,Fastik,Medved,Omega,Grizzly,Silent,Geroy,Novichok,Knyaz,TurboMax,BlackFox,Belka,Orange,Kompot,MrRobot,PlayerOne,DedMoroz,Snegovik,Raketa,Karas,Somik,Voron,Orel,Sapsan,Baron,Shustriy,Umnik,Molniya,Tornado,Sahara,Atlant,Orion,Saturn,Marsik,Kosmos,Avatar,Legion,Partizan,Major,Rekrut,MasterX";
+        if(section==null||bots.getInt("profiles-version",0)<4){
+            bots.set("profiles",null);bots.set("profiles-version",4);
+            String raw="kavol,Grom,Be1ka,peacherrka,Dimon4ik,Batmen,Arbuzer,Grizz1y,Kosmos,Legion,Rekrut,Shaman,SunnyOne,foxiee,northside,KotBegemot,JustMaks,tihohod,redstonekid,Keksik,oldminer,WaterLime,Neonix,Timoxa,Dan4ik,Kirito,GoodBoi,StalkerX,Angel05,Bober,Poisoned,Arbuzzz,FreshMan,Bratishka,WindyWay,Quasar,Lunatik,ZloyKot,Dobryak,KapitanX,Spartak,PixelMan,Monolit,Faraon,Bambuk,Severok,Reactor,Marmelad,KingSize,LuckyMan,Fastik,Medvedik,Omega7,SilentGuy,Geroy,Novichok,Knyaz,BlackFox,OrangeJuice,Kompotik,MrRobot,PlayerOne,Snowman,Raketa,Karasik,Som,Voron,Orlan,Sapsan,Baron77,Shustriy,Umnik,Molniya,Tornado,Sahara,Atlant,OrionSky,SaturnX,Marsik,KosmosKid,Avatar,Partizan,Majorik,MasterX,levsha,NoNameYet,Skif4ik,NorthWind,Kaktus,Pyatnica,Romashka,Fantik,ChillGuy,IceTea,Enotik,DarkSoul,Akula,Toporik,Samurai,Pechenka,Drakon,Cheburek,Viking,Almazik,Baton,Pluton,Marik,YaProstoYa,TurboMax,Milashka,Kriperok,EnderFox,MrSova,Lisiy,Maxwell,Deffo4ka,Volk13,AlexRus,Steve228,FoxyMine,NikitaGG,FridayMood,RedMoon,BlueBerry,GreenTea,SmallBee,BigBoss,notfound,whoami,maybealex,ordinaryguy,cloudnine,rainyday,afterdark,midnight,lowping,coffeepls,TeaMaster,one_more,zerohero,aspen,cedrik,juniper,riverstone,softwind,wildmint,graywolf,tinyfox,lostsignal,quietstep,randomguest,localman,faraway,woodenaxe,stonepick,diamondless,craftycat,sleepyowl,earlybird,lateplayer,moonwalker,sunflower,blackcoffee,mintcookie,hotpepper,coldwater,greenapple,redpanda,bluewhale,smallplanet,justhuman";
             String[] names=raw.split(",");int id=0;for(String name:names){String key=String.format("bot%03d",++id);bots.set("profiles."+key+".name",name);bots.set("profiles."+key+".group","default");bots.set("profiles."+key+".ping",25+random.nextInt(100));}
             try{bots.save(new File(getDataFolder(),"bots.yml"));}catch(Exception ex){getLogger().warning("Cannot save profiles: "+ex.getMessage());}
             section=bots.getConfigurationSection("profiles");
@@ -108,23 +110,31 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         if(rooyzeeMode&&now>=nextFanMessage&&!active.isEmpty()){sendFanMessage();nextFanMessage=now+(30+random.nextInt(91))*1000L;}
         List<ActiveBot> expired=new ArrayList<>();for(ActiveBot bot:active.values())if(bot.expiresAt<=now)expired.add(bot);for(ActiveBot bot:expired)deactivate(bot);
         if(now<nextPopulationChange)return;int target=populationTarget();
-        if(active.size()<target)activateOne();else if(active.size()>target&&!active.isEmpty())deactivate(new ArrayList<>(active.values()).get(random.nextInt(active.size())));
-        // После первого входа меняем онлайн только по одному профилю раз в 5–20 минут.
-        nextPopulationChange=now+(300+random.nextInt(901))*1000L;
+        if(firstPopulationChange){if(active.size()<target)activateOne();firstPopulationChange=false;}
+        else if(active.size()<target){activateOne();if(target-active.size()>1&&random.nextInt(4)==0)Bukkit.getScheduler().runTaskLater(this,this::activateOne,40+random.nextInt(161));}
+        else if(active.size()>target&&!active.isEmpty())deactivate(randomActive());
+        else if(!active.isEmpty()&&random.nextInt(7)==0){deactivate(randomActive());Bukkit.getScheduler().runTaskLater(this,this::activateOne,1200+random.nextInt(2401));}
+        reconcileVisible();
+        // Неровные смешанные изменения онлайна раз в 2–18 минут.
+        nextPopulationChange=now+(120+random.nextInt(961))*1000L;
     }
+    private ActiveBot randomActive(){List<ActiveBot> list=new ArrayList<>(active.values());return list.get(random.nextInt(list.size()));}
     private int populationTarget(){
+        int real=realPlayers().size();if(real==0)return 2+random.nextInt(3);
         java.time.ZonedDateTime time=java.time.ZonedDateTime.now(java.time.ZoneId.of("Europe/Moscow")).plusMinutes(dailyMinuteJitter);int hour=time.getHour();
-        int min,max;if(hour<7){min=4;max=8;}else if(hour<16){min=8;max=12;}else{min=12;max=16;}
-        return min+random.nextInt(max-min+1);
+        double low=hour<7?.30:hour<16?.38:.48,high=hour<7?.42:hour<16?.52:.60;
+        return Math.max(1,Math.min(16,(int)Math.round(real*(low+random.nextDouble()*(high-low)))));
     }
+    private int visibleTarget(){int real=realPlayers().size();if(real<=3)return Math.min(1,active.size());if(real<=6)return Math.min(2,active.size());return Math.min(3+random.nextInt(2),active.size());}
+    private void reconcileVisible(){int wanted=visibleTarget();while(liveBots.size()>wanted){MovingBot moving=liveBots.remove(liveBots.size()-1);moving.player.tick(Collections.emptySet());for(ActiveBot bot:active.values())if(bot.moving==moving){bot.moving=null;break;}}if(liveBots.size()<wanted){for(ActiveBot bot:active.values())if(bot.moving==null){Player entity=registry.player(bot.player.getUuid());if(entity==null)continue;Point point=randomSafePoint(entity.getWorld());bot.moving=new MovingBot(bot.player,point.world(),point.vector(),3.4+random.nextDouble());liveBots.add(bot.moving);if(liveBots.size()>=wanted)break;}}}
     private void activateOne(){
         long now=System.currentTimeMillis();List<BotProfile> available=new ArrayList<>();for(BotProfile p:profiles)if(!active.containsKey(p.name)&&database.cooldown(p.name)<=now)available.add(p);if(available.isEmpty())return;
         BotProfile profile=available.get(random.nextInt(available.size()));Location spawn=spawn(null);VirtualPlayer player=create(profile.name,profile.ping,profile.group,spawn.getWorld());player.setPos(vec(spawn));player.setYaw(spawn.getYaw());player.setPitch(spawn.getPitch());player.setOnGround(true);
-        tabBots.add(player);realPlayers().forEach(player::sendAddPlayerPacket);MovingBot moving=null;if(random.nextDouble()<visibleChance){Point point=randomSafePoint(spawn.getWorld());moving=new MovingBot(player,spawn.getWorld(),point.vector(),3.4+random.nextDouble());liveBots.add(moving);}
-        long expires=now+randomMinutes("population.session-minutes",60,360)*60000L;active.put(profile.name,new ActiveBot(profile,player,moving,expires));getLogger().info(profile.name+" joined ("+active.size()+" bots online)");
+        tabBots.add(player);realPlayers().forEach(player::sendAddPlayerPacket);
+        long expires=now+randomMinutes("population.session-minutes",60,360)*60000L;active.put(profile.name,new ActiveBot(profile,player,null,expires));getLogger().info(profile.name+" joined ("+active.size()+" bots online)");
     }
     private void deactivate(ActiveBot bot){
-        for(Player viewer:realPlayers()){bot.player.sendRemovePlayerPacket(viewer);}if(bot.moving!=null){bot.player.tick(Collections.emptySet());liveBots.remove(bot.moving);}tabBots.remove(bot.player);registry.remove(bot.player.getUuid());teams.remove(bot.profile.name);User lpUser=luckPermsUsers.remove(bot.player.getUuid());if(lpUser!=null)try{LuckPermsProvider.get().getUserManager().cleanupUser(lpUser);}catch(Exception ignored){}active.remove(bot.profile.name);database.quit(bot.profile.name,System.currentTimeMillis()+randomMinutes("population.profile-cooldown-minutes",120,360)*60000L);getLogger().info(bot.profile.name+" left ("+active.size()+" bots online)");
+        fireQuit(bot.player.getUuid());for(Player viewer:realPlayers()){bot.player.sendRemovePlayerPacket(viewer);}if(bot.moving!=null){bot.player.tick(Collections.emptySet());liveBots.remove(bot.moving);}tabBots.remove(bot.player);registry.remove(bot.player.getUuid());teams.remove(bot.profile.name);User lpUser=luckPermsUsers.remove(bot.player.getUuid());if(lpUser!=null)try{LuckPermsProvider.get().getUserManager().cleanupUser(lpUser);}catch(Exception ignored){}active.remove(bot.profile.name);database.quit(bot.profile.name,System.currentTimeMillis()+randomMinutes("population.profile-cooldown-minutes",120,360)*60000L);getLogger().info(bot.profile.name+" left ("+active.size()+" bots online)");
     }
     private Point randomSafePoint(World world){
         for(int attempt=0;attempt<80;attempt++){double centerX=getConfig().getDouble("population.region.center-x",30),centerZ=getConfig().getDouble("population.region.center-z",9),radius=Math.min(30,getConfig().getDouble("population.region.radius",30));double x=centerX+(random.nextDouble()*2-1)*radius,z=centerZ+(random.nextDouble()*2-1)*radius;for(int y=Math.min(world.getMaxHeight()-2,world.getHighestBlockYAt((int)x,(int)z)+1);y>world.getMinHeight();y--){Block floor=world.getBlockAt((int)Math.floor(x),y-1,(int)Math.floor(z));if(!floor.isPassable()&&!unsafeFloor(floor)&&world.getBlockAt((int)x,y,(int)z).isPassable()&&world.getBlockAt((int)x,y+1,(int)z).isPassable())return new Point(world,x+.5,y,z+.5,0,0);}}
@@ -148,24 +158,28 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private boolean unsafeFloor(Block block){String m=block.getType().name();return m.contains("LEAVES")||m.contains("LOG")||m.contains("CARPET")||m.contains("WATER")||m.contains("LAVA")||m.contains("FENCE")||m.contains("WALL");}
     private long randomMinutes(String path,int fallbackMin,int fallbackMax){int min=getConfig().getInt(path+".min",fallbackMin),max=Math.max(min,getConfig().getInt(path+".max",fallbackMax));return min+random.nextInt(max-min+1);}
     private record BotProfile(String name,String group,int ping){}
-    private static final class ActiveBot{final BotProfile profile;final VirtualPlayer player;final MovingBot moving;final long expiresAt;ActiveBot(BotProfile p,VirtualPlayer v,MovingBot m,long e){profile=p;player=v;moving=m;expiresAt=e;}}
+    private static final class ActiveBot{final BotProfile profile;final VirtualPlayer player;MovingBot moving;final long expiresAt;ActiveBot(BotProfile p,VirtualPlayer v,MovingBot m,long e){profile=p;player=v;moving=m;expiresAt=e;}}
 
     private VirtualPlayer create(String name, int ping, String group, World registrationWorld) {
         if (name.isBlank() || name.length() > 16) throw new IllegalArgumentException("name must be 1-16 characters");
         VirtualPlayer p = VirtualPlayer.create(); p.setName(name); p.setLatency(Math.max(0, ping)); p.setGameMode(GameMode.SURVIVAL);
-        if (Bukkit.getPluginManager().isPluginEnabled("LuckPerms")) {
+        boolean luckPerms=Bukkit.getPluginManager().isPluginEnabled("LuckPerms");
+        if(luckPerms){
             try {
                 LuckPerms lp = LuckPermsProvider.get();
-                // Держим LuckPerms User загруженным всё время сессии: TAB и ElytrixChat тогда видят группу.
-                lp.getUserManager().loadUser(p.getUuid(),name).thenAccept(user->{user.data().add(InheritanceNode.builder(group).build());luckPermsUsers.put(p.getUuid(),user);lp.getUserManager().saveUser(user);});
+                // Держим LuckPerms User загруженным всё время сессии: TAB, Essentials и ElytrixChat видят группу.
+                lp.getUserManager().loadUser(p.getUuid(),name).thenAccept(user->{user.data().add(InheritanceNode.builder(group).build());luckPermsUsers.put(p.getUuid(),user);lp.getUserManager().saveUser(user);Bukkit.getScheduler().runTask(this,()->fireJoin(p.getUuid()));});
             } catch (Exception ex) { getLogger().warning("LuckPerms hook failed for " + name + ": " + ex.getMessage()); }
         }
         BotTeamManager.Style style=teams.add(name, group, getConfig().getString("formatting.default-suffix", " &dБЕТА"));
         String label=style.prefix()+ChatColor.GRAY+name+style.suffix();
         p.setDisplayName(LegacyComponentSerializer.legacySection().deserialize(label));
         registry.register(name, p.getUuid(), registrationWorld);
+        if(!luckPerms)Bukkit.getScheduler().runTask(this,()->fireJoin(p.getUuid()));
         return p;
     }
+    private void fireJoin(UUID uuid){Player player=registry.player(uuid);if(player==null||!joinedEvents.add(uuid))return;PlayerJoinEvent event=new PlayerJoinEvent(player,null);Bukkit.getPluginManager().callEvent(event);}
+    private void fireQuit(UUID uuid){Player player=registry.player(uuid);if(player==null||!joinedEvents.remove(uuid))return;PlayerQuitEvent event=new PlayerQuitEvent(player,null);Bukkit.getPluginManager().callEvent(event);}
 
     private List<Player> realPlayers() {
         List<Player> result = new ArrayList<>();
@@ -175,12 +189,10 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
 
     private void tick(int ticks) {
         datasets.tick(); populationTick();
-        for (MovingBot b : liveBots) {
-            b.move(ticks / 20D);
-            Set<Player> viewers = new HashSet<>();
-            for (Player player : b.world.getPlayers()) if (!registry.isFake(player.getUniqueId())) viewers.add(player);
-            b.player.tick(viewers);
-        }
+        // Список зрителей строится один раз на мир, а не отдельно для каждого бота.
+        Map<World,Set<Player>> viewersByWorld=new HashMap<>();
+        for(Player player:realPlayers())viewersByWorld.computeIfAbsent(player.getWorld(),w->new HashSet<>()).add(player);
+        for(MovingBot b:liveBots){b.move(ticks/20D);b.player.tick(viewersByWorld.getOrDefault(b.world,Collections.emptySet()));}
     }
 
     @Override public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
@@ -190,9 +202,11 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             player.sendMessage(elytrix("&#F8BEFBКоманды"));
             player.sendMessage(color("&#F8BEFB&l┃ &f/elytrixbots online &7— онлайн"));
             player.sendMessage(color("&#F8BEFB&l┃ &f/elytrixbots rooyzee &7— режим фанатов"));
+            player.sendMessage(color("&#F8BEFB&l┃ &f/elytrixbots kick <ник> &7— отключить бота"));
             player.sendMessage(color("&#F8BEFB&l┃ &f/elytrixbots dataset &7— запись движений"));return true;
         }
         if(args.length==1&&args[0].equalsIgnoreCase("online")){int real=realPlayers().size(),fake=active.size();player.sendMessage(elytrix("&#F8BEFBОнлайн"));player.sendMessage(color("&#F8BEFB&l┃ &fРеальных: &#F8BEFB"+real));player.sendMessage(color("&#F8BEFB&l┃ &fБотов: &#F8BEFB"+fake));player.sendMessage(color("&#F8BEFB&l┃ &fВсего: &#F8BEFB"+(real+fake)));return true;}
+        if(args.length==2&&args[0].equalsIgnoreCase("kick")){ActiveBot found=null;for(ActiveBot bot:active.values())if(bot.profile.name.equalsIgnoreCase(args[1])){found=bot;break;}if(found==null){player.sendMessage(elytrix("&cОшибка: &fбот не найден."));return true;}String name=found.profile.name;deactivate(found);player.sendMessage(elytrix("&aБот отключён: &#F8BEFB"+name));return true;}
         if(args.length==1&&args[0].equalsIgnoreCase("rooyzee")){rooyzeeMode=!rooyzeeMode;nextFanMessage=System.currentTimeMillis()+15000;if(rooyzeeMode)startFanConversation();player.sendMessage(elytrix(rooyzeeMode?"&aРежим фанатов rooyzee включён.":"&cРежим фанатов rooyzee выключен."));return true;}
         if (args.length >= 3 && args[0].equalsIgnoreCase("dataset") && args[1].equalsIgnoreCase("start")) {
             String name=args.length>=4?args[3]:String.valueOf(System.currentTimeMillis()/1000);
@@ -209,7 +223,8 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     }
 
     @Override public List<String> onTabComplete(CommandSender sender,Command command,String alias,String[] args){
-        if(args.length==1)return filter(List.of("online","rooyzee","dataset"),args[0]);
+        if(args.length==1)return filter(List.of("online","rooyzee","kick","dataset"),args[0]);
+        if(args.length==2&&args[0].equalsIgnoreCase("kick")){List<String> names=new ArrayList<>();for(ActiveBot bot:active.values())names.add(bot.profile.name);return filter(names,args[1]);}
         if(args.length==2&&args[0].equalsIgnoreCase("dataset"))return filter(List.of("start","stop"),args[1]);
         if(args.length==3&&args[0].equalsIgnoreCase("dataset")&&args[1].equalsIgnoreCase("start"))return filter(DatasetManager.TYPES,args[2]);
         if(args.length==4&&args[1].equalsIgnoreCase("start"))return List.of("пример_1");
@@ -323,7 +338,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             if(airborneLastTick&&onGround&&!arrived&&airborneStartY-ny>.75){route=GridPathfinder.find(world,new Vec3d(nx,ny,nz),target);routeIndex=0;stuckTicks=0;lastProgressPos=new Vec3d(nx,ny,nz);}
             airborneLastTick=!onGround;
         }
-        void idleBehavior(){smoothLook();if(idleCooldown-->0)return;DatasetManager.MotionSample sample=datasets.idleSample(random);player.setShiftKeyDown(sample.sneak);player.setSprinting(false);lookYaw=player.getYaw()+sample.yawDelta*(float)turnFactor;lookPitch=Math.max(-90,Math.min(90,player.getPitch()+sample.pitchDelta*(float)turnFactor));idleCooldown=100+random.nextInt(1501);}
+        void idleBehavior(){smoothLook();if(idleCooldown-->0)return;DatasetManager.MotionSample sample=datasets.idleSample(random);player.setShiftKeyDown(sample.sneak&&random.nextInt(5)==0);player.setSprinting(false);float yaw=sample.yawDelta,pitch=sample.pitchDelta;if(Math.abs(yaw)<1)yaw=-35+random.nextFloat()*70;if(Math.abs(pitch)<1)pitch=-14+random.nextFloat()*28;lookYaw=player.getYaw()+yaw*(float)turnFactor;lookPitch=Math.max(-35,Math.min(35,player.getPitch()+pitch*(float)turnFactor));idleCooldown=100+random.nextInt(501);}
         void smoothLook(){player.setYaw(approachAngle(player.getYaw(),lookYaw,Math.max(1.5F,learnedTurn*.5F)));player.setPitch(approach(player.getPitch(),lookPitch,2F));}
         double approachDouble(double from,double to,double max){return from+Math.max(-max,Math.min(max,to-from));}
         float approach(float from,float to,float max){return from+Math.max(-max,Math.min(max,to-from));}
