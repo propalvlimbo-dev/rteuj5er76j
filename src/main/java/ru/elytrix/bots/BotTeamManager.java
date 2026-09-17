@@ -37,7 +37,8 @@ final class BotTeamManager {
             }
         }
         if (suffix.isEmpty()) suffix = colors(fallbackSuffix);
-        team.setPrefix(prefix + ChatColor.GRAY);
+        team.setPrefix(prefix);
+        team.setColor(ChatColor.GRAY);
         team.setSuffix(suffix);
         team.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.ALWAYS);
         team.addEntry(name);
@@ -51,5 +52,20 @@ final class BotTeamManager {
         for (Team team : created) try { team.unregister(); } catch (IllegalStateException ignored) {}
         created.clear();
     }
-    private static String colors(String value) { return ChatColor.translateAlternateColorCodes('&', value); }
+    private static String colors(String value) {
+        // Legacy RGB format supported by Minecraft 1.16: &#RRGGBB -> §x§R§R§G§G§B§B.
+        StringBuilder out=new StringBuilder();
+        for(int i=0;i<value.length();i++) {
+            if(i+7<value.length()&&value.charAt(i)=='&'&&value.charAt(i+1)=='#') {
+                String hex=value.substring(i+2,i+8);
+                if(hex.matches("[0-9a-fA-F]{6}")) {
+                    out.append('§').append('x');
+                    for(char c:hex.toCharArray()) out.append('§').append(c);
+                    i+=7; continue;
+                }
+            }
+            out.append(value.charAt(i));
+        }
+        return ChatColor.translateAlternateColorCodes('&',out.toString());
+    }
 }

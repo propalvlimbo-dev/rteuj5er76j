@@ -7,7 +7,7 @@ proxy-sync:
 
 formatting:
   # Используется, если у LuckPerms-группы нет suffix.
-  default-suffix: " &dБЕТА"
+  default-suffix: " &#F8BEFBБЕТА"
 
 settings:
   movement-period-ticks: 2
