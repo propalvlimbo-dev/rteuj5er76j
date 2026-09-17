@@ -168,55 +168,51 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private record Point(World world,double x,double y,double z,float yaw,float pitch) { Vec3d vector(){return new Vec3d(x,y,z);} }
 
     private final class MovingBot {
-        final VirtualPlayer player; final World world; final Vec3d target; final double speed; boolean arrived; double verticalVelocity; int idleCooldown;
-        MovingBot(VirtualPlayer p, World w, Vec3d t, double s){player=p;world=w;target=t;speed=Math.max(.1,s);}
-        void move(double seconds) {
-            if (!datasets.hasSamples()) { player.setSprinting(false); player.setShiftKeyDown(false); return; }
-            if (arrived) { idleBehavior(); return; }
-            Vec3d p=player.getPos(); double dx=target.x-p.x,dz=target.z-p.z, horizontal=Math.sqrt(dx*dx+dz*dz), step=speed*seconds;
-            if(horizontal<.03){arrived=true;player.setSprinting(false);idleBehavior();return;}
-            double amount=Math.min(step,horizontal), nx=p.x+dx/horizontal*amount,nz=p.z+dz/horizontal*amount;
-            boolean obstacle=!world.getBlockAt((int)Math.floor(nx),(int)Math.floor(p.y),(int)Math.floor(nz)).isPassable();
-            DatasetManager.MotionSample learned=datasets.imitate(obstacle, random);
-            if (learned != null) {
-                player.setShiftKeyDown(learned.sneak);
-                player.setSprinting(learned.sprint);
-                player.setYaw(player.getYaw() + learned.yawDelta * 0.15F);
-                player.setPitch(Math.max(-90F,Math.min(90F,player.getPitch()+learned.pitchDelta*0.15F)));
-                if (obstacle && learned.vertical > 0.01) verticalVelocity=Math.max(verticalVelocity, Math.min(5.2, learned.vertical/seconds));
-            }
-            double ground=groundY(nx,p.y,nz);
-            if(Double.isNaN(ground)) { player.setSprinting(false); return; }
-            double ny;
-            if (ground > p.y + 0.05) {
-                verticalVelocity = Math.max(verticalVelocity, learned != null && learned.vertical > 0 ? Math.min(5.2, learned.vertical/seconds) : 4.2);
-                ny = Math.min(ground, p.y + verticalVelocity * seconds);
-            } else if (ground < p.y - 0.05) { // плавное падение с обычным ускорением
-                verticalVelocity = Math.max(-7.0, verticalVelocity - 9.8 * seconds);
-                ny = Math.max(ground, p.y + verticalVelocity * seconds);
-            } else { ny = ground; verticalVelocity = 0; }
-            player.setOnGround(Math.abs(ny-ground)<0.02);
-            if (learned == null) player.setSprinting(true);
+        final VirtualPlayer player; final World world; final Vec3d target; final double speed;
+        final double moveFactor=.92+random.nextDouble()*.16, turnFactor=.85+random.nextDouble()*.30, fallFactor=.95+random.nextDouble()*.10;
+        List<DatasetManager.MotionSample> sequence=Collections.emptyList(); int frame, idleCooldown; boolean arrived;
+        MovingBot(VirtualPlayer p,World w,Vec3d t,double s){player=p;world=w;target=t;speed=Math.max(.1,s);}
+        DatasetManager.MotionSample next(){
+            if(sequence.isEmpty()){sequence=datasets.randomSequence(random);if(sequence.isEmpty())return null;frame=random.nextInt(sequence.size());}
+            DatasetManager.MotionSample sample=sequence.get(frame++%sequence.size());
+            return sample;
+        }
+        void move(double seconds){
+            if(!datasets.hasSamples()){player.setSprinting(false);player.setShiftKeyDown(false);return;}
+            if(arrived){idleBehavior();return;}
+            DatasetManager.MotionSample sample=next(); if(sample==null)return;
+            Vec3d p=player.getPos();double dx=target.x-p.x,dz=target.z-p.z,distance=Math.sqrt(dx*dx+dz*dz);
+            if(distance<.03){arrived=true;player.setSprinting(false);idleBehavior();return;}
+            player.setShiftKeyDown(sample.sneak);player.setSprinting(sample.sprint);
+            double amount=Math.min(distance,Math.min(sample.horizontal*moveFactor,speed*seconds*1.25));
+            double nx=p.x+dx/distance*amount,nz=p.z+dz/distance*amount;
+            double ground=groundY(nx,p.y,nz);if(Double.isNaN(ground)){player.setSprinting(false);return;}
+            double ny=p.y+sample.vertical*fallFactor;
+            if(ny<ground)ny=ground;
+            if(ground>p.y+.60&&sample.vertical<=.01){nx=p.x;nz=p.z;ny=p.y;}
+            else if(ground>ny&&ground-p.y<=.60)ny=ground;
             float targetYaw=(float)Math.toDegrees(Math.atan2(-dx,dz));
-            player.setYaw(targetYaw + (learned == null ? 0 : learned.yawDelta * 0.15F));
-            player.setPos(new Vec3d(nx,ny,nz));
+            player.setYaw(targetYaw+sample.yawDelta*(float)turnFactor);
+            player.setPitch(Math.max(-90F,Math.min(90F,player.getPitch()+sample.pitchDelta*(float)turnFactor)));
+            player.setOnGround(Math.abs(ny-ground)<.02);player.setPos(new Vec3d(nx,ny,nz));
         }
-        void idleBehavior() {
-            if (idleCooldown-- > 0) return;
-            DatasetManager.MotionSample sample=datasets.imitateIdle(random);
-            if(sample==null)return;
-            player.setShiftKeyDown(sample.sneak);
-            player.setSprinting(false);
-            player.setYaw(player.getYaw()+sample.yawDelta);
-            player.setPitch(Math.max(-90F,Math.min(90F,player.getPitch()+sample.pitchDelta)));
-            idleCooldown=5+random.nextInt(16);
+        void idleBehavior(){
+            if(idleCooldown-->0)return;DatasetManager.MotionSample sample=next();if(sample==null)return;
+            player.setShiftKeyDown(sample.sneak);player.setSprinting(false);
+            player.setYaw(player.getYaw()+sample.yawDelta*(float)turnFactor);
+            player.setPitch(Math.max(-90F,Math.min(90F,player.getPitch()+sample.pitchDelta*(float)turnFactor)));
+            idleCooldown=3+random.nextInt(18);
         }
-        double groundY(double x,double y,double z) {
-            if(!getConfig().getBoolean("settings.physics.enabled",true)) return y;
-            int bx=(int)Math.floor(x), bz=(int)Math.floor(z), base=(int)Math.floor(y);
-            int up=getConfig().getInt("settings.physics.max-step-height",1), down=getConfig().getInt("settings.physics.max-fall-check",4);
-            for(int feet=base+up;feet>=base-down;feet--){ Block floor=world.getBlockAt(bx,feet-1,bz), body=world.getBlockAt(bx,feet,bz), head=world.getBlockAt(bx,feet+1,bz); if(!floor.isPassable()&&body.isPassable()&&head.isPassable()) return feet; }
-            return Double.NaN;
+        double groundY(double x,double y,double z){
+            if(!getConfig().getBoolean("settings.physics.enabled",true))return y;
+            int bx=(int)Math.floor(x),bz=(int)Math.floor(z),base=(int)Math.floor(y),up=getConfig().getInt("settings.physics.max-step-height",1),down=getConfig().getInt("settings.physics.max-fall-check",4);
+            for(int blockY=base+up-1;blockY>=base-down-1;blockY--){
+                Block floor=world.getBlockAt(bx,blockY,bz);if(floor.isPassable())continue;
+                double top=blockY+1D;
+                try{double shapeTop=floor.getCollisionShape().getBoundingBoxes().stream().mapToDouble(box->box.getMaxY()).max().orElse(1D);top=shapeTop<=1.5?blockY+shapeTop:shapeTop;}catch(Throwable ignored){}
+                Block body=world.getBlockAt(bx,(int)Math.floor(top+.01),bz),head=world.getBlockAt(bx,(int)Math.floor(top+1.01),bz);
+                if(body.isPassable()&&head.isPassable())return top;
+            }return Double.NaN;
         }
     }
 }

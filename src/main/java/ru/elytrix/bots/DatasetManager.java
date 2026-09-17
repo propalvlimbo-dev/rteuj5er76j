@@ -14,6 +14,7 @@ final class DatasetManager {
     private final File directory;
     private final Map<UUID, Recording> recordings = new HashMap<>();
     private final List<MotionSample> samples = new ArrayList<>();
+    private final List<List<MotionSample>> sequences = new ArrayList<>();
 
     DatasetManager(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -23,12 +24,14 @@ final class DatasetManager {
     }
 
     void reload() {
-        samples.clear();
+        samples.clear(); sequences.clear();
         File[] files = directory.listFiles((dir, name) -> name.endsWith(".yml"));
         if (files == null) return;
         for (File file : files) {
             YamlConfiguration yml = YamlConfiguration.loadConfiguration(file);
-            for (Map<?, ?> raw : yml.getMapList("samples")) samples.add(MotionSample.from(raw));
+            List<MotionSample> sequence=new ArrayList<>();
+            for (Map<?, ?> raw : yml.getMapList("samples")) sequence.add(MotionSample.from(raw));
+            if (!sequence.isEmpty()) { sequences.add(sequence); samples.addAll(sequence); }
         }
         plugin.getLogger().info("Loaded " + samples.size() + " movement samples from datasets.");
     }
@@ -63,7 +66,12 @@ final class DatasetManager {
         }
     }
 
-    boolean hasSamples() { return !samples.isEmpty(); }
+    boolean hasSamples() { return !sequences.isEmpty(); }
+
+    List<MotionSample> randomSequence(Random random) {
+        if (sequences.isEmpty()) return Collections.emptyList();
+        return new ArrayList<>(sequences.get(random.nextInt(sequences.size())));
+    }
 
     MotionSample imitate(boolean obstacle, Random random) {
         if (samples.isEmpty()) return null;

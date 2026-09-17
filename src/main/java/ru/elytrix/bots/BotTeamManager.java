@@ -21,7 +21,7 @@ final class BotTeamManager {
         int rank = ORDER.indexOf(groupName.toLowerCase(Locale.ROOT));
         if (rank < 0) rank = ORDER.size();
         // z-prefix prevents unknown packet players from jumping above TAB-managed real players.
-        String id = String.format("zEB%02d%08x", rank, name.hashCode());
+        String id = String.format("zzEB%02d%08x", rank, name.hashCode());
         if (id.length() > 16) id = id.substring(0, 16);
         Team old = board.getTeam(id); if (old != null) old.unregister();
         Team team = board.registerNewTeam(id);
