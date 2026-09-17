@@ -228,7 +228,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
                 // Выход из углубления: перестраиваем путь и выполняем один обычный прыжок, если зажаты блоками.
                 route=GridPathfinder.find(world,player.getPos(),target);routeIndex=0;stuckTicks=0;lastProgressPos=player.getPos();
                 Vec3d now=player.getPos();double floor=groundY(now.x,now.y,now.z);
-                if(!Double.isNaN(floor)&&now.y<=floor+.04&&jumpCooldown==0&&realObstacleAhead(now)){verticalVelocity=.42;jumpCooldown=12;}
+                if(!Double.isNaN(floor)&&now.y<=floor+.04&&jumpCooldown==0){verticalVelocity=.42;jumpCooldown=12;}
             }
         }
         void applyPhysics(Vec3d p,double nx,double nz,double seconds){
