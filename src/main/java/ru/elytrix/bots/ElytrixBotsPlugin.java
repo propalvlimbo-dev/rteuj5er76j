@@ -196,7 +196,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             // Смотрим дальше собственного шага и начинаем прыжок до столкновения с гранью блока.
             double probeX=p.x+dx/distance*.68,probeZ=p.z+dz/distance*.68,probeGround=groundY(probeX,p.y,probeZ);
             if(!Double.isNaN(probeGround)&&probeGround-currentGround>.60&&grounded&&jumpCooldown==0){verticalVelocity=Math.min(.48,Math.max(.44,datasets.learnedJumpVelocity(seconds)/20D));jumpCooldown=12;}
-            if(Double.isNaN(aheadGround)||hazardAt(nx,aheadGround,nz)||!clearAt(nx,aheadGround,nz)){nx=p.x;nz=p.z;aheadGround=currentGround;}
+            if(Double.isNaN(aheadGround)||hazardAt(nx,aheadGround,nz)||!clearAt(nx,Math.max(p.y,aheadGround),nz)){nx=p.x;nz=p.z;aheadGround=currentGround;}
             if(aheadGround-currentGround>.60&&p.y<aheadGround-.88){nx=p.x;nz=p.z;}
             player.setShiftKeyDown(sample.sneak&&!player.isSprinting());player.setSprinting(!sample.sneak);
             applyPhysics(p,nx,nz,seconds);
