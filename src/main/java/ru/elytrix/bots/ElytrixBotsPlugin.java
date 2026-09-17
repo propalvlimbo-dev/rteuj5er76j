@@ -21,7 +21,7 @@ import org.by1337.blib.geom.Vec3d;
 import java.io.File;
 import java.util.*;
 
-public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, CommandExecutor {
+public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, CommandExecutor, TabCompleter {
     private final List<VirtualPlayer> tabBots = new ArrayList<>();
     private final List<MovingBot> liveBots = new ArrayList<>();
     private BukkitTask ticker;
@@ -38,7 +38,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         datasets = new DatasetManager(this);
         loadBots(); Bukkit.getPluginManager().registerEvents(this, this);
         proxySync=new ProxySyncSender(this,this::fakeCount); proxySync.start();
-        Objects.requireNonNull(getCommand("elytrixbots")).setExecutor(this);
+        PluginCommand botCommand=Objects.requireNonNull(getCommand("elytrixbots"));botCommand.setExecutor(this);botCommand.setTabCompleter(this);
         int period = Math.max(1, getConfig().getInt("settings.movement-period-ticks", 2));
         ticker = Bukkit.getScheduler().runTaskTimer(this, () -> tick(period), 1L, period);
         getLogger().info("Loaded " + tabBots.size() + " TAB and " + liveBots.size() + " live bots.");
@@ -131,8 +131,9 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         if (!(sender instanceof Player player)) { sender.sendMessage("Player only"); return true; }
         if (!player.hasPermission("elytrixbots.dataset")) { player.sendMessage(ChatColor.RED + "Нет прав."); return true; }
         if (args.length >= 3 && args[0].equalsIgnoreCase("dataset") && args[1].equalsIgnoreCase("start")) {
-            if (datasets.start(player, args[2])) player.sendMessage(ChatColor.GREEN + "Запись dataset началась.");
-            else player.sendMessage(ChatColor.RED + "Неверное имя или запись уже идёт.");
+            String name=args.length>=4?args[3]:String.valueOf(System.currentTimeMillis()/1000);
+            if (datasets.start(player, args[2].toLowerCase(Locale.ROOT),name)) player.sendMessage(ChatColor.GREEN + "Запись «"+args[2]+"» началась.");
+            else player.sendMessage(ChatColor.RED + "Выбери тип через TAB или останови текущую запись.");
             return true;
         }
         if (args.length >= 2 && args[0].equalsIgnoreCase("dataset") && args[1].equalsIgnoreCase("stop")) {
@@ -140,8 +141,18 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             player.sendMessage(result == null ? ChatColor.RED + "Запись не запущена." : ChatColor.GREEN + "Сохранено: " + result);
             return true;
         }
-        player.sendMessage(ChatColor.YELLOW + "/elytrixbots dataset start <имя> | stop"); return true;
+        player.sendMessage(ChatColor.YELLOW + "/elytrixbots dataset start <тип> [имя] | stop"); return true;
     }
+
+    @Override public List<String> onTabComplete(CommandSender sender,Command command,String alias,String[] args){
+        if(args.length==1)return filter(List.of("dataset"),args[0]);
+        if(args.length==2&&args[0].equalsIgnoreCase("dataset"))return filter(List.of("start","stop"),args[1]);
+        if(args.length==3&&args[0].equalsIgnoreCase("dataset")&&args[1].equalsIgnoreCase("start"))return filter(DatasetManager.TYPES,args[2]);
+        if(args.length==4&&args[1].equalsIgnoreCase("start"))return List.of("пример_1");
+        return Collections.emptyList();
+    }
+    private List<String> filter(List<String> values,String input){String q=input.toLowerCase(Locale.ROOT);List<String> result=new ArrayList<>();for(String value:values)if(value.startsWith(q))result.add(value);return result;}
+
 
     private Location spawn(ConfigurationSection explicit) {
         if (explicit != null) { Point p = point(explicit, null); return new Location(p.world, p.x, p.y, p.z, p.yaw, p.pitch); }
@@ -177,10 +188,9 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         void move(double seconds){
             Vec3d p=player.getPos();
             if(jumpCooldown>0)jumpCooldown--;
-            if(!datasets.hasSamples()){applyPhysics(p,p.x,p.z,seconds);player.setSprinting(false);return;}
             if(spawnDelay-->0){applyPhysics(p,p.x,p.z,seconds);if(spawnDelay==10)lookYaw+=35-random.nextInt(71);smoothLook();return;}
             if(arrived){applyPhysics(p,p.x,p.z,seconds);idleBehavior();return;}
-            DatasetManager.MotionSample sample=next();if(sample==null)return;
+            DatasetManager.MotionSample sample=next();if(sample==null)sample=DatasetManager.MotionSample.neutral();
             Vec3d waypoint=routeIndex<route.size()?route.get(routeIndex):target;
             double dx=waypoint.x-p.x,dz=waypoint.z-p.z,distance=Math.hypot(dx,dz);
             if(distance<.22){if(routeIndex<route.size()){routeIndex++;return;}arrived=true;player.setSprinting(false);idleBehavior();return;}
@@ -214,7 +224,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             }
             player.setOnGround(Math.abs(ny-ground)<.025);player.setPos(new Vec3d(nx,ny,nz));
         }
-        void idleBehavior(){smoothLook();if(idleCooldown-->0)return;DatasetManager.MotionSample sample=next();if(sample==null)return;player.setShiftKeyDown(sample.sneak);player.setSprinting(false);lookYaw=player.getYaw()+sample.yawDelta*(float)turnFactor;lookPitch=Math.max(-90,Math.min(90,player.getPitch()+sample.pitchDelta*(float)turnFactor));idleCooldown=100+random.nextInt(1501);}
+        void idleBehavior(){smoothLook();if(idleCooldown-->0)return;DatasetManager.MotionSample sample=datasets.idleSample(random);player.setShiftKeyDown(sample.sneak);player.setSprinting(false);lookYaw=player.getYaw()+sample.yawDelta*(float)turnFactor;lookPitch=Math.max(-90,Math.min(90,player.getPitch()+sample.pitchDelta*(float)turnFactor));idleCooldown=100+random.nextInt(1501);}
         void smoothLook(){player.setYaw(approachAngle(player.getYaw(),lookYaw,2.5F));player.setPitch(approach(player.getPitch(),lookPitch,2F));}
         float approach(float from,float to,float max){return from+Math.max(-max,Math.min(max,to-from));}
         float approachAngle(float from,float to,float max){float d=angleDifference(from,to);return from+Math.max(-max,Math.min(max,d));}

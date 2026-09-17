@@ -10,11 +10,13 @@ import java.io.IOException;
 import java.util.*;
 
 final class DatasetManager {
+    static final List<String> TYPES=List.of("прыжок_на_блок","перепрыгивание","поворот_налево","поворот_направо","приседание","осмотр");
     private final JavaPlugin plugin;
     private final File directory;
     private final Map<UUID, Recording> recordings = new HashMap<>();
     private final List<MotionSample> samples = new ArrayList<>();
     private final List<List<MotionSample>> sequences = new ArrayList<>();
+    private final Map<String,List<MotionSample>> typedSamples = new HashMap<>();
 
     DatasetManager(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -24,21 +26,21 @@ final class DatasetManager {
     }
 
     void reload() {
-        samples.clear(); sequences.clear();
+        samples.clear(); sequences.clear(); typedSamples.clear();
         File[] files = directory.listFiles((dir, name) -> name.endsWith(".yml"));
         if (files == null) return;
         for (File file : files) {
             YamlConfiguration yml = YamlConfiguration.loadConfiguration(file);
             List<MotionSample> sequence=new ArrayList<>();
             for (Map<?, ?> raw : yml.getMapList("samples")) sequence.add(MotionSample.from(raw));
-            if (!sequence.isEmpty()) { sequences.add(sequence); samples.addAll(sequence); }
+            if (!sequence.isEmpty()) { sequences.add(sequence); samples.addAll(sequence); typedSamples.computeIfAbsent(yml.getString("type","общее"),k->new ArrayList<>()).addAll(sequence); }
         }
         plugin.getLogger().info("Loaded " + samples.size() + " movement samples from datasets.");
     }
 
-    boolean start(Player player, String name) {
-        if (!name.matches("[a-zA-Z0-9_-]{1,32}") || recordings.containsKey(player.getUniqueId())) return false;
-        recordings.put(player.getUniqueId(), new Recording(name, player.getLocation()));
+    boolean start(Player player, String type, String name) {
+        if (!TYPES.contains(type) || !name.matches("[a-zA-Zа-яА-ЯёЁ0-9_-]{1,40}") || recordings.containsKey(player.getUniqueId())) return false;
+        recordings.put(player.getUniqueId(), new Recording(type, name, player.getLocation()));
         return true;
     }
 
@@ -49,11 +51,12 @@ final class DatasetManager {
         YamlConfiguration yml = new YamlConfiguration();
         List<Map<String, Object>> data = new ArrayList<>();
         recording.frames.forEach(frame -> data.add(frame.serialize()));
+        yml.set("type", recording.type);
         yml.set("world", recording.world);
         yml.set("samples", data);
         try { yml.save(file); } catch (IOException ex) { plugin.getLogger().severe("Dataset save failed: " + ex.getMessage()); }
         // Новый dataset применяется только после полноценного перезапуска плагина/сервера.
-        return recording.name + " (" + recording.frames.size() + " samples)";
+        return recording.type + "/" + recording.name + " (" + recording.frames.size() + " samples)";
     }
 
     void tick() {
@@ -89,25 +92,29 @@ final class DatasetManager {
 
     double learnedJumpVelocity(double sampleSeconds) {
         double max=0;
-        for(MotionSample sample:samples) if(sample.vertical>max) max=sample.vertical;
+        for(MotionSample sample:typed("прыжок_на_блок","перепрыгивание")) if(sample.vertical>max) max=sample.vertical;
         return Math.max(7.0,Math.min(10.0,max/Math.max(.05,sampleSeconds)));
     }
 
     float learnedTurnSpeed() {
         List<Float> turns=new ArrayList<>();
-        for(MotionSample sample:samples) if(Math.abs(sample.yawDelta)>.05F) turns.add(Math.abs(sample.yawDelta));
+        for(MotionSample sample:typed("поворот_налево","поворот_направо","осмотр")) if(Math.abs(sample.yawDelta)>.05F) turns.add(Math.abs(sample.yawDelta));
         if(turns.isEmpty()) return 4F;
         turns.sort(Float::compare);
         return Math.max(2F,Math.min(15F,turns.get((int)((turns.size()-1)*.85))));
     }
 
+    private List<MotionSample> typed(String... types){List<MotionSample> out=new ArrayList<>();for(String type:types)out.addAll(typedSamples.getOrDefault(type,Collections.emptyList()));return out.isEmpty()?samples:out;}
+
+    MotionSample idleSample(Random random){List<MotionSample> pool=typed("приседание","осмотр");return pool.isEmpty()?MotionSample.neutral():pool.get(random.nextInt(pool.size()));}
+
     int size() { return samples.size(); }
 
     private static final class Recording {
-        final String name, world;
+        final String type, name, world;
         final List<MotionSample> frames = new ArrayList<>();
         Location previous;
-        Recording(String name, Location start) { this.name=name; this.world=start.getWorld().getName(); this.previous=start.clone(); }
+        Recording(String type, String name, Location start) { this.type=type; this.name=type+"_"+name; this.world=start.getWorld().getName(); this.previous=start.clone(); }
         void capture(Player player) {
             Location now=player.getLocation();
             if (!now.getWorld().equals(previous.getWorld())) { previous=now.clone(); return; }
@@ -126,6 +133,7 @@ final class DatasetManager {
     static final class MotionSample {
         final double horizontal, vertical; final float yawDelta, pitchDelta; final boolean sprint, sneak, onGround, obstacle;
         MotionSample(double h,double v,float yaw,float pitch,boolean sprint,boolean sneak,boolean ground,boolean obstacle){horizontal=h;vertical=v;yawDelta=yaw;pitchDelta=pitch;this.sprint=sprint;this.sneak=sneak;onGround=ground;this.obstacle=obstacle;}
+        static MotionSample neutral(){return new MotionSample(.1,0,0,0,true,false,true,false);}
         Map<String,Object> serialize(){ Map<String,Object> m=new LinkedHashMap<>();m.put("move",horizontal);m.put("vertical",vertical);m.put("turn",yawDelta);m.put("look",pitchDelta);m.put("sprint",sprint);m.put("sneak",sneak);m.put("ground",onGround);m.put("obstacle",obstacle);return m; }
         static MotionSample from(Map<?,?> m){return new MotionSample(num(m.get("move")),num(m.get("vertical")),(float)num(m.get("turn")),(float)num(m.get("look")),bool(m.get("sprint")),bool(m.get("sneak")),bool(m.get("ground")),bool(m.get("obstacle")));}
         private static double num(Object o){return o instanceof Number?((Number)o).doubleValue():0;}
