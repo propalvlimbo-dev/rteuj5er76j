@@ -185,8 +185,10 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             if(distance<.03){arrived=true;player.setSprinting(false);idleBehavior();return;}
             player.setShiftKeyDown(sample.sneak);player.setSprinting(sample.sprint);
             double amount=Math.min(distance,Math.min(sample.horizontal*moveFactor,speed*seconds*1.25));
-            double nx=p.x+dx/distance*amount,nz=p.z+dz/distance*amount;
-            double currentGround=groundY(p.x,p.y,p.z),ground=groundY(nx,p.y,nz);if(Double.isNaN(ground)||Double.isNaN(currentGround)){player.setSprinting(false);return;}
+            double currentGround=groundY(p.x,p.y,p.z);if(Double.isNaN(currentGround)){emergencyGround(p);return;}
+            NavCandidate candidate=chooseSafeCandidate(p,dx/distance,dz/distance,amount,currentGround,sample);
+            if(candidate==null){player.setSprinting(false);player.setShiftKeyDown(false);idleBehavior();return;}
+            double nx=candidate.x,nz=candidate.z,ground=candidate.ground;
             boolean standing=Math.abs(p.y-currentGround)<.04;
             if(ground>p.y+.60){ // не заходим внутрь стены: сначала набираем высоту прыжком
                 nx=p.x;nz=p.z;ground=currentGround;
@@ -198,12 +200,38 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             double ny=p.y+verticalVelocity*seconds;
             if(verticalVelocity<=0&&ny<=ground){ny=ground;verticalVelocity=0;}
             // Плиты и небольшие ступени проходятся по их реальной высоте.
-            if(standing&&ground>p.y&&ground-p.y<=.60&&verticalVelocity==0)ny=ground;
+            if(standing&&ground>p.y&&ground-p.y<=.60&&verticalVelocity==0)ny=Math.min(ground,p.y+.20);
             float targetYaw=(float)Math.toDegrees(Math.atan2(-dx,dz));
             player.setYaw(targetYaw+sample.yawDelta*(float)turnFactor);
             player.setPitch(Math.max(-90F,Math.min(90F,player.getPitch()+sample.pitchDelta*(float)turnFactor)));
             player.setOnGround(Math.abs(ny-ground)<.02);player.setPos(new Vec3d(nx,ny,nz));
         }
+        NavCandidate chooseSafeCandidate(Vec3d p,double dirX,double dirZ,double amount,double currentGround,DatasetManager.MotionSample sample){
+            double[] angles={0,25,-25,50,-50,90,-90};
+            for(double angle:angles){
+                double r=Math.toRadians(angle),rx=dirX*Math.cos(r)-dirZ*Math.sin(r),rz=dirX*Math.sin(r)+dirZ*Math.cos(r);
+                double x=p.x+rx*amount,z=p.z+rz*amount,ground=groundY(x,p.y,z);if(Double.isNaN(ground))continue;
+                double delta=ground-currentGround,maxDrop=getConfig().getDouble("settings.physics.max-safe-drop",3.5);
+                if(delta < -maxDrop)continue;
+                if(delta>.60&&sample.vertical<=.015)continue;
+                int bx=(int)Math.floor(x),bz=(int)Math.floor(z),feet=(int)Math.ceil(Math.max(p.y,ground));
+                Block body=world.getBlockAt(bx,feet,bz),head=world.getBlockAt(bx,feet+1,bz),floor=world.getBlockAt(bx,(int)Math.floor(ground-.01),bz);
+                if(!body.isPassable()||!head.isPassable()||hazard(body)||hazard(floor))continue;
+                return new NavCandidate(x,z,ground);
+            }return null;
+        }
+        boolean hazard(Block block){
+            String type=block.getType().name();
+            if(getConfig().getBoolean("settings.physics.avoid-liquids",true)&&(type.contains("WATER")||type.contains("LAVA")))return true;
+            return getConfig().getBoolean("settings.physics.avoid-hazards",true)&&(type.contains("FIRE")||type.contains("CACTUS")||type.contains("MAGMA")||type.contains("CAMPFIRE"));
+        }
+        void emergencyGround(Vec3d p){
+            player.setSprinting(false);player.setShiftKeyDown(false);
+            if(!getConfig().getBoolean("settings.physics.anti-flight",true))return;
+            if(p.y<=world.getMinHeight()+1){Location spawn=world.getSpawnLocation();player.setPos(vec(spawn));verticalVelocity=0;return;}
+            verticalVelocity=Math.max(-12,verticalVelocity-.981);player.setPos(new Vec3d(p.x,p.y+verticalVelocity*.1,p.z));player.setOnGround(false);
+        }
+        record NavCandidate(double x,double z,double ground){}
         void idleBehavior(){
             if(idleCooldown-->0)return;DatasetManager.MotionSample sample=next();if(sample==null)return;
             player.setShiftKeyDown(sample.sneak);player.setSprinting(false);

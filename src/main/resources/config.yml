@@ -17,3 +17,7 @@ settings:
     enabled: true
     max-step-height: 1
     max-fall-check: 64
+    max-safe-drop: 3.5
+    avoid-liquids: true
+    avoid-hazards: true
+    anti-flight: true
