@@ -2,6 +2,7 @@ package ru.elytrix.bots;
 
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.util.BoundingBox;
 import org.by1337.blib.geom.Vec3d;
 
 import java.util.*;
@@ -28,8 +29,15 @@ final class GridPathfinder {
             }
         }
         LinkedList<Vec3d> path=new LinkedList<>();for(Node n=closest;n!=null;n=n.parent)path.addFirst(new Vec3d(n.x+.5,n.y,n.z+.5));
-        if(path.size()>1)path.removeFirst();return path;
+        if(path.size()>1)path.removeFirst();return simplify(world,path);
     }
+    private static List<Vec3d> simplify(World world,List<Vec3d> path){
+        if(path.size()<3)return path;List<Vec3d> out=new ArrayList<>();int from=0;out.add(path.get(0));
+        while(from<path.size()-1){int best=from+1;for(int to=path.size()-1;to>from+1;to--)if(lineClear(world,path.get(from),path.get(to))){best=to;break;}out.add(path.get(best));from=best;}return out;
+    }
+    private static boolean lineClear(World world,Vec3d a,Vec3d b){double distance=Math.hypot(b.x-a.x,b.z-a.z);int steps=Math.max(1,(int)Math.ceil(distance/.25));double previous=a.y;
+        for(int i=1;i<=steps;i++){double t=i/(double)steps,x=a.x+(b.x-a.x)*t,z=a.z+(b.z-a.z)*t,y=surface(world,floor(x),floor(z),previous);if(Double.isNaN(y)||y-previous>1.01||previous-y>3.5||!clearAt(world,x,z,y))return false;previous=y;}return true;}
+    private static boolean clearAt(World w,double x,double z,double y){BoundingBox body=new BoundingBox(x-.29,y+.001,z-.29,x+.29,y+1.79,z+.29);for(int bx=floor(x-.29);bx<=floor(x+.29);bx++)for(int bz=floor(z-.29);bz<=floor(z+.29);bz++)for(int by=floor(y);by<=floor(y+1.79);by++){Block block=w.getBlockAt(bx,by,bz);if(!block.isPassable()&&block.getBoundingBox().overlaps(body))return false;}return true;}
     private static double surface(World w,int x,int z,double around){
         for(int by=(int)Math.floor(around)+1;by>=(int)Math.floor(around)-5;by--){Block b=w.getBlockAt(x,by,z);if(b.isPassable())continue;
             double top=b.getBoundingBox().getMaxY();if(top<=1.5)top+=by;return top;}

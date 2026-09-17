@@ -16,6 +16,7 @@ import org.bukkit.event.player.*;
 import org.bukkit.event.server.ServerListPingEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.util.BoundingBox;
 import org.by1337.blib.geom.Vec3d;
 
 import java.io.File;
@@ -198,7 +199,8 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             player.setYaw(approachAngle(player.getYaw(),desired,learnedTurn));
             player.setPitch(approach(player.getPitch(),Math.max(-90,Math.min(90,player.getPitch()+sample.pitchDelta*(float)turnFactor*.03F)),.8F));
             // Сначала полностью разворачиваемся, только потом начинаем идти — движения задом не будет.
-            if(Math.abs(angleDifference(player.getYaw(),desired))>7F){player.setSprinting(false);applyPhysics(p,p.x,p.z,seconds);return;}
+            // Небольшие и средние повороты выполняются на ходу; стоим только если цель почти за спиной.
+            if(Math.abs(angleDifference(player.getYaw(),desired))>85F){player.setSprinting(false);applyPhysics(p,p.x,p.z,seconds);return;}
             double amount=Math.min(distance,speed*seconds*moveFactor),nx=p.x+dx/distance*amount,nz=p.z+dz/distance*amount;
             double currentGround=groundY(p.x,p.y,p.z),aheadGround=groundY(nx,p.y,nz);
             if(Double.isNaN(currentGround)){emergencyGround(p,seconds);return;}
@@ -230,9 +232,10 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         float approachAngle(float from,float to,float max){float d=angleDifference(from,to);return from+Math.max(-max,Math.min(max,d));}
         float angleDifference(float from,float to){float d=to-from;while(d>180)d-=360;while(d<-180)d+=360;return d;}
         boolean clearAt(double x,double y,double z){
-            int feet=(int)Math.ceil(y);double[] offsets={-.29,.29};
-            for(double ox:offsets)for(double oz:offsets){int bx=(int)Math.floor(x+ox),bz=(int)Math.floor(z+oz);if(!world.getBlockAt(bx,feet,bz).isPassable()||!world.getBlockAt(bx,feet+1,bz).isPassable())return false;}
-            return true;
+            BoundingBox body=new BoundingBox(x-.29,y+.001,z-.29,x+.29,y+1.79,z+.29);
+            for(int bx=(int)Math.floor(x-.29);bx<=(int)Math.floor(x+.29);bx++)for(int bz=(int)Math.floor(z-.29);bz<=(int)Math.floor(z+.29);bz++)for(int by=(int)Math.floor(y);by<=(int)Math.floor(y+1.79);by++){
+                Block block=world.getBlockAt(bx,by,bz);if(!block.isPassable()&&block.getBoundingBox().overlaps(body))return false;
+            }return true;
         }
         boolean hazardAt(double x,double y,double z){return hazard(world.getBlockAt((int)Math.floor(x),(int)Math.floor(y-.01),(int)Math.floor(z)));}
         boolean hazard(Block block){String type=block.getType().name();if(getConfig().getBoolean("settings.physics.avoid-liquids",true)&&(type.contains("WATER")||type.contains("LAVA")))return true;return getConfig().getBoolean("settings.physics.avoid-hazards",true)&&(type.contains("FIRE")||type.contains("CACTUS")||type.contains("MAGMA")||type.contains("CAMPFIRE"));}

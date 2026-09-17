@@ -101,7 +101,7 @@ final class DatasetManager {
         for(MotionSample sample:typed("поворот_налево","поворот_направо","осмотр")) if(Math.abs(sample.yawDelta)>.05F) turns.add(Math.abs(sample.yawDelta));
         if(turns.isEmpty()) return 4F;
         turns.sort(Float::compare);
-        return Math.max(2F,Math.min(15F,turns.get((int)((turns.size()-1)*.85))));
+        return Math.max(2.5F,Math.min(7F,turns.get((int)((turns.size()-1)*.75))));
     }
 
     private List<MotionSample> typed(String... types){List<MotionSample> out=new ArrayList<>();for(String type:types)out.addAll(typedSamples.getOrDefault(type,Collections.emptyList()));return out.isEmpty()?samples:out;}
