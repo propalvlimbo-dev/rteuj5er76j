@@ -13,6 +13,7 @@ import java.util.*;
 final class NmsFakePlayerRegistry {
     private final List<Object> entities = new ArrayList<>();
     private final Set<UUID> uuids = new HashSet<>();
+    private final Map<UUID,Object> byUuid = new HashMap<>();
     private List<Object> serverPlayers;
 
     @SuppressWarnings("unchecked")
@@ -39,7 +40,7 @@ final class NmsFakePlayerRegistry {
                 Field field=list.getClass().getSuperclass().getDeclaredField("players"); field.setAccessible(true);
                 serverPlayers=(List<Object>)field.get(list);
             }
-            serverPlayers.add(entity); entities.add(entity); uuids.add(uuid);
+            serverPlayers.add(entity); entities.add(entity); uuids.add(uuid); byUuid.put(uuid,entity);
         } catch (ReflectiveOperationException ex) { throw new IllegalStateException("Paper 1.16.5 fake player registration failed",ex); }
     }
 
@@ -55,5 +56,6 @@ final class NmsFakePlayerRegistry {
 
     boolean isFake(UUID uuid){return uuids.contains(uuid);}
     int size(){return entities.size();}
-    void clear(){if(serverPlayers!=null)serverPlayers.removeAll(entities);entities.clear();uuids.clear();serverPlayers=null;}
+    void remove(UUID uuid){Object entity=byUuid.remove(uuid);if(entity!=null){if(serverPlayers!=null)serverPlayers.remove(entity);entities.remove(entity);uuids.remove(uuid);}}
+    void clear(){if(serverPlayers!=null)serverPlayers.removeAll(entities);entities.clear();uuids.clear();byUuid.clear();serverPlayers=null;}
 }

@@ -32,12 +32,23 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private final BotTeamManager teams = new BotTeamManager();
     private final NmsFakePlayerRegistry registry = new NmsFakePlayerRegistry();
     private ProxySyncSender proxySync;
+    private PopulationDatabase database;
+    private final Map<String,ActiveBot> active = new LinkedHashMap<>();
+    private final List<BotProfile> profiles = new ArrayList<>();
+    private long nextPopulationChange;
+    private int dailyMinuteJitter;
+    private double visibleChance;
 
     @Override public void onEnable() {
         saveDefaultConfig(); saveResource("bots.yml", false);
         bots = YamlConfiguration.loadConfiguration(new File(getDataFolder(), "bots.yml"));
         datasets = new DatasetManager(this);
-        loadBots(); Bukkit.getPluginManager().registerEvents(this, this);
+        ensureProfiles();
+        database = new PopulationDatabase(new File(getDataFolder(), "population.db"));
+        dailyMinuteJitter=random.nextInt(91)-45;
+        double visibleMin=getConfig().getDouble("population.visible-percent.min",20)/100D,visibleMax=getConfig().getDouble("population.visible-percent.max",60)/100D;visibleChance=visibleMin+random.nextDouble()*Math.max(0,visibleMax-visibleMin);
+        nextPopulationChange=System.currentTimeMillis()+getConfig().getLong("population.first-join-delay-seconds",15)*1000L;
+        Bukkit.getPluginManager().registerEvents(this, this);
         proxySync=new ProxySyncSender(this,this::fakeCount); proxySync.start();
         PluginCommand botCommand=Objects.requireNonNull(getCommand("elytrixbots"));botCommand.setExecutor(this);botCommand.setTabCompleter(this);
         int period = Math.max(1, getConfig().getInt("settings.movement-period-ticks", 2));
@@ -53,7 +64,8 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             liveBots.forEach(bot -> { bot.player.tick(Collections.emptySet()); bot.player.sendRemovePlayerPacket(viewer); });
         }
         teams.clear(); registry.clear();
-        tabBots.clear(); liveBots.clear();
+        tabBots.clear(); liveBots.clear(); active.clear();
+        if(database!=null)database.close();
     }
 
     @EventHandler public void onJoin(PlayerJoinEvent event) {
@@ -70,31 +82,50 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private void sendTab(Player viewer) {
         if (!viewer.isOnline()) return;
         tabBots.forEach(bot -> bot.sendAddPlayerPacket(viewer));
-        liveBots.forEach(bot -> bot.player.sendAddPlayerPacket(viewer));
     }
 
-    private int fakeCount() { return tabBots.size() + liveBots.size(); }
+    private int fakeCount() { return active.size(); }
 
-    private void loadBots() {
-        ConfigurationSection tabs = bots.getConfigurationSection("tab-bots");
-        if (tabs != null) for (String key : tabs.getKeys(false)) {
-            ConfigurationSection c = tabs.getConfigurationSection(key); if (c == null) continue;
-            VirtualPlayer bot = create(c.getString("name", key), c.getInt("ping", 50), c.getString("luckperms-group", "default"), Bukkit.getWorlds().get(0));
-            tabBots.add(bot); realPlayers().forEach(bot::sendAddPlayerPacket);
+    private void ensureProfiles() {
+        ConfigurationSection section=bots.getConfigurationSection("profiles");
+        if(section==null){
+            String[] first={"Shadow","Frost","Pixel","Craft","Night","Sky","Fire","Wolf","Storm","Dark","Light","Nova"};
+            String[] second={"Fox","Miner","Alex","Steve","Hero","Dream","Blade","Rider","Bear","Spark"};
+            int id=0;for(String a:first)for(String b:second){String key=String.format("bot%03d",++id),name=a+b+(10+random.nextInt(90));bots.set("profiles."+key+".name",name);bots.set("profiles."+key+".group","default");bots.set("profiles."+key+".ping",25+random.nextInt(100));}
+            try{bots.save(new File(getDataFolder(),"bots.yml"));}catch(Exception ex){getLogger().warning("Cannot save profiles: "+ex.getMessage());}
+            section=bots.getConfigurationSection("profiles");
         }
-        ConfigurationSection lives = bots.getConfigurationSection("live-bots");
-        if (lives != null) for (String key : lives.getKeys(false)) {
-            ConfigurationSection c = lives.getConfigurationSection(key); if (c == null) continue;
-            try {
-                Location spawn = spawn(c.getConfigurationSection("spawn"));
-                Point target = point(c.getConfigurationSection("target"), spawn.getWorld());
-                VirtualPlayer player = create(c.getString("name", key), c.getInt("ping", 50), c.getString("luckperms-group", "default"), spawn.getWorld());
-                player.setPos(vec(spawn)); player.setYaw(spawn.getYaw()); player.setPitch(spawn.getPitch()); player.setSprinting(false); player.setOnGround(true);
-                liveBots.add(new MovingBot(player, spawn.getWorld(), target.vector(), c.getDouble("speed-blocks-per-second", 3.8)));
-                realPlayers().forEach(player::sendAddPlayerPacket);
-            } catch (RuntimeException ex) { getLogger().warning("Skipped bot " + key + ": " + ex.getMessage()); }
-        }
+        if(section!=null)for(String key:section.getKeys(false)){ConfigurationSection c=section.getConfigurationSection(key);if(c!=null)profiles.add(new BotProfile(c.getString("name",key),c.getString("group","default"),c.getInt("ping",50)));}
+        getLogger().info("Loaded "+profiles.size()+" reserve bot profiles.");
     }
+
+    private void populationTick(){
+        long now=System.currentTimeMillis();
+        List<ActiveBot> expired=new ArrayList<>();for(ActiveBot bot:active.values())if(bot.expiresAt<=now)expired.add(bot);for(ActiveBot bot:expired)deactivate(bot);
+        if(now<nextPopulationChange)return;int target=populationTarget();
+        if(active.size()<target)activateOne();else if(active.size()>target&&!active.isEmpty())deactivate(new ArrayList<>(active.values()).get(random.nextInt(active.size())));
+        int difference=Math.abs(target-active.size());long seconds=difference>=4?60+random.nextInt(120):120+random.nextInt(481);nextPopulationChange=now+seconds*1000;
+    }
+    private int populationTarget(){
+        java.time.ZonedDateTime time=java.time.ZonedDateTime.now(java.time.ZoneId.of("Europe/Moscow")).plusMinutes(dailyMinuteJitter);int minute=time.getHour()*60+time.getMinute();
+        int[] at={0,360,780,1200,1439};double[] value={4,6,9,13,5};int i=0;while(i<at.length-2&&minute>at[i+1])i++;double t=(minute-at[i])/(double)(at[i+1]-at[i]);double base=value[i]+(value[i+1]-value[i])*t;java.util.Random day=new java.util.Random(time.toLocalDate().toEpochDay());return Math.max(getConfig().getInt("population.minimum-bots",3),Math.min(getConfig().getInt("population.maximum-bots",15),(int)Math.round(base+(day.nextDouble()*2-1))));
+    }
+    private void activateOne(){
+        long now=System.currentTimeMillis();List<BotProfile> available=new ArrayList<>();for(BotProfile p:profiles)if(!active.containsKey(p.name)&&database.cooldown(p.name)<=now)available.add(p);if(available.isEmpty())return;
+        BotProfile profile=available.get(random.nextInt(available.size()));Location spawn=spawn(null);VirtualPlayer player=create(profile.name,profile.ping,profile.group,spawn.getWorld());player.setPos(vec(spawn));player.setYaw(spawn.getYaw());player.setPitch(spawn.getPitch());player.setOnGround(true);
+        tabBots.add(player);realPlayers().forEach(player::sendAddPlayerPacket);MovingBot moving=null;if(random.nextDouble()<visibleChance){Point point=randomSafePoint(spawn.getWorld());moving=new MovingBot(player,spawn.getWorld(),point.vector(),3.4+random.nextDouble());liveBots.add(moving);}
+        long expires=now+randomMinutes("population.session-minutes",60,360)*60000L;active.put(profile.name,new ActiveBot(profile,player,moving,expires));getLogger().info(profile.name+" joined ("+active.size()+" bots online)");
+    }
+    private void deactivate(ActiveBot bot){
+        for(Player viewer:realPlayers()){bot.player.sendRemovePlayerPacket(viewer);}if(bot.moving!=null){bot.player.tick(Collections.emptySet());liveBots.remove(bot.moving);}tabBots.remove(bot.player);registry.remove(bot.player.getUuid());teams.remove(bot.profile.name);active.remove(bot.profile.name);database.quit(bot.profile.name,System.currentTimeMillis()+randomMinutes("population.profile-cooldown-minutes",120,360)*60000L);getLogger().info(bot.profile.name+" left ("+active.size()+" bots online)");
+    }
+    private Point randomSafePoint(World world){
+        for(int attempt=0;attempt<80;attempt++){double centerX=getConfig().getDouble("population.region.center-x",30),centerZ=getConfig().getDouble("population.region.center-z",9),radius=getConfig().getDouble("population.region.radius",100);double x=centerX+(random.nextDouble()*2-1)*radius,z=centerZ+(random.nextDouble()*2-1)*radius;for(int y=Math.min(world.getMaxHeight()-2,world.getHighestBlockYAt((int)x,(int)z)+1);y>world.getMinHeight();y--){Block floor=world.getBlockAt((int)Math.floor(x),y-1,(int)Math.floor(z));if(!floor.isPassable()&&world.getBlockAt((int)x,y,(int)z).isPassable()&&world.getBlockAt((int)x,y+1,(int)z).isPassable())return new Point(world,x+.5,y,z+.5,0,0);}}
+        Location fallback=world.getSpawnLocation();return new Point(world,fallback.getX(),fallback.getY(),fallback.getZ(),fallback.getYaw(),fallback.getPitch());
+    }
+    private long randomMinutes(String path,int fallbackMin,int fallbackMax){int min=getConfig().getInt(path+".min",fallbackMin),max=Math.max(min,getConfig().getInt(path+".max",fallbackMax));return min+random.nextInt(max-min+1);}
+    private record BotProfile(String name,String group,int ping){}
+    private static final class ActiveBot{final BotProfile profile;final VirtualPlayer player;final MovingBot moving;final long expiresAt;ActiveBot(BotProfile p,VirtualPlayer v,MovingBot m,long e){profile=p;player=v;moving=m;expiresAt=e;}}
 
     private VirtualPlayer create(String name, int ping, String group, World registrationWorld) {
         if (name.isBlank() || name.length() > 16) throw new IllegalArgumentException("name must be 1-16 characters");
@@ -119,7 +150,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     }
 
     private void tick(int ticks) {
-        datasets.tick();
+        datasets.tick(); populationTick();
         for (MovingBot b : liveBots) {
             b.move(ticks / 20D);
             Set<Player> viewers = new HashSet<>();
@@ -180,17 +211,18 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private record Point(World world,double x,double y,double z,float yaw,float pitch) { Vec3d vector(){return new Vec3d(x,y,z);} }
 
     private final class MovingBot {
-        final VirtualPlayer player; final World world; final Vec3d target; final double speed; List<Vec3d> route;
+        final VirtualPlayer player; final World world; Vec3d target; final double speed; List<Vec3d> route;
         final double moveFactor=.96+random.nextDouble()*.08,turnFactor=.90+random.nextDouble()*.20;
         final float learnedTurn=datasets.learnedTurnSpeed()*(float)turnFactor;
-        List<DatasetManager.MotionSample> sequence=Collections.emptyList();int frame,idleCooldown,routeIndex,jumpCooldown,stuckTicks,ambientCooldown=100+random.nextInt(301),ambientTicks,spawnDelay=40+random.nextInt(121);boolean arrived,airborneLastTick,ambientJump;double verticalVelocity,airborneStartY,velocityX,velocityZ;float lookYaw,lookPitch,ambientYaw,ambientPitch;double currentPace=1,targetPace=1;int paceTicks;Vec3d lastProgressPos;
+        List<DatasetManager.MotionSample> sequence=Collections.emptyList();int frame,idleCooldown,routeIndex,jumpCooldown,stuckTicks,ambientCooldown=100+random.nextInt(301),ambientTicks,spawnDelay=40+random.nextInt(121);boolean arrived,airborneLastTick,ambientJump;double verticalVelocity,airborneStartY,velocityX,velocityZ;float lookYaw,lookPitch,ambientYaw,ambientPitch;double currentPace=1,targetPace=1;int paceTicks;long afkUntil;Vec3d lastProgressPos;
         MovingBot(VirtualPlayer p,World w,Vec3d t,double s){player=p;world=w;target=t;speed=Math.max(.1,s);route=GridPathfinder.find(w,p.getPos(),t);lookYaw=p.getYaw();lookPitch=p.getPitch();lastProgressPos=p.getPos();}
+        void setTarget(Vec3d next){target=next;route=GridPathfinder.find(world,player.getPos(),target);routeIndex=0;arrived=false;spawnDelay=20+random.nextInt(61);stuckTicks=0;lastProgressPos=player.getPos();}
         DatasetManager.MotionSample next(){if(sequence.isEmpty()){sequence=datasets.randomSequence(random);if(sequence.isEmpty())return null;frame=random.nextInt(sequence.size());}return sequence.get(frame++%sequence.size());}
         void move(double seconds){
             Vec3d p=player.getPos();
             if(jumpCooldown>0)jumpCooldown--;
             if(spawnDelay-->0){applyPhysics(p,p.x,p.z,seconds);if(spawnDelay==10)lookYaw+=35-random.nextInt(71);smoothLook();return;}
-            if(arrived){applyPhysics(p,p.x,p.z,seconds);idleBehavior();return;}
+            if(arrived){applyPhysics(p,p.x,p.z,seconds);idleBehavior();if(System.currentTimeMillis()>=afkUntil){Point point=randomSafePoint(world);setTarget(point.vector());}return;}
             DatasetManager.MotionSample sample=next();if(sample==null)sample=DatasetManager.MotionSample.neutral();
             Vec3d waypoint=routeIndex<route.size()?route.get(routeIndex):target;
             double dx=waypoint.x-p.x,dz=waypoint.z-p.z,distance=Math.hypot(dx,dz);
@@ -201,7 +233,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
                     return;
                 }
                 if(Math.hypot(target.x-p.x,target.z-p.z)>.6){route=GridPathfinder.find(world,p,target);routeIndex=0;return;}
-                arrived=true;player.setSprinting(false);idleBehavior();return;
+                arrived=true;afkUntil=System.currentTimeMillis()+randomMinutes("population.afk-minutes",5,60)*60000L;player.setSprinting(false);idleBehavior();return;
             }
             if(ambientTicks>0)ambientTicks--;else{ambientYaw=approach(ambientYaw,0,.35F);ambientPitch=approach(ambientPitch,0,.25F);if(--ambientCooldown<=0){ambientTicks=20+random.nextInt(41);ambientYaw=(random.nextBoolean()?1:-1)*(5+random.nextFloat()*13);ambientPitch=-5+random.nextFloat()*10;ambientJump=random.nextInt(4)==0;ambientCooldown=120+random.nextInt(481);}}
             float desired=(float)Math.toDegrees(Math.atan2(-dx,dz))+ambientYaw;

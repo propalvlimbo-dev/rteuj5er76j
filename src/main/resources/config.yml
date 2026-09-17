@@ -21,3 +21,18 @@ settings:
     avoid-liquids: true
     avoid-hazards: true
     anti-flight: true
+
+population:
+  timezone: Europe/Moscow
+  first-join-delay-seconds: 15
+  minimum-bots: 3
+  maximum-bots: 15
+  session-minutes: { min: 60, max: 360 }
+  profile-cooldown-minutes: { min: 120, max: 360 }
+  afk-minutes: { min: 5, max: 60 }
+  visible-percent: { min: 20, max: 60 }
+  region:
+    world: spawn
+    center-x: 30
+    center-z: 9
+    radius: 100

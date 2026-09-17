@@ -14,6 +14,7 @@ import java.util.Locale;
 
 final class BotTeamManager {
     private final List<Team> created = new ArrayList<>();
+    private final java.util.Map<String,Team> byPlayer = new java.util.HashMap<>();
     private static final List<String> ORDER = List.of("owner","eternity","elder","dragon","immortal","wither","griefer","prime","lite","default");
 
     Style add(String name, String groupName, String fallbackSuffix) {
@@ -42,11 +43,13 @@ final class BotTeamManager {
         team.setSuffix(suffix);
         team.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.ALWAYS);
         team.addEntry(name);
-        created.add(team);
+        created.add(team); byPlayer.put(name,team);
         return new Style(prefix, suffix);
     }
 
     record Style(String prefix, String suffix) {}
+
+    void remove(String name){Team team=byPlayer.remove(name);if(team!=null){created.remove(team);try{team.unregister();}catch(IllegalStateException ignored){}}}
 
     void clear() {
         for (Team team : created) try { team.unregister(); } catch (IllegalStateException ignored) {}
