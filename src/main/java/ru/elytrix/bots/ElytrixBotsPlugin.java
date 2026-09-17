@@ -178,8 +178,8 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         if(!luckPerms)Bukkit.getScheduler().runTask(this,()->fireJoin(p.getUuid()));
         return p;
     }
-    private void fireJoin(UUID uuid){Player player=registry.player(uuid);if(player==null||!joinedEvents.add(uuid))return;PlayerJoinEvent event=new PlayerJoinEvent(player,null);Bukkit.getPluginManager().callEvent(event);}
-    private void fireQuit(UUID uuid){Player player=registry.player(uuid);if(player==null||!joinedEvents.remove(uuid))return;PlayerQuitEvent event=new PlayerQuitEvent(player,null);Bukkit.getPluginManager().callEvent(event);}
+    private void fireJoin(UUID uuid){Player player=registry.player(uuid);if(player==null||!joinedEvents.add(uuid))return;PlayerJoinEvent event=new PlayerJoinEvent(player,(String)null);Bukkit.getPluginManager().callEvent(event);}
+    private void fireQuit(UUID uuid){Player player=registry.player(uuid);if(player==null||!joinedEvents.remove(uuid))return;PlayerQuitEvent event=new PlayerQuitEvent(player,(String)null);Bukkit.getPluginManager().callEvent(event);}
 
     private List<Player> realPlayers() {
         List<Player> result = new ArrayList<>();
