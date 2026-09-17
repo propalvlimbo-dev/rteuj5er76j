@@ -229,8 +229,8 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             double probeX=p.x+dx/distance*.68,probeZ=p.z+dz/distance*.68,probeGround=groundY(probeX,p.y,probeZ);
             if(!Double.isNaN(probeGround)&&probeGround-currentGround>.75&&grounded&&jumpCooldown==0){verticalVelocity=Math.min(.48,Math.max(.44,datasets.learnedJumpVelocity(seconds)/20D));jumpCooldown=12;}
             else if(ambientJump&&grounded&&!Double.isNaN(probeGround)&&Math.abs(probeGround-currentGround)<.08&&jumpCooldown==0){verticalVelocity=.42;jumpCooldown=12;ambientJump=false;}
-            boolean descending=!Double.isNaN(aheadGround)&&aheadGround<currentGround-.04;
-            if(Double.isNaN(aheadGround)||hazardAt(nx,aheadGround,nz)||(!descending&&!clearAt(nx,Math.max(p.y,aheadGround),nz))){nx=p.x;nz=p.z;velocityX=velocityZ=0;aheadGround=currentGround;}
+            // Плиты проходим прямо, но никогда не отключаем точную проверку коллизии при спуске.
+            if(Double.isNaN(aheadGround)||hazardAt(nx,aheadGround,nz)||!clearAt(nx,Math.max(p.y,aheadGround),nz)){nx=p.x;nz=p.z;velocityX=velocityZ=0;aheadGround=currentGround;}
             if(aheadGround-currentGround>.75&&p.y<aheadGround-.88){nx=p.x;nz=p.z;velocityX=velocityZ=0;}
             player.setShiftKeyDown(sample.sneak&&!player.isSprinting());player.setSprinting(!sample.sneak);
             applyPhysics(p,nx,nz,seconds);
@@ -243,7 +243,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             }
         }
         void applyPhysics(Vec3d p,double nx,double nz,double seconds){
-            double ground=groundY(nx,p.y,nz);if(Double.isNaN(ground)){emergencyGround(p,seconds);return;}
+            double ground=supportY(nx,p.y,nz);if(Double.isNaN(ground)){emergencyGround(p,seconds);return;}
             double ny=p.y;boolean grounded=p.y<=ground+.025&&verticalVelocity<=0;
             if(grounded&&ground>=p.y-.025&&ground-p.y<=.60){ny=ground;verticalVelocity=0;}
             else {
@@ -276,6 +276,11 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         boolean hazardAt(double x,double y,double z){return hazard(world.getBlockAt((int)Math.floor(x),(int)Math.floor(y-.01),(int)Math.floor(z)));}
         boolean hazard(Block block){String type=block.getType().name();if(getConfig().getBoolean("settings.physics.avoid-liquids",true)&&(type.contains("WATER")||type.contains("LAVA")))return true;return getConfig().getBoolean("settings.physics.avoid-hazards",true)&&(type.contains("FIRE")||type.contains("CACTUS")||type.contains("MAGMA")||type.contains("CAMPFIRE"));}
         void emergencyGround(Vec3d p,double seconds){player.setSprinting(false);if(!getConfig().getBoolean("settings.physics.anti-flight",true))return;if(p.y<=world.getMinHeight()+1){player.setPos(vec(world.getSpawnLocation()));verticalVelocity=0;return;}double ny=p.y;int elapsed=Math.max(1,(int)Math.round(seconds*20));for(int i=0;i<elapsed;i++){ny+=verticalVelocity;verticalVelocity=(verticalVelocity-.08)*.98;}player.setPos(new Vec3d(p.x,ny,p.z));player.setOnGround(false);}
+        double supportY(double x,double y,double z){
+            double best=Double.NaN;double[] offsets={0,-.28,.28};
+            for(double ox:offsets)for(double oz:offsets){double value=groundY(x+ox,y,z+oz);if(!Double.isNaN(value)&&value<=y+.60&&(Double.isNaN(best)||value>best))best=value;}
+            return best;
+        }
         double groundY(double x,double y,double z){
             if(!getConfig().getBoolean("settings.physics.enabled",true))return y;int bx=(int)Math.floor(x),bz=(int)Math.floor(z),base=(int)Math.floor(y),up=getConfig().getInt("settings.physics.max-step-height",1),down=getConfig().getInt("settings.physics.max-fall-check",64);
             for(int by=base+up-1;by>=Math.max(world.getMinHeight(),base-down-1);by--){Block floor=world.getBlockAt(bx,by,bz);if(floor.isPassable())continue;double top=floor.getBoundingBox().getMaxY();if(top<=1.5)top+=by;int feet=(int)Math.ceil(top);if(world.getBlockAt(bx,feet,bz).isPassable()&&world.getBlockAt(bx,feet+1,bz).isPassable())return top;}return Double.NaN;
