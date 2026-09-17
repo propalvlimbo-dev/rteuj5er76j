@@ -1,3 +1,10 @@
+proxy-sync:
+  enabled: true
+  host: 127.0.0.1
+  port: 29175
+  secret: change-me
+  interval-seconds: 3
+
 formatting:
   # Используется, если у LuckPerms-группы нет suffix.
   default-suffix: " &dБЕТА"

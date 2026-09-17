@@ -30,12 +30,14 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private final Random random = new Random();
     private final BotTeamManager teams = new BotTeamManager();
     private final NmsFakePlayerRegistry registry = new NmsFakePlayerRegistry();
+    private ProxySyncSender proxySync;
 
     @Override public void onEnable() {
         saveDefaultConfig(); saveResource("bots.yml", false);
         bots = YamlConfiguration.loadConfiguration(new File(getDataFolder(), "bots.yml"));
         datasets = new DatasetManager(this);
         loadBots(); Bukkit.getPluginManager().registerEvents(this, this);
+        proxySync=new ProxySyncSender(this,this::fakeCount); proxySync.start();
         Objects.requireNonNull(getCommand("elytrixbots")).setExecutor(this);
         int period = Math.max(1, getConfig().getInt("settings.movement-period-ticks", 2));
         ticker = Bukkit.getScheduler().runTaskTimer(this, () -> tick(period), 1L, period);
@@ -44,6 +46,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
 
     @Override public void onDisable() {
         if (ticker != null) ticker.cancel();
+        if (proxySync != null) proxySync.stop();
         for (Player viewer : realPlayers()) {
             tabBots.forEach(bot -> bot.sendRemovePlayerPacket(viewer));
             liveBots.forEach(bot -> { bot.player.tick(Collections.emptySet()); bot.player.sendRemovePlayerPacket(viewer); });

@@ -1,7 +1,4 @@
-# Backend-серверы с установленным ElytrixBots Paper.
-# Пустой список = проверять все серверы proxy.
-servers: []
-refresh-seconds: 10
-# Надёжный fallback для NullCordX: реальный proxy-онлайн + это число.
-# Укажи количество ботов из bots.yml. Backend-опрос заменит число, если доступен.
-fake-players: 5
+# Должно совпадать с proxy-sync в Paper config.yml.
+bind-host: 127.0.0.1
+port: 29175
+secret: change-me
