@@ -35,4 +35,4 @@ population:
     world: spawn
     center-x: 30
     center-z: 9
-    radius: 100
+    radius: 30

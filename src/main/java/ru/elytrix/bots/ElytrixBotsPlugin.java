@@ -38,6 +38,8 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private long nextPopulationChange;
     private int dailyMinuteJitter;
     private double visibleChance;
+    private boolean rooyzeeMode;
+    private long nextFanMessage;
 
     @Override public void onEnable() {
         saveDefaultConfig(); saveResource("bots.yml", false);
@@ -88,10 +90,11 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
 
     private void ensureProfiles() {
         ConfigurationSection section=bots.getConfigurationSection("profiles");
-        if(section==null){
-            String[] first={"Shadow","Frost","Pixel","Craft","Night","Sky","Fire","Wolf","Storm","Dark","Light","Nova"};
-            String[] second={"Fox","Miner","Alex","Steve","Hero","Dream","Blade","Rider","Bear","Spark"};
-            int id=0;for(String a:first)for(String b:second){String key=String.format("bot%03d",++id),name=a+b+(10+random.nextInt(90));bots.set("profiles."+key+".name",name);bots.set("profiles."+key+".group","default");bots.set("profiles."+key+".ping",25+random.nextInt(100));}
+        if(section==null||bots.getInt("profiles-version",0)<2){
+            bots.set("profiles",null);bots.set("profiles-version",2);
+            String[] first={"Artem","Danya","Kirill","Vlad","Nikita","Sanya","Roma","Ilya","Den","Max","Tim","Rinat"};
+            String[] second={"Play","Craft","Fox","Mine","Game","Wolf","Sky","Live","Pro","X"};
+            int id=0;for(String a:first)for(String b:second){String key=String.format("bot%03d",++id),name=a+b+(id%5==0?String.valueOf(10+random.nextInt(90)):"");bots.set("profiles."+key+".name",name);bots.set("profiles."+key+".group","default");bots.set("profiles."+key+".ping",25+random.nextInt(100));}
             try{bots.save(new File(getDataFolder(),"bots.yml"));}catch(Exception ex){getLogger().warning("Cannot save profiles: "+ex.getMessage());}
             section=bots.getConfigurationSection("profiles");
         }
@@ -101,6 +104,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
 
     private void populationTick(){
         long now=System.currentTimeMillis();
+        if(rooyzeeMode&&now>=nextFanMessage&&!active.isEmpty()){sendFanMessage();nextFanMessage=now+(30+random.nextInt(91))*1000L;}
         List<ActiveBot> expired=new ArrayList<>();for(ActiveBot bot:active.values())if(bot.expiresAt<=now)expired.add(bot);for(ActiveBot bot:expired)deactivate(bot);
         if(now<nextPopulationChange)return;int target=populationTarget();
         if(active.size()<target)activateOne();else if(active.size()>target&&!active.isEmpty())deactivate(new ArrayList<>(active.values()).get(random.nextInt(active.size())));
@@ -120,9 +124,14 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         for(Player viewer:realPlayers()){bot.player.sendRemovePlayerPacket(viewer);}if(bot.moving!=null){bot.player.tick(Collections.emptySet());liveBots.remove(bot.moving);}tabBots.remove(bot.player);registry.remove(bot.player.getUuid());teams.remove(bot.profile.name);active.remove(bot.profile.name);database.quit(bot.profile.name,System.currentTimeMillis()+randomMinutes("population.profile-cooldown-minutes",120,360)*60000L);getLogger().info(bot.profile.name+" left ("+active.size()+" bots online)");
     }
     private Point randomSafePoint(World world){
-        for(int attempt=0;attempt<80;attempt++){double centerX=getConfig().getDouble("population.region.center-x",30),centerZ=getConfig().getDouble("population.region.center-z",9),radius=getConfig().getDouble("population.region.radius",100);double x=centerX+(random.nextDouble()*2-1)*radius,z=centerZ+(random.nextDouble()*2-1)*radius;for(int y=Math.min(world.getMaxHeight()-2,world.getHighestBlockYAt((int)x,(int)z)+1);y>world.getMinHeight();y--){Block floor=world.getBlockAt((int)Math.floor(x),y-1,(int)Math.floor(z));if(!floor.isPassable()&&world.getBlockAt((int)x,y,(int)z).isPassable()&&world.getBlockAt((int)x,y+1,(int)z).isPassable())return new Point(world,x+.5,y,z+.5,0,0);}}
+        for(int attempt=0;attempt<80;attempt++){double centerX=getConfig().getDouble("population.region.center-x",30),centerZ=getConfig().getDouble("population.region.center-z",9),radius=Math.min(30,getConfig().getDouble("population.region.radius",30));double x=centerX+(random.nextDouble()*2-1)*radius,z=centerZ+(random.nextDouble()*2-1)*radius;for(int y=Math.min(world.getMaxHeight()-2,world.getHighestBlockYAt((int)x,(int)z)+1);y>world.getMinHeight();y--){Block floor=world.getBlockAt((int)Math.floor(x),y-1,(int)Math.floor(z));if(!floor.isPassable()&&!unsafeFloor(floor)&&world.getBlockAt((int)x,y,(int)z).isPassable()&&world.getBlockAt((int)x,y+1,(int)z).isPassable())return new Point(world,x+.5,y,z+.5,0,0);}}
         Location fallback=world.getSpawnLocation();return new Point(world,fallback.getX(),fallback.getY(),fallback.getZ(),fallback.getYaw(),fallback.getPitch());
     }
+    private void sendFanMessage(){
+        List<ActiveBot> list=new ArrayList<>(active.values());ActiveBot bot=list.get(random.nextInt(list.size()));Player sender=registry.player(bot.player.getUuid());if(sender==null)return;
+        String[] messages={"!rooyzee лучший ютубер","!кто тоже смотрит rooyzee?","!обожаю ролики rooyzee","!rooyzee, выпусти новый ролик","!я пришёл на сервер из-за rooyzee"};sender.chat(messages[random.nextInt(messages.length)]);
+    }
+    private boolean unsafeFloor(Block block){String m=block.getType().name();return m.contains("LEAVES")||m.contains("LOG")||m.contains("CARPET")||m.contains("WATER")||m.contains("LAVA")||m.contains("FENCE")||m.contains("WALL");}
     private long randomMinutes(String path,int fallbackMin,int fallbackMax){int min=getConfig().getInt(path+".min",fallbackMin),max=Math.max(min,getConfig().getInt(path+".max",fallbackMax));return min+random.nextInt(max-min+1);}
     private record BotProfile(String name,String group,int ping){}
     private static final class ActiveBot{final BotProfile profile;final VirtualPlayer player;final MovingBot moving;final long expiresAt;ActiveBot(BotProfile p,VirtualPlayer v,MovingBot m,long e){profile=p;player=v;moving=m;expiresAt=e;}}
@@ -161,7 +170,8 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
 
     @Override public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player player)) { sender.sendMessage("Player only"); return true; }
-        if (!player.hasPermission("elytrixbots.dataset")) { player.sendMessage(ChatColor.RED + "Нет прав."); return true; }
+        if (!player.hasPermission("elytrixbots.dataset")) { player.sendMessage(elytrix("&cОшибка: &fнедостаточно прав.")); return true; }
+        if(args.length==1&&args[0].equalsIgnoreCase("rooyzee")){rooyzeeMode=!rooyzeeMode;nextFanMessage=0;player.sendMessage(elytrix(rooyzeeMode?"&aРежим фанатов rooyzee включён.":"&cРежим фанатов rooyzee выключен."));return true;}
         if (args.length >= 3 && args[0].equalsIgnoreCase("dataset") && args[1].equalsIgnoreCase("start")) {
             String name=args.length>=4?args[3]:String.valueOf(System.currentTimeMillis()/1000);
             if (datasets.start(player, args[2].equalsIgnoreCase("all")?"всё":args[2].toLowerCase(Locale.ROOT),name)) player.sendMessage(ChatColor.GREEN + "Запись «"+args[2]+"» началась.");
@@ -177,12 +187,13 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     }
 
     @Override public List<String> onTabComplete(CommandSender sender,Command command,String alias,String[] args){
-        if(args.length==1)return filter(List.of("dataset"),args[0]);
+        if(args.length==1)return filter(List.of("dataset","rooyzee"),args[0]);
         if(args.length==2&&args[0].equalsIgnoreCase("dataset"))return filter(List.of("start","stop"),args[1]);
         if(args.length==3&&args[0].equalsIgnoreCase("dataset")&&args[1].equalsIgnoreCase("start"))return filter(DatasetManager.TYPES,args[2]);
         if(args.length==4&&args[1].equalsIgnoreCase("start"))return List.of("пример_1");
         return Collections.emptyList();
     }
+    private String elytrix(String text){String prefix="&f☁ &#F8BEFBᴇ&#F6BEFBʟ&#F3BEFBʏ&#F1BFFBᴛ&#EEBFFBʀ&#ECBFFBɪ&#E9BFFBx &7» &f";String value=prefix+text;java.util.regex.Matcher m=java.util.regex.Pattern.compile("&#([A-Fa-f0-9]{6})").matcher(value);StringBuffer out=new StringBuffer();while(m.find()){StringBuilder rgb=new StringBuilder("§x");for(char c:m.group(1).toCharArray())rgb.append('§').append(c);m.appendReplacement(out,java.util.regex.Matcher.quoteReplacement(rgb.toString()));}m.appendTail(out);return ChatColor.translateAlternateColorCodes('&',out.toString());}
     private List<String> filter(List<String> values,String input){String q=input.toLowerCase(Locale.ROOT);List<String> result=new ArrayList<>();for(String value:values)if(value.startsWith(q))result.add(value);return result;}
 
 

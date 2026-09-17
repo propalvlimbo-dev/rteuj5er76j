@@ -55,6 +55,7 @@ final class NmsFakePlayerRegistry {
     }
 
     boolean isFake(UUID uuid){return uuids.contains(uuid);}
+    org.bukkit.entity.Player player(UUID uuid){Object entity=byUuid.get(uuid);if(entity==null)return null;try{return (org.bukkit.entity.Player)entity.getClass().getMethod("getBukkitEntity").invoke(entity);}catch(Exception ignored){return null;}}
     int size(){return entities.size();}
     void remove(UUID uuid){Object entity=byUuid.remove(uuid);if(entity!=null){if(serverPlayers!=null)serverPlayers.remove(entity);entities.remove(entity);uuids.remove(uuid);}}
     void clear(){if(serverPlayers!=null)serverPlayers.removeAll(entities);entities.clear();uuids.clear();byUuid.clear();serverPlayers=null;}
