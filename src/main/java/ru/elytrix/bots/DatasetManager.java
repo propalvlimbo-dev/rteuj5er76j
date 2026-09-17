@@ -87,6 +87,12 @@ final class DatasetManager {
         return idle.isEmpty()?samples.get(random.nextInt(samples.size())):idle.get(random.nextInt(idle.size()));
     }
 
+    double learnedJumpVelocity(double sampleSeconds) {
+        double max=0;
+        for(MotionSample sample:samples) if(sample.vertical>max) max=sample.vertical;
+        return Math.max(7.0,Math.min(10.0,max/Math.max(.05,sampleSeconds)));
+    }
+
     int size() { return samples.size(); }
 
     private static final class Recording {
