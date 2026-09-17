@@ -169,7 +169,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
 
     private final class MovingBot {
         final VirtualPlayer player; final World world; final Vec3d target; final double speed;
-        final double moveFactor=.92+random.nextDouble()*.16, turnFactor=.85+random.nextDouble()*.30, fallFactor=.95+random.nextDouble()*.10;
+        final double moveFactor=.96+random.nextDouble()*.08, turnFactor=.90+random.nextDouble()*.20, fallFactor=.98+random.nextDouble()*.04;
         List<DatasetManager.MotionSample> sequence=Collections.emptyList(); int frame, idleCooldown; boolean arrived; double verticalVelocity;
         MovingBot(VirtualPlayer p,World w,Vec3d t,double s){player=p;world=w;target=t;speed=Math.max(.1,s);}
         DatasetManager.MotionSample next(){
@@ -190,13 +190,15 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             if(candidate==null){player.setSprinting(false);player.setShiftKeyDown(false);idleBehavior();return;}
             double nx=candidate.x,nz=candidate.z,ground=candidate.ground;
             boolean standing=Math.abs(p.y-currentGround)<.04;
+            boolean fullObstacle=ground-currentGround>.60;
             if(ground>p.y+.60){ // не заходим внутрь стены: сначала набираем высоту прыжком
                 nx=p.x;nz=p.z;ground=currentGround;
             }
-            if(standing){
+            if(standing&&ground>=p.y-.04){
                 verticalVelocity=0;
-                if(sample.vertical>.015) verticalVelocity=Math.min(5.2,Math.max(2.8,sample.vertical/seconds*fallFactor));
-            } else verticalVelocity=Math.max(-12,verticalVelocity-9.81*seconds);
+                // Прыжок из dataset применяется только когда впереди настоящий полный блок.
+                if(fullObstacle&&sample.vertical>.015) verticalVelocity=Math.min(8.0,Math.max(3.5,sample.vertical/seconds*fallFactor));
+            } else verticalVelocity=Math.max(-18,verticalVelocity-24.0*seconds);
             double ny=p.y+verticalVelocity*seconds;
             if(verticalVelocity<=0&&ny<=ground){ny=ground;verticalVelocity=0;}
             // Плиты и небольшие ступени проходятся по их реальной высоте.
@@ -207,13 +209,13 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             player.setOnGround(Math.abs(ny-ground)<.02);player.setPos(new Vec3d(nx,ny,nz));
         }
         NavCandidate chooseSafeCandidate(Vec3d p,double dirX,double dirZ,double amount,double currentGround,DatasetManager.MotionSample sample){
-            double[] angles={0,25,-25,50,-50,90,-90};
+            // Стабильное направление: обход будет добавлен планировщиком маршрута, а не рывками влево/вправо.
+            double[] angles={0};
             for(double angle:angles){
                 double r=Math.toRadians(angle),rx=dirX*Math.cos(r)-dirZ*Math.sin(r),rz=dirX*Math.sin(r)+dirZ*Math.cos(r);
                 double x=p.x+rx*amount,z=p.z+rz*amount,ground=groundY(x,p.y,z);if(Double.isNaN(ground))continue;
                 double delta=ground-currentGround,maxDrop=getConfig().getDouble("settings.physics.max-safe-drop",3.5);
                 if(delta < -maxDrop)continue;
-                if(delta>.60&&sample.vertical<=.015)continue;
                 int bx=(int)Math.floor(x),bz=(int)Math.floor(z),feet=(int)Math.ceil(Math.max(p.y,ground));
                 Block body=world.getBlockAt(bx,feet,bz),head=world.getBlockAt(bx,feet+1,bz),floor=world.getBlockAt(bx,(int)Math.floor(ground-.01),bz);
                 if(!body.isPassable()||!head.isPassable()||hazard(body)||hazard(floor))continue;
