@@ -88,7 +88,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
                 Location spawn = spawn(c.getConfigurationSection("spawn"));
                 Point target = point(c.getConfigurationSection("target"), spawn.getWorld());
                 VirtualPlayer player = create(c.getString("name", key), c.getInt("ping", 50), c.getString("luckperms-group", "default"), spawn.getWorld());
-                player.setPos(vec(spawn)); player.setYaw(spawn.getYaw()); player.setPitch(spawn.getPitch()); player.setSprinting(true); player.setOnGround(true);
+                player.setPos(vec(spawn)); player.setYaw(spawn.getYaw()); player.setPitch(spawn.getPitch()); player.setSprinting(false); player.setOnGround(true);
                 liveBots.add(new MovingBot(player, spawn.getWorld(), target.vector(), c.getDouble("speed-blocks-per-second", 3.8)));
                 realPlayers().forEach(player::sendAddPlayerPacket);
             } catch (RuntimeException ex) { getLogger().warning("Skipped bot " + key + ": " + ex.getMessage()); }
@@ -168,11 +168,13 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private record Point(World world,double x,double y,double z,float yaw,float pitch) { Vec3d vector(){return new Vec3d(x,y,z);} }
 
     private final class MovingBot {
-        final VirtualPlayer player; final World world; final Vec3d target; final double speed; boolean arrived; double verticalVelocity;
+        final VirtualPlayer player; final World world; final Vec3d target; final double speed; boolean arrived; double verticalVelocity; int idleCooldown;
         MovingBot(VirtualPlayer p, World w, Vec3d t, double s){player=p;world=w;target=t;speed=Math.max(.1,s);}
         void move(double seconds) {
-            if (arrived) return; Vec3d p=player.getPos(); double dx=target.x-p.x,dz=target.z-p.z, horizontal=Math.sqrt(dx*dx+dz*dz), step=speed*seconds;
-            if(horizontal<.03){arrived=true;player.setSprinting(false);return;}
+            if (!datasets.hasSamples()) { player.setSprinting(false); player.setShiftKeyDown(false); return; }
+            if (arrived) { idleBehavior(); return; }
+            Vec3d p=player.getPos(); double dx=target.x-p.x,dz=target.z-p.z, horizontal=Math.sqrt(dx*dx+dz*dz), step=speed*seconds;
+            if(horizontal<.03){arrived=true;player.setSprinting(false);idleBehavior();return;}
             double amount=Math.min(step,horizontal), nx=p.x+dx/horizontal*amount,nz=p.z+dz/horizontal*amount;
             boolean obstacle=!world.getBlockAt((int)Math.floor(nx),(int)Math.floor(p.y),(int)Math.floor(nz)).isPassable();
             DatasetManager.MotionSample learned=datasets.imitate(obstacle, random);
@@ -180,6 +182,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
                 player.setShiftKeyDown(learned.sneak);
                 player.setSprinting(learned.sprint);
                 player.setYaw(player.getYaw() + learned.yawDelta * 0.15F);
+                player.setPitch(Math.max(-90F,Math.min(90F,player.getPitch()+learned.pitchDelta*0.15F)));
                 if (obstacle && learned.vertical > 0.01) verticalVelocity=Math.max(verticalVelocity, Math.min(5.2, learned.vertical/seconds));
             }
             double ground=groundY(nx,p.y,nz);
@@ -197,6 +200,16 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             float targetYaw=(float)Math.toDegrees(Math.atan2(-dx,dz));
             player.setYaw(targetYaw + (learned == null ? 0 : learned.yawDelta * 0.15F));
             player.setPos(new Vec3d(nx,ny,nz));
+        }
+        void idleBehavior() {
+            if (idleCooldown-- > 0) return;
+            DatasetManager.MotionSample sample=datasets.imitateIdle(random);
+            if(sample==null)return;
+            player.setShiftKeyDown(sample.sneak);
+            player.setSprinting(false);
+            player.setYaw(player.getYaw()+sample.yawDelta);
+            player.setPitch(Math.max(-90F,Math.min(90F,player.getPitch()+sample.pitchDelta)));
+            idleCooldown=5+random.nextInt(16);
         }
         double groundY(double x,double y,double z) {
             if(!getConfig().getBoolean("settings.physics.enabled",true)) return y;
