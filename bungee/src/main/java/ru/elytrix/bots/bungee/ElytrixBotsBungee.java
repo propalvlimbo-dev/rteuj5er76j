@@ -3,6 +3,7 @@ package ru.elytrix.bots.bungee;
 import net.md_5.bungee.api.ProxyServer;
 import net.md_5.bungee.api.ServerPing;
 import net.md_5.bungee.api.event.ProxyPingEvent;
+import net.md_5.bungee.api.config.ServerInfo;
 import net.md_5.bungee.api.plugin.Listener;
 import net.md_5.bungee.api.plugin.Plugin;
 import net.md_5.bungee.config.Configuration;
@@ -14,10 +15,13 @@ import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public final class ElytrixBotsBungee extends Plugin implements Listener {
     private final AtomicInteger fakeOnline=new AtomicInteger();
+    private final AtomicInteger backendOnline=new AtomicInteger(-1);
+    private volatile long backendUpdate;
     private volatile boolean running;
     private DatagramSocket socket;
     private String secret;
@@ -27,18 +31,36 @@ public final class ElytrixBotsBungee extends Plugin implements Listener {
         try { loadConfig(); } catch(IOException ex) { throw new RuntimeException("Cannot load config",ex); }
         ProxyServer.getInstance().getPluginManager().registerListener(this,this);
         startReceiver();
+        startBackendPolling();
     }
     @Override public void onDisable() { running=false; if(socket!=null)socket.close(); fakeOnline.set(0); }
 
     @EventHandler(priority=127) public void onPing(ProxyPingEvent event) {
         ServerPing response=event.getResponse(); if(response==null)return;
         // Не использовать устаревшее значение, если Paper пропал без корректного выключения.
-        int fake=System.currentTimeMillis()-lastUpdate>15000?0:fakeOnline.get();
-        int total=ProxyServer.getInstance().getOnlineCount()+fake;
+        long now=System.currentTimeMillis();
+        int direct=backendOnline.get();
+        int fake=now-lastUpdate>15000?0:fakeOnline.get();
+        int total=direct>=0&&now-backendUpdate<15000 ? direct : ProxyServer.getInstance().getOnlineCount()+fake;
         ServerPing.Players players=response.getPlayers();
         if(players==null) players=new ServerPing.Players(total+1,total,null);
         else { players.setOnline(total); players.setMax(Math.max(players.getMax(),total+1)); }
         response.setPlayers(players); event.setResponse(response);
+    }
+
+    private void startBackendPolling() {
+        Configuration c=readConfig();
+        String host=c.getString("backend-host","127.0.0.1");
+        int port=c.getInt("backend-port",25565);
+        int seconds=Math.max(1,c.getInt("refresh-seconds",3));
+        ServerInfo backend=ProxyServer.getInstance().constructServerInfo("elytrixbots-direct",new InetSocketAddress(host,port),"",false);
+        ProxyServer.getInstance().getScheduler().schedule(this,()->backend.ping((ping,error)->{
+            if(error==null&&ping!=null&&ping.getPlayers()!=null){
+                backendOnline.set(Math.max(0,ping.getPlayers().getOnline()));
+                backendUpdate=System.currentTimeMillis();
+            }
+        }),0,seconds, TimeUnit.SECONDS);
+        getLogger().info("Direct backend online polling: "+host+":"+port);
     }
 
     private void startReceiver() {

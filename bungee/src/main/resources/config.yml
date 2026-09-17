@@ -1,4 +1,9 @@
-# Должно совпадать с proxy-sync в Paper config.yml.
+# 0.0.0.0 используется только для bind. Для подключения нужен 127.0.0.1.
+backend-host: 127.0.0.1
+backend-port: 25565
+refresh-seconds: 3
+
+# Резервная push-синхронизация от Paper.
 bind-host: 127.0.0.1
 port: 29175
 secret: change-me
