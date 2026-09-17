@@ -1,7 +1,6 @@
 settings:
   movement-period-ticks: 2
   motd-count-enabled: true
-  override-online-command: true
   use-essentials-spawn: true
   physics:
     enabled: true

@@ -46,9 +46,8 @@ public final class ElytrixBotsBungee extends Plugin implements Listener {
         AtomicInteger sum = new AtomicInteger();
         for (ServerInfo server : selected) server.ping((result, error) -> {
             if (error == null && result != null && result.getPlayers() != null) {
-                // Paper кодирует число packet-only ботов в служебном maxPlayers ответа backend.
-                int advertisedMax = result.getPlayers().getMax();
-                if (advertisedMax >= 20000) sum.addAndGet(Math.max(0, advertisedMax - 20000));
+                // Backend PlayerList содержит ботов; proxy ServerInfo содержит только реальные соединения.
+                sum.addAndGet(Math.max(0, result.getPlayers().getOnline() - server.getPlayers().size()));
             }
             if (pending.decrementAndGet() == 0) fakeOnline.set(sum.get());
         });

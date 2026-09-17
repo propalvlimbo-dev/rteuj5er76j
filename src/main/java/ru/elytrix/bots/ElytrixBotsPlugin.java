@@ -29,6 +29,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private DatasetManager datasets;
     private final Random random = new Random();
     private final BotTeamManager teams = new BotTeamManager();
+    private final NmsFakePlayerRegistry registry = new NmsFakePlayerRegistry();
 
     @Override public void onEnable() {
         saveDefaultConfig(); saveResource("bots.yml", false);
@@ -47,7 +48,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             tabBots.forEach(bot -> bot.sendRemovePlayerPacket(viewer));
             liveBots.forEach(bot -> { bot.player.tick(Collections.emptySet()); bot.player.sendRemovePlayerPacket(viewer); });
         }
-        teams.clear();
+        teams.clear(); registry.clear();
         tabBots.clear(); liveBots.clear();
     }
 
@@ -58,18 +59,8 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPing(ServerListPingEvent event) {
         if (getConfig().getBoolean("settings.motd-count-enabled", true))
-            event.setMaxPlayers(20000 + fakeCount());
+            event.setMaxPlayers(Math.max(event.getMaxPlayers(), Bukkit.getOnlinePlayers().size() + 1));
         // Bukkit не позволяет менять getNumPlayers; Bungee-модуль должен менять число на proxy.
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onCommand(PlayerCommandPreprocessEvent event) {
-        if (!getConfig().getBoolean("settings.override-online-command", true)) return;
-        String cmd = event.getMessage().toLowerCase(Locale.ROOT).split(" ")[0];
-        if (!cmd.equals("/online") && !cmd.equals("/list")) return;
-        event.setCancelled(true);
-        int real = realPlayers().size(), fake = fakeCount();
-        event.getPlayer().sendMessage(ChatColor.GREEN + "Онлайн: " + (real + fake) + ChatColor.GRAY + " (реальных: " + real + ", ботов: " + fake + ")");
     }
 
     private void sendTab(Player viewer) {
@@ -111,7 +102,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
                 net.luckperms.api.model.group.Group lpGroup = lp.getGroupManager().getGroup(group);
                 String prefix = lpGroup == null ? null : lpGroup.getCachedData().getMetaData().getPrefix();
                 if (prefix != null) {
-                    String label = ChatColor.translateAlternateColorCodes('&', prefix) + name;
+                    String label = ChatColor.translateAlternateColorCodes('&', prefix) + ChatColor.GRAY + name;
                     p.setDisplayName(LegacyComponentSerializer.legacySection().deserialize(label));
                     p.setCustomName(LegacyComponentSerializer.legacySection().deserialize(label));
                     p.setCustomNameVisible(true);
@@ -119,12 +110,13 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             } catch (Exception ex) { getLogger().warning("LuckPerms hook failed for " + name + ": " + ex.getMessage()); }
         }
         teams.add(name, group);
+        registry.register(name, p.getUuid(), registrationWorld);
         return p;
     }
 
     private List<Player> realPlayers() {
         List<Player> result = new ArrayList<>();
-        result.addAll(Bukkit.getOnlinePlayers());
+        for (Player player : Bukkit.getOnlinePlayers()) if (!registry.isFake(player.getUniqueId())) result.add(player);
         return result;
     }
 
@@ -133,7 +125,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         for (MovingBot b : liveBots) {
             b.move(ticks / 20D);
             Set<Player> viewers = new HashSet<>();
-            viewers.addAll(b.world.getPlayers());
+            for (Player player : b.world.getPlayers()) if (!registry.isFake(player.getUniqueId())) viewers.add(player);
             b.player.tick(viewers);
         }
     }
