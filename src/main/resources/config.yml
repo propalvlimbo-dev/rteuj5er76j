@@ -10,7 +10,7 @@ formatting:
   default-suffix: " &#F8BEFBБЕТА"
 
 settings:
-  movement-period-ticks: 2
+  movement-period-ticks: 1
   motd-count-enabled: true
   use-essentials-spawn: true
   physics:

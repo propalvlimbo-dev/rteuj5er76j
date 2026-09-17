@@ -170,7 +170,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private final class MovingBot {
         final VirtualPlayer player; final World world; final Vec3d target; final double speed; final List<Vec3d> route;
         final double moveFactor=.96+random.nextDouble()*.08,turnFactor=.90+random.nextDouble()*.20;
-        List<DatasetManager.MotionSample> sequence=Collections.emptyList();int frame,idleCooldown,routeIndex,jumpCooldown,spawnDelay=20+random.nextInt(61);boolean arrived;double verticalVelocity;float lookYaw,lookPitch;
+        List<DatasetManager.MotionSample> sequence=Collections.emptyList();int frame,idleCooldown,routeIndex,jumpCooldown,spawnDelay=40+random.nextInt(121);boolean arrived;double verticalVelocity;float lookYaw,lookPitch;
         MovingBot(VirtualPlayer p,World w,Vec3d t,double s){player=p;world=w;target=t;speed=Math.max(.1,s);route=GridPathfinder.find(w,p.getPos(),t);lookYaw=p.getYaw();lookPitch=p.getPitch();}
         DatasetManager.MotionSample next(){if(sequence.isEmpty()){sequence=datasets.randomSequence(random);if(sequence.isEmpty())return null;frame=random.nextInt(sequence.size());}return sequence.get(frame++%sequence.size());}
         void move(double seconds){
@@ -191,29 +191,32 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             double rise=aheadGround-currentGround;
             if(rise>.60&&p.y<aheadGround-.45){
                 nx=p.x;nz=p.z;
-                if(grounded&&jumpCooldown==0){verticalVelocity=datasets.learnedJumpVelocity(seconds);jumpCooldown=8;}
+                if(grounded&&jumpCooldown==0){verticalVelocity=Math.max(.42,datasets.learnedJumpVelocity(seconds)/20D);jumpCooldown=10;}
             }
             player.setShiftKeyDown(sample.sneak&&!player.isSprinting());player.setSprinting(!sample.sneak);
-            float desired=(float)Math.toDegrees(Math.atan2(-dx,dz))+sample.yawDelta*(float)turnFactor*.15F;
-            player.setYaw(approachAngle(player.getYaw(),desired,9F));
-            player.setPitch(approach(player.getPitch(),Math.max(-90,Math.min(90,player.getPitch()+sample.pitchDelta*(float)turnFactor*.15F)),4F));
+            float desired=(float)Math.toDegrees(Math.atan2(-dx,dz))+sample.yawDelta*(float)turnFactor*.05F;
+            player.setYaw(approachAngle(player.getYaw(),desired,2.5F));
+            player.setPitch(approach(player.getPitch(),Math.max(-90,Math.min(90,player.getPitch()+sample.pitchDelta*(float)turnFactor*.05F)),1.5F));
             applyPhysics(p,nx,nz,seconds);
         }
         void applyPhysics(Vec3d p,double nx,double nz,double seconds){
             double ground=groundY(nx,p.y,nz);if(Double.isNaN(ground)){emergencyGround(p,seconds);return;}
-            double ny=p.y;
-            boolean grounded=p.y<=ground+.04&&verticalVelocity<=0;
-            if(grounded&&ground>=p.y-.04&&ground-p.y<=.60){ny=ground;verticalVelocity=0;}
-            else {verticalVelocity=Math.max(-18,verticalVelocity-32*seconds);ny=p.y+verticalVelocity*seconds;if(ny<=ground){ny=ground;verticalVelocity=0;}}
-            player.setOnGround(Math.abs(ny-ground)<.03);player.setPos(new Vec3d(nx,ny,nz));
+            double ny=p.y;boolean grounded=p.y<=ground+.025&&verticalVelocity<=0;
+            if(grounded&&ground>=p.y-.025&&ground-p.y<=.60){ny=ground;verticalVelocity=0;}
+            else {
+                int elapsed=Math.max(1,(int)Math.round(seconds*20));
+                for(int i=0;i<elapsed;i++){ny+=verticalVelocity;verticalVelocity=(verticalVelocity-.08)*.98;}
+                if(ny<=ground){ny=ground;verticalVelocity=0;}
+            }
+            player.setOnGround(Math.abs(ny-ground)<.025);player.setPos(new Vec3d(nx,ny,nz));
         }
-        void idleBehavior(){smoothLook();if(idleCooldown-->0)return;DatasetManager.MotionSample sample=next();if(sample==null)return;player.setShiftKeyDown(sample.sneak);player.setSprinting(false);lookYaw=player.getYaw()+sample.yawDelta*(float)turnFactor;lookPitch=Math.max(-90,Math.min(90,player.getPitch()+sample.pitchDelta*(float)turnFactor));idleCooldown=50+random.nextInt(751);}
+        void idleBehavior(){smoothLook();if(idleCooldown-->0)return;DatasetManager.MotionSample sample=next();if(sample==null)return;player.setShiftKeyDown(sample.sneak);player.setSprinting(false);lookYaw=player.getYaw()+sample.yawDelta*(float)turnFactor;lookPitch=Math.max(-90,Math.min(90,player.getPitch()+sample.pitchDelta*(float)turnFactor));idleCooldown=100+random.nextInt(1501);}
         void smoothLook(){player.setYaw(approachAngle(player.getYaw(),lookYaw,2.5F));player.setPitch(approach(player.getPitch(),lookPitch,2F));}
         float approach(float from,float to,float max){return from+Math.max(-max,Math.min(max,to-from));}
         float approachAngle(float from,float to,float max){float d=to-from;while(d>180)d-=360;while(d<-180)d+=360;return from+Math.max(-max,Math.min(max,d));}
         boolean hazardAt(double x,double y,double z){return hazard(world.getBlockAt((int)Math.floor(x),(int)Math.floor(y-.01),(int)Math.floor(z)));}
         boolean hazard(Block block){String type=block.getType().name();if(getConfig().getBoolean("settings.physics.avoid-liquids",true)&&(type.contains("WATER")||type.contains("LAVA")))return true;return getConfig().getBoolean("settings.physics.avoid-hazards",true)&&(type.contains("FIRE")||type.contains("CACTUS")||type.contains("MAGMA")||type.contains("CAMPFIRE"));}
-        void emergencyGround(Vec3d p,double seconds){player.setSprinting(false);if(!getConfig().getBoolean("settings.physics.anti-flight",true))return;if(p.y<=world.getMinHeight()+1){player.setPos(vec(world.getSpawnLocation()));verticalVelocity=0;return;}verticalVelocity=Math.max(-18,verticalVelocity-32*seconds);player.setPos(new Vec3d(p.x,p.y+verticalVelocity*seconds,p.z));player.setOnGround(false);}
+        void emergencyGround(Vec3d p,double seconds){player.setSprinting(false);if(!getConfig().getBoolean("settings.physics.anti-flight",true))return;if(p.y<=world.getMinHeight()+1){player.setPos(vec(world.getSpawnLocation()));verticalVelocity=0;return;}double ny=p.y;int elapsed=Math.max(1,(int)Math.round(seconds*20));for(int i=0;i<elapsed;i++){ny+=verticalVelocity;verticalVelocity=(verticalVelocity-.08)*.98;}player.setPos(new Vec3d(p.x,ny,p.z));player.setOnGround(false);}
         double groundY(double x,double y,double z){
             if(!getConfig().getBoolean("settings.physics.enabled",true))return y;int bx=(int)Math.floor(x),bz=(int)Math.floor(z),base=(int)Math.floor(y),up=getConfig().getInt("settings.physics.max-step-height",1),down=getConfig().getInt("settings.physics.max-fall-check",64);
             for(int by=base+up-1;by>=Math.max(world.getMinHeight(),base-down-1);by--){Block floor=world.getBlockAt(bx,by,bz);if(floor.isPassable())continue;double top=floor.getBoundingBox().getMaxY();if(top<=1.5)top+=by;int feet=(int)Math.ceil(top);if(world.getBlockAt(bx,feet,bz).isPassable()&&world.getBlockAt(bx,feet+1,bz).isPassable())return top;}return Double.NaN;
