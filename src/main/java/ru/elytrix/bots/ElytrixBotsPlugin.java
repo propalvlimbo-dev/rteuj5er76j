@@ -195,7 +195,15 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             DatasetManager.MotionSample sample=next();if(sample==null)sample=DatasetManager.MotionSample.neutral();
             Vec3d waypoint=routeIndex<route.size()?route.get(routeIndex):target;
             double dx=waypoint.x-p.x,dz=waypoint.z-p.z,distance=Math.hypot(dx,dz);
-            if(distance<.22){if(routeIndex<route.size()){routeIndex++;return;}arrived=true;player.setSprinting(false);idleBehavior();return;}
+            if(distance<.22){
+                if(routeIndex<route.size()){
+                    routeIndex++;
+                    if(routeIndex>=route.size()&&Math.hypot(target.x-p.x,target.z-p.z)>.6){route=GridPathfinder.find(world,p,target);routeIndex=0;}
+                    return;
+                }
+                if(Math.hypot(target.x-p.x,target.z-p.z)>.6){route=GridPathfinder.find(world,p,target);routeIndex=0;return;}
+                arrived=true;player.setSprinting(false);idleBehavior();return;
+            }
             float desired=(float)Math.toDegrees(Math.atan2(-dx,dz));
             player.setYaw(approachAngle(player.getYaw(),desired,learnedTurn));
             headYaw=approachAngle(headYaw,desired+sample.yawDelta*(float)turnFactor,learnedTurn);

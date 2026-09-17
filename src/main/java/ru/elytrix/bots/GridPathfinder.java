@@ -16,7 +16,7 @@ final class GridPathfinder {
         Map<Long,Double> best=new HashMap<>(); open.add(first); best.put(key(sx,sz),0D);
         Node closest=first; int checked=0;
         int[][] dirs={{1,0},{-1,0},{0,1},{0,-1},{1,1},{1,-1},{-1,1},{-1,-1}};
-        while(!open.isEmpty()&&checked++<6000){
+        while(!open.isEmpty()&&checked++<12000){
             Node n=open.poll(); if(dist(n.x,n.z,gx,gz)<dist(closest.x,closest.z,gx,gz))closest=n;
             if(n.x==gx&&n.z==gz){closest=n;break;}
             for(int[] d:dirs){int x=n.x+d[0],z=n.z+d[1];
