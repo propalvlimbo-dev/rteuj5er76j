@@ -99,17 +99,11 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             try {
                 LuckPerms lp = LuckPermsProvider.get();
                 lp.getUserManager().modifyUser(p.getUuid(), user -> user.data().add(InheritanceNode.builder(group).build()));
-                net.luckperms.api.model.group.Group lpGroup = lp.getGroupManager().getGroup(group);
-                String prefix = lpGroup == null ? null : lpGroup.getCachedData().getMetaData().getPrefix();
-                if (prefix != null) {
-                    String label = ChatColor.translateAlternateColorCodes('&', prefix) + ChatColor.GRAY + name;
-                    p.setDisplayName(LegacyComponentSerializer.legacySection().deserialize(label));
-                    p.setCustomName(LegacyComponentSerializer.legacySection().deserialize(label));
-                    p.setCustomNameVisible(true);
-                }
             } catch (Exception ex) { getLogger().warning("LuckPerms hook failed for " + name + ": " + ex.getMessage()); }
         }
-        teams.add(name, group);
+        BotTeamManager.Style style=teams.add(name, group, getConfig().getString("formatting.default-suffix", " &dБЕТА"));
+        String label=style.prefix()+ChatColor.GRAY+name+style.suffix();
+        p.setDisplayName(LegacyComponentSerializer.legacySection().deserialize(label));
         registry.register(name, p.getUuid(), registrationWorld);
         return p;
     }

@@ -16,7 +16,7 @@ final class BotTeamManager {
     private final List<Team> created = new ArrayList<>();
     private static final List<String> ORDER = List.of("owner","eternity","elder","dragon","immortal","wither","griefer","prime","lite","default");
 
-    void add(String name, String groupName) {
+    Style add(String name, String groupName, String fallbackSuffix) {
         Scoreboard board = Bukkit.getScoreboardManager().getMainScoreboard();
         int rank = ORDER.indexOf(groupName.toLowerCase(Locale.ROOT));
         if (rank < 0) rank = ORDER.size();
@@ -36,12 +36,16 @@ final class BotTeamManager {
                 suffix = s == null ? "" : colors(s);
             }
         }
+        if (suffix.isEmpty()) suffix = colors(fallbackSuffix);
         team.setPrefix(prefix + ChatColor.GRAY);
         team.setSuffix(suffix);
         team.setOption(Team.Option.NAME_TAG_VISIBILITY, Team.OptionStatus.ALWAYS);
         team.addEntry(name);
         created.add(team);
+        return new Style(prefix, suffix);
     }
+
+    record Style(String prefix, String suffix) {}
 
     void clear() {
         for (Team team : created) try { team.unregister(); } catch (IllegalStateException ignored) {}

@@ -1,3 +1,7 @@
+formatting:
+  # Используется, если у LuckPerms-группы нет suffix.
+  default-suffix: " &dБЕТА"
+
 settings:
   movement-period-ticks: 2
   motd-count-enabled: true
