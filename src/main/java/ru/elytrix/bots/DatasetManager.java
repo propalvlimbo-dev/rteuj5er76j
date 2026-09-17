@@ -10,7 +10,7 @@ import java.io.IOException;
 import java.util.*;
 
 final class DatasetManager {
-    static final List<String> TYPES=List.of("прыжок_на_блок","перепрыгивание","поворот_налево","поворот_направо","приседание","осмотр");
+    static final List<String> TYPES=List.of("всё","прыжок_на_блок","перепрыгивание","поворот_налево","поворот_направо","приседание","осмотр");
     private final JavaPlugin plugin;
     private final File directory;
     private final Map<UUID, Recording> recordings = new HashMap<>();
@@ -104,7 +104,7 @@ final class DatasetManager {
         return Math.max(2.5F,Math.min(7F,turns.get((int)((turns.size()-1)*.75))));
     }
 
-    private List<MotionSample> typed(String... types){List<MotionSample> out=new ArrayList<>();for(String type:types)out.addAll(typedSamples.getOrDefault(type,Collections.emptyList()));return out.isEmpty()?samples:out;}
+    private List<MotionSample> typed(String... types){List<MotionSample> out=new ArrayList<>(typedSamples.getOrDefault("всё",Collections.emptyList()));for(String type:types)out.addAll(typedSamples.getOrDefault(type,Collections.emptyList()));return out.isEmpty()?samples:out;}
 
     MotionSample idleSample(Random random){List<MotionSample> pool=typed("приседание","осмотр");return pool.isEmpty()?MotionSample.neutral():pool.get(random.nextInt(pool.size()));}
 

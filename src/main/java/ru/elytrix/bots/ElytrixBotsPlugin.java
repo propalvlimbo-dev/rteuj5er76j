@@ -125,7 +125,6 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             Set<Player> viewers = new HashSet<>();
             for (Player player : b.world.getPlayers()) if (!registry.isFake(player.getUniqueId())) viewers.add(player);
             b.player.tick(viewers);
-            b.sendHead(viewers);
         }
     }
 
@@ -134,7 +133,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         if (!player.hasPermission("elytrixbots.dataset")) { player.sendMessage(ChatColor.RED + "Нет прав."); return true; }
         if (args.length >= 3 && args[0].equalsIgnoreCase("dataset") && args[1].equalsIgnoreCase("start")) {
             String name=args.length>=4?args[3]:String.valueOf(System.currentTimeMillis()/1000);
-            if (datasets.start(player, args[2].toLowerCase(Locale.ROOT),name)) player.sendMessage(ChatColor.GREEN + "Запись «"+args[2]+"» началась.");
+            if (datasets.start(player, args[2].equalsIgnoreCase("all")?"всё":args[2].toLowerCase(Locale.ROOT),name)) player.sendMessage(ChatColor.GREEN + "Запись «"+args[2]+"» началась.");
             else player.sendMessage(ChatColor.RED + "Выбери тип через TAB или останови текущую запись.");
             return true;
         }
@@ -184,8 +183,8 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         final VirtualPlayer player; final World world; final Vec3d target; final double speed; List<Vec3d> route;
         final double moveFactor=.96+random.nextDouble()*.08,turnFactor=.90+random.nextDouble()*.20;
         final float learnedTurn=datasets.learnedTurnSpeed()*(float)turnFactor;
-        List<DatasetManager.MotionSample> sequence=Collections.emptyList();int frame,idleCooldown,routeIndex,jumpCooldown,stuckTicks,spawnDelay=40+random.nextInt(121);boolean arrived,airborneLastTick;double verticalVelocity,airborneStartY;float lookYaw,lookPitch,headYaw;Vec3d lastProgressPos;
-        MovingBot(VirtualPlayer p,World w,Vec3d t,double s){player=p;world=w;target=t;speed=Math.max(.1,s);route=GridPathfinder.find(w,p.getPos(),t);lookYaw=p.getYaw();headYaw=p.getYaw();lookPitch=p.getPitch();lastProgressPos=p.getPos();}
+        List<DatasetManager.MotionSample> sequence=Collections.emptyList();int frame,idleCooldown,routeIndex,jumpCooldown,stuckTicks,spawnDelay=40+random.nextInt(121);boolean arrived,airborneLastTick;double verticalVelocity,airborneStartY;float lookYaw,lookPitch;double currentPace=1,targetPace=1;int paceTicks;Vec3d lastProgressPos;
+        MovingBot(VirtualPlayer p,World w,Vec3d t,double s){player=p;world=w;target=t;speed=Math.max(.1,s);route=GridPathfinder.find(w,p.getPos(),t);lookYaw=p.getYaw();lookPitch=p.getPitch();lastProgressPos=p.getPos();}
         DatasetManager.MotionSample next(){if(sequence.isEmpty()){sequence=datasets.randomSequence(random);if(sequence.isEmpty())return null;frame=random.nextInt(sequence.size());}return sequence.get(frame++%sequence.size());}
         void move(double seconds){
             Vec3d p=player.getPos();
@@ -205,13 +204,15 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
                 arrived=true;player.setSprinting(false);idleBehavior();return;
             }
             float desired=(float)Math.toDegrees(Math.atan2(-dx,dz));
-            player.setYaw(approachAngle(player.getYaw(),desired,learnedTurn));
-            headYaw=approachAngle(headYaw,desired+sample.yawDelta*(float)turnFactor,learnedTurn);
+            float turnLimit=Math.max(1.2F,Math.min(learnedTurn,learnedTurn*(.65F+Math.min(.35F,Math.abs(sample.yawDelta)/20F))));
+            player.setYaw(approachAngle(player.getYaw(),desired,turnLimit));
             player.setPitch(approach(player.getPitch(),Math.max(-90,Math.min(90,player.getPitch()+sample.pitchDelta*(float)turnFactor*.03F)),.8F));
             // Сначала полностью разворачиваемся, только потом начинаем идти — движения задом не будет.
             // Небольшие и средние повороты выполняются на ходу; стоим только если цель почти за спиной.
             if(Math.abs(angleDifference(player.getYaw(),desired))>85F){player.setSprinting(false);applyPhysics(p,p.x,p.z,seconds);return;}
-            double amount=Math.min(distance,speed*seconds*moveFactor),nx=p.x+dx/distance*amount,nz=p.z+dz/distance*amount;
+            if(paceTicks--<=0){targetPace=.82+random.nextDouble()*.34;paceTicks=40+random.nextInt(121);}
+            currentPace+=Math.max(-.008,Math.min(.008,targetPace-currentPace));
+            double amount=Math.min(distance,speed*seconds*moveFactor*currentPace),nx=p.x+dx/distance*amount,nz=p.z+dz/distance*amount;
             double currentGround=groundY(p.x,p.y,p.z),aheadGround=groundY(nx,p.y,nz);
             if(Double.isNaN(currentGround)){emergencyGround(p,seconds);return;}
             boolean grounded=p.y<=currentGround+.04&&verticalVelocity<=0;
@@ -247,8 +248,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             airborneLastTick=!onGround;
         }
         void idleBehavior(){smoothLook();if(idleCooldown-->0)return;DatasetManager.MotionSample sample=datasets.idleSample(random);player.setShiftKeyDown(sample.sneak);player.setSprinting(false);lookYaw=player.getYaw()+sample.yawDelta*(float)turnFactor;lookPitch=Math.max(-90,Math.min(90,player.getPitch()+sample.pitchDelta*(float)turnFactor));idleCooldown=100+random.nextInt(1501);}
-        void smoothLook(){headYaw=approachAngle(headYaw,lookYaw,Math.max(1.5F,learnedTurn*.5F));if(Math.abs(angleDifference(player.getYaw(),headYaw))>55)player.setYaw(approachAngle(player.getYaw(),headYaw,2F));player.setPitch(approach(player.getPitch(),lookPitch,2F));}
-        void sendHead(Collection<Player> viewers){HeadRotationSender.send(player.getId(),headYaw,viewers);}
+        void smoothLook(){player.setYaw(approachAngle(player.getYaw(),lookYaw,Math.max(1.5F,learnedTurn*.5F)));player.setPitch(approach(player.getPitch(),lookPitch,2F));}
         float approach(float from,float to,float max){return from+Math.max(-max,Math.min(max,to-from));}
         float approachAngle(float from,float to,float max){float d=angleDifference(from,to);return from+Math.max(-max,Math.min(max,d));}
         float angleDifference(float from,float to){float d=to-from;while(d>180)d-=360;while(d<-180)d+=360;return d;}
