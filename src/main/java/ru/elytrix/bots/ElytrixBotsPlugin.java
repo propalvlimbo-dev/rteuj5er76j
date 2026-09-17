@@ -184,7 +184,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         final VirtualPlayer player; final World world; final Vec3d target; final double speed; List<Vec3d> route;
         final double moveFactor=.96+random.nextDouble()*.08,turnFactor=.90+random.nextDouble()*.20;
         final float learnedTurn=datasets.learnedTurnSpeed()*(float)turnFactor;
-        List<DatasetManager.MotionSample> sequence=Collections.emptyList();int frame,idleCooldown,routeIndex,jumpCooldown,stuckTicks,spawnDelay=40+random.nextInt(121);boolean arrived;double verticalVelocity;float lookYaw,lookPitch,headYaw;Vec3d lastProgressPos;
+        List<DatasetManager.MotionSample> sequence=Collections.emptyList();int frame,idleCooldown,routeIndex,jumpCooldown,stuckTicks,spawnDelay=40+random.nextInt(121);boolean arrived,airborneLastTick;double verticalVelocity;float lookYaw,lookPitch,headYaw;Vec3d lastProgressPos;
         MovingBot(VirtualPlayer p,World w,Vec3d t,double s){player=p;world=w;target=t;speed=Math.max(.1,s);route=GridPathfinder.find(w,p.getPos(),t);lookYaw=p.getYaw();headYaw=p.getYaw();lookPitch=p.getPitch();lastProgressPos=p.getPos();}
         DatasetManager.MotionSample next(){if(sequence.isEmpty()){sequence=datasets.randomSequence(random);if(sequence.isEmpty())return null;frame=random.nextInt(sequence.size());}return sequence.get(frame++%sequence.size());}
         void move(double seconds){
@@ -224,7 +224,12 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             player.setShiftKeyDown(sample.sneak&&!player.isSprinting());player.setSprinting(!sample.sneak);
             applyPhysics(p,nx,nz,seconds);
             if(Math.hypot(p.x-lastProgressPos.x,p.z-lastProgressPos.z)>.20){lastProgressPos=p;stuckTicks=0;}
-            else if(++stuckTicks>60){route=GridPathfinder.find(world,player.getPos(),target);routeIndex=0;stuckTicks=0;lastProgressPos=player.getPos();}
+            else if(++stuckTicks>45){
+                // Выход из углубления: перестраиваем путь и выполняем один обычный прыжок, если зажаты блоками.
+                route=GridPathfinder.find(world,player.getPos(),target);routeIndex=0;stuckTicks=0;lastProgressPos=player.getPos();
+                double floor=groundY(player.getPos().x,player.getPos().y,player.getPos().z);
+                if(!Double.isNaN(floor)&&player.getPos().y<=floor+.04&&jumpCooldown==0){verticalVelocity=.42;jumpCooldown=12;}
+            }
         }
         void applyPhysics(Vec3d p,double nx,double nz,double seconds){
             double ground=groundY(nx,p.y,nz);if(Double.isNaN(ground)){emergencyGround(p,seconds);return;}
@@ -235,7 +240,10 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
                 for(int i=0;i<elapsed;i++){ny+=verticalVelocity;verticalVelocity=(verticalVelocity-.08)*.98;}
                 if(ny<=ground){ny=ground;verticalVelocity=0;}
             }
-            player.setOnGround(Math.abs(ny-ground)<.025);player.setPos(new Vec3d(nx,ny,nz));
+            boolean onGround=Math.abs(ny-ground)<.025;
+            player.setOnGround(onGround);player.setPos(new Vec3d(nx,ny,nz));
+            if(airborneLastTick&&onGround&&!arrived){route=GridPathfinder.find(world,new Vec3d(nx,ny,nz),target);routeIndex=0;stuckTicks=0;lastProgressPos=new Vec3d(nx,ny,nz);}
+            airborneLastTick=!onGround;
         }
         void idleBehavior(){smoothLook();if(idleCooldown-->0)return;DatasetManager.MotionSample sample=datasets.idleSample(random);player.setShiftKeyDown(sample.sneak);player.setSprinting(false);lookYaw=player.getYaw()+sample.yawDelta*(float)turnFactor;lookPitch=Math.max(-90,Math.min(90,player.getPitch()+sample.pitchDelta*(float)turnFactor));idleCooldown=100+random.nextInt(1501);}
         void smoothLook(){headYaw=approachAngle(headYaw,lookYaw,Math.max(1.5F,learnedTurn*.5F));if(Math.abs(angleDifference(player.getYaw(),headYaw))>55)player.setYaw(approachAngle(player.getYaw(),headYaw,2F));player.setPitch(approach(player.getPitch(),lookPitch,2F));}
