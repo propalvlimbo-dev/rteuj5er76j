@@ -168,10 +168,10 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private record Point(World world,double x,double y,double z,float yaw,float pitch) { Vec3d vector(){return new Vec3d(x,y,z);} }
 
     private final class MovingBot {
-        final VirtualPlayer player; final World world; final Vec3d target; final double speed;
+        final VirtualPlayer player; final World world; final Vec3d target; final double speed; final List<Vec3d> route;
         final double moveFactor=.96+random.nextDouble()*.08, turnFactor=.90+random.nextDouble()*.20, fallFactor=.98+random.nextDouble()*.04;
-        List<DatasetManager.MotionSample> sequence=Collections.emptyList(); int frame, idleCooldown; boolean arrived; double verticalVelocity;
-        MovingBot(VirtualPlayer p,World w,Vec3d t,double s){player=p;world=w;target=t;speed=Math.max(.1,s);}
+        List<DatasetManager.MotionSample> sequence=Collections.emptyList(); int frame, idleCooldown,routeIndex; boolean arrived; double verticalVelocity; float lookYaw,lookPitch;
+        MovingBot(VirtualPlayer p,World w,Vec3d t,double s){player=p;world=w;target=t;speed=Math.max(.1,s);route=GridPathfinder.find(w,p.getPos(),t);lookYaw=p.getYaw();lookPitch=p.getPitch();}
         DatasetManager.MotionSample next(){
             if(sequence.isEmpty()){sequence=datasets.randomSequence(random);if(sequence.isEmpty())return null;frame=random.nextInt(sequence.size());}
             DatasetManager.MotionSample sample=sequence.get(frame++%sequence.size());
@@ -181,8 +181,9 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             if(!datasets.hasSamples()){player.setSprinting(false);player.setShiftKeyDown(false);return;}
             if(arrived){idleBehavior();return;}
             DatasetManager.MotionSample sample=next(); if(sample==null)return;
-            Vec3d p=player.getPos();double dx=target.x-p.x,dz=target.z-p.z,distance=Math.sqrt(dx*dx+dz*dz);
-            if(distance<.03){arrived=true;player.setSprinting(false);idleBehavior();return;}
+            Vec3d p=player.getPos();Vec3d waypoint=routeIndex<route.size()?route.get(routeIndex):target;
+            double dx=waypoint.x-p.x,dz=waypoint.z-p.z,distance=Math.sqrt(dx*dx+dz*dz);
+            if(distance<.22){if(routeIndex<route.size()){routeIndex++;return;}arrived=true;player.setSprinting(false);idleBehavior();return;}
             player.setShiftKeyDown(sample.sneak);player.setSprinting(sample.sprint);
             double amount=Math.min(distance,Math.min(sample.horizontal*moveFactor,speed*seconds*1.25));
             double currentGround=groundY(p.x,p.y,p.z);if(Double.isNaN(currentGround)){emergencyGround(p);return;}
@@ -198,14 +199,15 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
                 verticalVelocity=0;
                 // Прыжок из dataset применяется только когда впереди настоящий полный блок.
                 if(fullObstacle&&sample.vertical>.015) verticalVelocity=Math.min(8.0,Math.max(3.5,sample.vertical/seconds*fallFactor));
-            } else verticalVelocity=Math.max(-18,verticalVelocity-24.0*seconds);
+            } else if(Math.abs(sample.vertical)>.005) verticalVelocity=sample.vertical/seconds*fallFactor;
+            else verticalVelocity=Math.max(-18,verticalVelocity-24.0*seconds);
             double ny=p.y+verticalVelocity*seconds;
             if(verticalVelocity<=0&&ny<=ground){ny=ground;verticalVelocity=0;}
             // Плиты и небольшие ступени проходятся по их реальной высоте.
             if(standing&&ground>p.y&&ground-p.y<=.60&&verticalVelocity==0)ny=Math.min(ground,p.y+.20);
-            float targetYaw=(float)Math.toDegrees(Math.atan2(-dx,dz));
-            player.setYaw(targetYaw+sample.yawDelta*(float)turnFactor);
-            player.setPitch(Math.max(-90F,Math.min(90F,player.getPitch()+sample.pitchDelta*(float)turnFactor)));
+            float targetYaw=(float)Math.toDegrees(Math.atan2(-dx,dz))+sample.yawDelta*(float)turnFactor;
+            player.setYaw(approachAngle(player.getYaw(),targetYaw,10F));
+            player.setPitch(approach(player.getPitch(),Math.max(-90F,Math.min(90F,player.getPitch()+sample.pitchDelta*(float)turnFactor)),5F));
             player.setOnGround(Math.abs(ny-ground)<.02);player.setPos(new Vec3d(nx,ny,nz));
         }
         NavCandidate chooseSafeCandidate(Vec3d p,double dirX,double dirZ,double amount,double currentGround,DatasetManager.MotionSample sample){
@@ -235,12 +237,15 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         }
         record NavCandidate(double x,double z,double ground){}
         void idleBehavior(){
+            player.setYaw(approachAngle(player.getYaw(),lookYaw,2.5F));player.setPitch(approach(player.getPitch(),lookPitch,2F));
             if(idleCooldown-->0)return;DatasetManager.MotionSample sample=next();if(sample==null)return;
             player.setShiftKeyDown(sample.sneak);player.setSprinting(false);
-            player.setYaw(player.getYaw()+sample.yawDelta*(float)turnFactor);
-            player.setPitch(Math.max(-90F,Math.min(90F,player.getPitch()+sample.pitchDelta*(float)turnFactor)));
-            idleCooldown=3+random.nextInt(18);
+            lookYaw=player.getYaw()+sample.yawDelta*(float)turnFactor;lookPitch=Math.max(-90F,Math.min(90F,player.getPitch()+sample.pitchDelta*(float)turnFactor));
+            // tick вызывается раз в 2 тика: 50..800 циклов = 5..80 секунд.
+            idleCooldown=50+random.nextInt(751);
         }
+        float approach(float from,float to,float max){return from+Math.max(-max,Math.min(max,to-from));}
+        float approachAngle(float from,float to,float max){float d=to-from;while(d>180)d-=360;while(d<-180)d+=360;return from+Math.max(-max,Math.min(max,d));}
         double groundY(double x,double y,double z){
             if(!getConfig().getBoolean("settings.physics.enabled",true))return y;
             int bx=(int)Math.floor(x),bz=(int)Math.floor(z),base=(int)Math.floor(y),up=getConfig().getInt("settings.physics.max-step-height",1),down=getConfig().getInt("settings.physics.max-fall-check",4);
@@ -248,7 +253,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
                 Block floor=world.getBlockAt(bx,blockY,bz);if(floor.isPassable())continue;
                 double top=blockY+1D;
                 try{double shapeTop=floor.getBoundingBox().getMaxY();top=shapeTop<=1.5?blockY+shapeTop:shapeTop;}catch(Throwable ignored){}
-                Block body=world.getBlockAt(bx,(int)Math.floor(top+.01),bz),head=world.getBlockAt(bx,(int)Math.floor(top+1.01),bz);
+                Block body=world.getBlockAt(bx,(int)Math.ceil(top),bz),head=world.getBlockAt(bx,(int)Math.ceil(top)+1,bz);
                 if(body.isPassable()&&head.isPassable())return top;
             }return Double.NaN;
         }
