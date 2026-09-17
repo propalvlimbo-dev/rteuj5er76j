@@ -53,7 +53,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         Bukkit.getPluginManager().registerEvents(this, this);
         proxySync=new ProxySyncSender(this,this::fakeCount); proxySync.start();
         PluginCommand botCommand=Objects.requireNonNull(getCommand("elytrixbots"));botCommand.setExecutor(this);botCommand.setTabCompleter(this);
-        int period = Math.max(1, getConfig().getInt("settings.movement-period-ticks", 2));
+        int period = Math.max(2, getConfig().getInt("settings.movement-period-ticks", 2));
         ticker = Bukkit.getScheduler().runTaskTimer(this, () -> tick(period), 1L, period);
         getLogger().info("Loaded " + tabBots.size() + " TAB and " + liveBots.size() + " live bots.");
     }
@@ -90,11 +90,10 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
 
     private void ensureProfiles() {
         ConfigurationSection section=bots.getConfigurationSection("profiles");
-        if(section==null||bots.getInt("profiles-version",0)<2){
-            bots.set("profiles",null);bots.set("profiles-version",2);
-            String[] first={"Artem","Danya","Kirill","Vlad","Nikita","Sanya","Roma","Ilya","Den","Max","Tim","Rinat"};
-            String[] second={"Play","Craft","Fox","Mine","Game","Wolf","Sky","Live","Pro","X"};
-            int id=0;for(String a:first)for(String b:second){String key=String.format("bot%03d",++id),name=a+b+(id%5==0?String.valueOf(10+random.nextInt(90)):"");bots.set("profiles."+key+".name",name);bots.set("profiles."+key+".group","default");bots.set("profiles."+key+".ping",25+random.nextInt(100));}
+        if(section==null||bots.getInt("profiles-version",0)<3){
+            bots.set("profiles",null);bots.set("profiles-version",3);
+            String raw="Artemka,VladOS,Danya_777,Kot_Begemot,MrSova,Lisiy,Kirya,Maxwell,NeonBoy,Tihohod,Deffo4ka,Volk_13,Dimonчик,Alex_Rus,Steve228,Foxy,MinerPro,JustNikita,Kaktus,Pyatnica,Romashka,Skif,NorthWind,NoName,Levsha,Keksik,Fantik,Turbo,ChillGuy,WaterMelon,IceTea,Redstone,Enotik,DarkSoul,Sunny,Milashka,Grom,Kriperok,EnderMan,Akula,Toporik,Samurai,Pechenka,Drakon,Cheburek,Viking,Almazik,Baton,Pluton,Marik,GoodBoy,Stalker,Angel_05,Bober,Poison,Arbuzer,OldSchool,FreshMan,Bratishka,YaProstoYa,Windy,Quasar,Lunatik,Timoxa,Danilыч,ZloyKot,Dobryak,Kapitan,Spartak,Zenit,PixelMan,Monolit,Faraon,Bambuk,Shaman,Sever,Reactor,Marmelad,KingSize,LuckyMan,Fastik,Medved,Omega,Grizzly,Silent,Geroy,Novichok,Knyaz,TurboMax,BlackFox,Belka,Orange,Kompot,MrRobot,PlayerOne,DedMoroz,Snegovik,Raketa,Karas,Somik,Voron,Orel,Sapsan,Baron,Shustriy,Umnik,Molniya,Tornado,Sahara,Atlant,Orion,Saturn,Marsik,Kosmos,Avatar,Legion,Partizan,Major,Rekrut,MasterX";
+            String[] names=raw.split(",");int id=0;for(String name:names){String key=String.format("bot%03d",++id);bots.set("profiles."+key+".name",name);bots.set("profiles."+key+".group","default");bots.set("profiles."+key+".ping",25+random.nextInt(100));}
             try{bots.save(new File(getDataFolder(),"bots.yml"));}catch(Exception ex){getLogger().warning("Cannot save profiles: "+ex.getMessage());}
             section=bots.getConfigurationSection("profiles");
         }
@@ -127,10 +126,21 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         for(int attempt=0;attempt<80;attempt++){double centerX=getConfig().getDouble("population.region.center-x",30),centerZ=getConfig().getDouble("population.region.center-z",9),radius=Math.min(30,getConfig().getDouble("population.region.radius",30));double x=centerX+(random.nextDouble()*2-1)*radius,z=centerZ+(random.nextDouble()*2-1)*radius;for(int y=Math.min(world.getMaxHeight()-2,world.getHighestBlockYAt((int)x,(int)z)+1);y>world.getMinHeight();y--){Block floor=world.getBlockAt((int)Math.floor(x),y-1,(int)Math.floor(z));if(!floor.isPassable()&&!unsafeFloor(floor)&&world.getBlockAt((int)x,y,(int)z).isPassable()&&world.getBlockAt((int)x,y+1,(int)z).isPassable())return new Point(world,x+.5,y,z+.5,0,0);}}
         Location fallback=world.getSpawnLocation();return new Point(world,fallback.getX(),fallback.getY(),fallback.getZ(),fallback.getYaw(),fallback.getPitch());
     }
-    private void sendFanMessage(){
-        List<ActiveBot> list=new ArrayList<>(active.values());ActiveBot bot=list.get(random.nextInt(list.size()));Player sender=registry.player(bot.player.getUuid());if(sender==null)return;
-        String[] messages={"!rooyzee лучший ютубер","!кто тоже смотрит rooyzee?","!обожаю ролики rooyzee","!rooyzee, выпусти новый ролик","!я пришёл на сервер из-за rooyzee"};sender.chat(messages[random.nextInt(messages.length)]);
+    private void startFanConversation(){
+        Bukkit.getScheduler().runTaskLater(this,()->{
+            List<ActiveBot> list=new ArrayList<>(active.values());if(list.isEmpty())return;chat(list.get(random.nextInt(list.size())),"Кто смотрит rooyzee?");
+            Collections.shuffle(list);String[] replies={"я","я смотрю","я со стрима","тоже смотрю","я его фанат","тут все со стрима?","розю смотрю"};
+            int delay=35;for(ActiveBot bot:list){String reply=replies[random.nextInt(replies.length)];Bukkit.getScheduler().runTaskLater(this,()->chat(bot,reply),delay);delay+=20+random.nextInt(41);}
+        },80L);
     }
+    private void sendFanMessage(){
+        List<ActiveBot> list=new ArrayList<>(active.values());if(list.isEmpty())return;
+        String[] starts={"я со стрима","я его фанат","роузи дай админку","розяка привет","я на стриме","когда видос","фу игноришь","кто с трансляции","давно смотрю","новый ролик топ","розю кто видел","на стриме веселее","привет всем фанатам","я только зашёл","это тот сервер?"};
+        String[] tails={""," ахах"," кстати"," реально"," пж","))","!","?"," уже давно"," сегодня"," отвечай"," го вместе"," кто тоже?"," лол"," наконец-то"};
+        chat(list.get(random.nextInt(list.size())),starts[random.nextInt(starts.length)]+tails[random.nextInt(tails.length)]);
+    }
+    private void chat(ActiveBot bot,String message){Player sender=registry.player(bot.player.getUuid());if(sender!=null)sender.chat(message);}
+
     private boolean unsafeFloor(Block block){String m=block.getType().name();return m.contains("LEAVES")||m.contains("LOG")||m.contains("CARPET")||m.contains("WATER")||m.contains("LAVA")||m.contains("FENCE")||m.contains("WALL");}
     private long randomMinutes(String path,int fallbackMin,int fallbackMax){int min=getConfig().getInt(path+".min",fallbackMin),max=Math.max(min,getConfig().getInt(path+".max",fallbackMax));return min+random.nextInt(max-min+1);}
     private record BotProfile(String name,String group,int ping){}
@@ -171,7 +181,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     @Override public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player player)) { sender.sendMessage("Player only"); return true; }
         if (!player.hasPermission("elytrixbots.dataset")) { player.sendMessage(elytrix("&cОшибка: &fнедостаточно прав.")); return true; }
-        if(args.length==1&&args[0].equalsIgnoreCase("rooyzee")){rooyzeeMode=!rooyzeeMode;nextFanMessage=0;player.sendMessage(elytrix(rooyzeeMode?"&aРежим фанатов rooyzee включён.":"&cРежим фанатов rooyzee выключен."));return true;}
+        if(args.length==1&&args[0].equalsIgnoreCase("rooyzee")){rooyzeeMode=!rooyzeeMode;nextFanMessage=System.currentTimeMillis()+15000;if(rooyzeeMode)startFanConversation();player.sendMessage(elytrix(rooyzeeMode?"&aРежим фанатов rooyzee включён.":"&cРежим фанатов rooyzee выключен."));return true;}
         if (args.length >= 3 && args[0].equalsIgnoreCase("dataset") && args[1].equalsIgnoreCase("start")) {
             String name=args.length>=4?args[3]:String.valueOf(System.currentTimeMillis()/1000);
             if (datasets.start(player, args[2].equalsIgnoreCase("all")?"всё":args[2].toLowerCase(Locale.ROOT),name)) player.sendMessage(ChatColor.GREEN + "Запись «"+args[2]+"» началась.");

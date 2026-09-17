@@ -10,7 +10,8 @@ formatting:
   default-suffix: " &#F8BEFBБЕТА"
 
 settings:
-  movement-period-ticks: 1
+  # 10 обновлений движения в секунду достаточно визуально и существенно легче для сервера.
+  movement-period-ticks: 2
   motd-count-enabled: true
   use-essentials-spawn: true
   physics:
