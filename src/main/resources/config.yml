@@ -25,9 +25,10 @@ settings:
 
 population:
   timezone: Europe/Moscow
-  first-join-delay-seconds: 15
-  minimum-bots: 3
-  maximum-bots: 15
+  first-join-delay-seconds: 10
+  minimum-bots: 4
+  maximum-bots: 16
+  next-change-minutes: { min: 5, max: 20 }
   session-minutes: { min: 60, max: 360 }
   profile-cooldown-minutes: { min: 120, max: 360 }
   afk-minutes: { min: 5, max: 60 }
