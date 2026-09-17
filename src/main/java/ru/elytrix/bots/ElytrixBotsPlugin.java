@@ -170,6 +170,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private final class MovingBot {
         final VirtualPlayer player; final World world; final Vec3d target; final double speed; List<Vec3d> route;
         final double moveFactor=.96+random.nextDouble()*.08,turnFactor=.90+random.nextDouble()*.20;
+        final float learnedTurn=datasets.learnedTurnSpeed()*(float)turnFactor;
         List<DatasetManager.MotionSample> sequence=Collections.emptyList();int frame,idleCooldown,routeIndex,jumpCooldown,stuckTicks,spawnDelay=40+random.nextInt(121);boolean arrived;double verticalVelocity;float lookYaw,lookPitch;Vec3d lastProgressPos;
         MovingBot(VirtualPlayer p,World w,Vec3d t,double s){player=p;world=w;target=t;speed=Math.max(.1,s);route=GridPathfinder.find(w,p.getPos(),t);lookYaw=p.getYaw();lookPitch=p.getPitch();lastProgressPos=p.getPos();}
         DatasetManager.MotionSample next(){if(sequence.isEmpty()){sequence=datasets.randomSequence(random);if(sequence.isEmpty())return null;frame=random.nextInt(sequence.size());}return sequence.get(frame++%sequence.size());}
@@ -184,7 +185,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             double dx=waypoint.x-p.x,dz=waypoint.z-p.z,distance=Math.hypot(dx,dz);
             if(distance<.22){if(routeIndex<route.size()){routeIndex++;return;}arrived=true;player.setSprinting(false);idleBehavior();return;}
             float desired=(float)Math.toDegrees(Math.atan2(-dx,dz));
-            player.setYaw(approachAngle(player.getYaw(),desired,1.2F));
+            player.setYaw(approachAngle(player.getYaw(),desired,learnedTurn));
             player.setPitch(approach(player.getPitch(),Math.max(-90,Math.min(90,player.getPitch()+sample.pitchDelta*(float)turnFactor*.03F)),.8F));
             // Сначала полностью разворачиваемся, только потом начинаем идти — движения задом не будет.
             if(Math.abs(angleDifference(player.getYaw(),desired))>7F){player.setSprinting(false);applyPhysics(p,p.x,p.z,seconds);return;}
@@ -195,7 +196,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             // Смотрим дальше собственного шага и начинаем прыжок до столкновения с гранью блока.
             double probeX=p.x+dx/distance*.68,probeZ=p.z+dz/distance*.68,probeGround=groundY(probeX,p.y,probeZ);
             if(!Double.isNaN(probeGround)&&probeGround-currentGround>.60&&grounded&&jumpCooldown==0){verticalVelocity=Math.min(.48,Math.max(.44,datasets.learnedJumpVelocity(seconds)/20D));jumpCooldown=12;}
-            if(Double.isNaN(aheadGround)||hazardAt(nx,aheadGround,nz)){nx=p.x;nz=p.z;aheadGround=currentGround;}
+            if(Double.isNaN(aheadGround)||hazardAt(nx,aheadGround,nz)||!clearAt(nx,aheadGround,nz)){nx=p.x;nz=p.z;aheadGround=currentGround;}
             if(aheadGround-currentGround>.60&&p.y<aheadGround-.88){nx=p.x;nz=p.z;}
             player.setShiftKeyDown(sample.sneak&&!player.isSprinting());player.setSprinting(!sample.sneak);
             applyPhysics(p,nx,nz,seconds);
@@ -218,6 +219,11 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         float approach(float from,float to,float max){return from+Math.max(-max,Math.min(max,to-from));}
         float approachAngle(float from,float to,float max){float d=angleDifference(from,to);return from+Math.max(-max,Math.min(max,d));}
         float angleDifference(float from,float to){float d=to-from;while(d>180)d-=360;while(d<-180)d+=360;return d;}
+        boolean clearAt(double x,double y,double z){
+            int feet=(int)Math.ceil(y);double[] offsets={-.29,.29};
+            for(double ox:offsets)for(double oz:offsets){int bx=(int)Math.floor(x+ox),bz=(int)Math.floor(z+oz);if(!world.getBlockAt(bx,feet,bz).isPassable()||!world.getBlockAt(bx,feet+1,bz).isPassable())return false;}
+            return true;
+        }
         boolean hazardAt(double x,double y,double z){return hazard(world.getBlockAt((int)Math.floor(x),(int)Math.floor(y-.01),(int)Math.floor(z)));}
         boolean hazard(Block block){String type=block.getType().name();if(getConfig().getBoolean("settings.physics.avoid-liquids",true)&&(type.contains("WATER")||type.contains("LAVA")))return true;return getConfig().getBoolean("settings.physics.avoid-hazards",true)&&(type.contains("FIRE")||type.contains("CACTUS")||type.contains("MAGMA")||type.contains("CAMPFIRE"));}
         void emergencyGround(Vec3d p,double seconds){player.setSprinting(false);if(!getConfig().getBoolean("settings.physics.anti-flight",true))return;if(p.y<=world.getMinHeight()+1){player.setPos(vec(world.getSpawnLocation()));verticalVelocity=0;return;}double ny=p.y;int elapsed=Math.max(1,(int)Math.round(seconds*20));for(int i=0;i<elapsed;i++){ny+=verticalVelocity;verticalVelocity=(verticalVelocity-.08)*.98;}player.setPos(new Vec3d(p.x,ny,p.z));player.setOnGround(false);}

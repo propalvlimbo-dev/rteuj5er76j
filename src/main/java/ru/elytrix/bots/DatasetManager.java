@@ -93,6 +93,14 @@ final class DatasetManager {
         return Math.max(7.0,Math.min(10.0,max/Math.max(.05,sampleSeconds)));
     }
 
+    float learnedTurnSpeed() {
+        List<Float> turns=new ArrayList<>();
+        for(MotionSample sample:samples) if(Math.abs(sample.yawDelta)>.05F) turns.add(Math.abs(sample.yawDelta));
+        if(turns.isEmpty()) return 4F;
+        turns.sort(Float::compare);
+        return Math.max(2F,Math.min(15F,turns.get((int)((turns.size()-1)*.85))));
+    }
+
     int size() { return samples.size(); }
 
     private static final class Recording {

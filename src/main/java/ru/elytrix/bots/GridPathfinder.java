@@ -18,7 +18,9 @@ final class GridPathfinder {
         while(!open.isEmpty()&&checked++<6000){
             Node n=open.poll(); if(dist(n.x,n.z,gx,gz)<dist(closest.x,closest.z,gx,gz))closest=n;
             if(n.x==gx&&n.z==gz){closest=n;break;}
-            for(int[] d:dirs){int x=n.x+d[0],z=n.z+d[1];double y=surface(world,x,z,n.y);if(Double.isNaN(y))continue;
+            for(int[] d:dirs){int x=n.x+d[0],z=n.z+d[1];
+                if(d[0]!=0&&d[1]!=0){double sideX=surface(world,x,n.z,n.y),sideZ=surface(world,n.x,z,n.y);if(Double.isNaN(sideX)||Double.isNaN(sideZ)||Math.abs(sideX-n.y)>1.01||Math.abs(sideZ-n.y)>1.01||!clear(world,x,n.z,sideX)||!clear(world,n.x,z,sideZ))continue;}
+                double y=surface(world,x,z,n.y);if(Double.isNaN(y))continue;
                 double delta=y-n.y;if(delta>1.01||delta<-3.5||!clear(world,x,z,y)||hazard(world,x,z,y))continue;
                 double cost=n.g+(d[0]!=0&&d[1]!=0?1.414:1)+(delta>0?delta*.4:0);long key=key(x,z);
                 if(cost>=best.getOrDefault(key,Double.MAX_VALUE))continue;best.put(key,cost);
@@ -33,7 +35,7 @@ final class GridPathfinder {
             double top=b.getBoundingBox().getMaxY();if(top<=1.5)top+=by;return top;}
         return Double.NaN;
     }
-    private static boolean clear(World w,int x,int z,double y){int feet=(int)Math.ceil(y);return w.getBlockAt(x,feet,z).isPassable()&&w.getBlockAt(x,feet+1,z).isPassable();}
+    private static boolean clear(World w,int x,int z,double y){int feet=(int)Math.ceil(y);double[] o={.21,.79};for(double ox:o)for(double oz:o){int bx=(int)Math.floor(x+ox),bz=(int)Math.floor(z+oz);if(!w.getBlockAt(bx,feet,bz).isPassable()||!w.getBlockAt(bx,feet+1,bz).isPassable())return false;}return true;}
     private static boolean hazard(World w,int x,int z,double y){String m=w.getBlockAt(x,(int)Math.floor(y-.01),z).getType().name();return m.contains("LAVA")||m.contains("WATER")||m.contains("FIRE")||m.contains("CACTUS")||m.contains("MAGMA");}
     private static int floor(double v){return(int)Math.floor(v);}private static long key(int x,int z){return((long)x<<32)^(z&0xffffffffL);}private static double dist(int x,int z,int gx,int gz){return Math.hypot(gx-x,gz-z);}
     private record Node(int x,int z,double y,double g,double f,Node parent){}
