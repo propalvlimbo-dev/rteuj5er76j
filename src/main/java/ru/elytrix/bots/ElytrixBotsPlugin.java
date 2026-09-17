@@ -209,7 +209,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             for(int blockY=base+up-1;blockY>=base-down-1;blockY--){
                 Block floor=world.getBlockAt(bx,blockY,bz);if(floor.isPassable())continue;
                 double top=blockY+1D;
-                try{double shapeTop=floor.getCollisionShape().getBoundingBoxes().stream().mapToDouble(box->box.getMaxY()).max().orElse(1D);top=shapeTop<=1.5?blockY+shapeTop:shapeTop;}catch(Throwable ignored){}
+                try{double shapeTop=floor.getBoundingBox().getMaxY();top=shapeTop<=1.5?blockY+shapeTop:shapeTop;}catch(Throwable ignored){}
                 Block body=world.getBlockAt(bx,(int)Math.floor(top+.01),bz),head=world.getBlockAt(bx,(int)Math.floor(top+1.01),bz);
                 if(body.isPassable()&&head.isPassable())return top;
             }return Double.NaN;
