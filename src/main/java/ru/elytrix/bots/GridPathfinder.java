@@ -11,6 +11,8 @@ import java.util.*;
 final class GridPathfinder {
     static List<Vec3d> find(World world, Vec3d start, Vec3d goal) {
         int sx=floor(start.x), sz=floor(start.z), gx=floor(goal.x), gz=floor(goal.z);
+        // На открытой местности идём точной прямой под любым углом, без клеточного зигзага A*.
+        if(lineClear(world,start,goal))return new ArrayList<>(List.of(goal));
         Node first=new Node(sx,sz,start.y,0,0,null);
         PriorityQueue<Node> open=new PriorityQueue<>(Comparator.comparingDouble(n->n.f));
         Map<Long,Double> best=new HashMap<>(); open.add(first); best.put(key(sx,sz),0D);

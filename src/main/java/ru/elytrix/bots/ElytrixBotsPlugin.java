@@ -184,7 +184,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         final VirtualPlayer player; final World world; final Vec3d target; final double speed; List<Vec3d> route;
         final double moveFactor=.96+random.nextDouble()*.08,turnFactor=.90+random.nextDouble()*.20;
         final float learnedTurn=datasets.learnedTurnSpeed()*(float)turnFactor;
-        List<DatasetManager.MotionSample> sequence=Collections.emptyList();int frame,idleCooldown,routeIndex,jumpCooldown,stuckTicks,spawnDelay=40+random.nextInt(121);boolean arrived,airborneLastTick;double verticalVelocity;float lookYaw,lookPitch,headYaw;Vec3d lastProgressPos;
+        List<DatasetManager.MotionSample> sequence=Collections.emptyList();int frame,idleCooldown,routeIndex,jumpCooldown,stuckTicks,spawnDelay=40+random.nextInt(121);boolean arrived,airborneLastTick;double verticalVelocity,airborneStartY;float lookYaw,lookPitch,headYaw;Vec3d lastProgressPos;
         MovingBot(VirtualPlayer p,World w,Vec3d t,double s){player=p;world=w;target=t;speed=Math.max(.1,s);route=GridPathfinder.find(w,p.getPos(),t);lookYaw=p.getYaw();headYaw=p.getYaw();lookPitch=p.getPitch();lastProgressPos=p.getPos();}
         DatasetManager.MotionSample next(){if(sequence.isEmpty()){sequence=datasets.randomSequence(random);if(sequence.isEmpty())return null;frame=random.nextInt(sequence.size());}return sequence.get(frame++%sequence.size());}
         void move(double seconds){
@@ -227,8 +227,8 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             else if(++stuckTicks>45){
                 // Выход из углубления: перестраиваем путь и выполняем один обычный прыжок, если зажаты блоками.
                 route=GridPathfinder.find(world,player.getPos(),target);routeIndex=0;stuckTicks=0;lastProgressPos=player.getPos();
-                double floor=groundY(player.getPos().x,player.getPos().y,player.getPos().z);
-                if(!Double.isNaN(floor)&&player.getPos().y<=floor+.04&&jumpCooldown==0){verticalVelocity=.42;jumpCooldown=12;}
+                Vec3d now=player.getPos();double floor=groundY(now.x,now.y,now.z);
+                if(!Double.isNaN(floor)&&now.y<=floor+.04&&jumpCooldown==0&&realObstacleAhead(now)){verticalVelocity=.42;jumpCooldown=12;}
             }
         }
         void applyPhysics(Vec3d p,double nx,double nz,double seconds){
@@ -242,7 +242,8 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             }
             boolean onGround=Math.abs(ny-ground)<.025;
             player.setOnGround(onGround);player.setPos(new Vec3d(nx,ny,nz));
-            if(airborneLastTick&&onGround&&!arrived){route=GridPathfinder.find(world,new Vec3d(nx,ny,nz),target);routeIndex=0;stuckTicks=0;lastProgressPos=new Vec3d(nx,ny,nz);}
+            if(!airborneLastTick&&!onGround)airborneStartY=p.y;
+            if(airborneLastTick&&onGround&&!arrived&&airborneStartY-ny>.75){route=GridPathfinder.find(world,new Vec3d(nx,ny,nz),target);routeIndex=0;stuckTicks=0;lastProgressPos=new Vec3d(nx,ny,nz);}
             airborneLastTick=!onGround;
         }
         void idleBehavior(){smoothLook();if(idleCooldown-->0)return;DatasetManager.MotionSample sample=datasets.idleSample(random);player.setShiftKeyDown(sample.sneak);player.setSprinting(false);lookYaw=player.getYaw()+sample.yawDelta*(float)turnFactor;lookPitch=Math.max(-90,Math.min(90,player.getPitch()+sample.pitchDelta*(float)turnFactor));idleCooldown=100+random.nextInt(1501);}
@@ -251,6 +252,10 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         float approach(float from,float to,float max){return from+Math.max(-max,Math.min(max,to-from));}
         float approachAngle(float from,float to,float max){float d=angleDifference(from,to);return from+Math.max(-max,Math.min(max,d));}
         float angleDifference(float from,float to){float d=to-from;while(d>180)d-=360;while(d<-180)d+=360;return d;}
+        boolean realObstacleAhead(Vec3d p){
+            Vec3d waypoint=routeIndex<route.size()?route.get(routeIndex):target;double dx=waypoint.x-p.x,dz=waypoint.z-p.z,d=Math.hypot(dx,dz);if(d<.01)return false;
+            double current=groundY(p.x,p.y,p.z),ahead=groundY(p.x+dx/d*.68,p.y,p.z+dz/d*.68);return !Double.isNaN(current)&&!Double.isNaN(ahead)&&ahead-current>.60;
+        }
         boolean clearAt(double x,double y,double z){
             BoundingBox body=new BoundingBox(x-.29,y+.001,z-.29,x+.29,y+1.79,z+.29);
             for(int bx=(int)Math.floor(x-.29);bx<=(int)Math.floor(x+.29);bx++)for(int bz=(int)Math.floor(z-.29);bz<=(int)Math.floor(z+.29);bz++)for(int by=(int)Math.floor(y);by<=(int)Math.floor(y+1.79);by++){
