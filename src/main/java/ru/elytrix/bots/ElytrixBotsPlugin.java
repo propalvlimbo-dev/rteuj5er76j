@@ -170,7 +170,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private final class MovingBot {
         final VirtualPlayer player; final World world; final Vec3d target; final double speed;
         final double moveFactor=.92+random.nextDouble()*.16, turnFactor=.85+random.nextDouble()*.30, fallFactor=.95+random.nextDouble()*.10;
-        List<DatasetManager.MotionSample> sequence=Collections.emptyList(); int frame, idleCooldown; boolean arrived;
+        List<DatasetManager.MotionSample> sequence=Collections.emptyList(); int frame, idleCooldown; boolean arrived; double verticalVelocity;
         MovingBot(VirtualPlayer p,World w,Vec3d t,double s){player=p;world=w;target=t;speed=Math.max(.1,s);}
         DatasetManager.MotionSample next(){
             if(sequence.isEmpty()){sequence=datasets.randomSequence(random);if(sequence.isEmpty())return null;frame=random.nextInt(sequence.size());}
@@ -186,11 +186,19 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             player.setShiftKeyDown(sample.sneak);player.setSprinting(sample.sprint);
             double amount=Math.min(distance,Math.min(sample.horizontal*moveFactor,speed*seconds*1.25));
             double nx=p.x+dx/distance*amount,nz=p.z+dz/distance*amount;
-            double ground=groundY(nx,p.y,nz);if(Double.isNaN(ground)){player.setSprinting(false);return;}
-            double ny=p.y+sample.vertical*fallFactor;
-            if(ny<ground)ny=ground;
-            if(ground>p.y+.60&&sample.vertical<=.01){nx=p.x;nz=p.z;ny=p.y;}
-            else if(ground>ny&&ground-p.y<=.60)ny=ground;
+            double currentGround=groundY(p.x,p.y,p.z),ground=groundY(nx,p.y,nz);if(Double.isNaN(ground)||Double.isNaN(currentGround)){player.setSprinting(false);return;}
+            boolean standing=Math.abs(p.y-currentGround)<.04;
+            if(ground>p.y+.60){ // не заходим внутрь стены: сначала набираем высоту прыжком
+                nx=p.x;nz=p.z;ground=currentGround;
+            }
+            if(standing){
+                verticalVelocity=0;
+                if(sample.vertical>.015) verticalVelocity=Math.min(5.2,Math.max(2.8,sample.vertical/seconds*fallFactor));
+            } else verticalVelocity=Math.max(-12,verticalVelocity-9.81*seconds);
+            double ny=p.y+verticalVelocity*seconds;
+            if(verticalVelocity<=0&&ny<=ground){ny=ground;verticalVelocity=0;}
+            // Плиты и небольшие ступени проходятся по их реальной высоте.
+            if(standing&&ground>p.y&&ground-p.y<=.60&&verticalVelocity==0)ny=ground;
             float targetYaw=(float)Math.toDegrees(Math.atan2(-dx,dz));
             player.setYaw(targetYaw+sample.yawDelta*(float)turnFactor);
             player.setPitch(Math.max(-90F,Math.min(90F,player.getPitch()+sample.pitchDelta*(float)turnFactor)));

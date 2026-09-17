@@ -16,4 +16,4 @@ settings:
   physics:
     enabled: true
     max-step-height: 1
-    max-fall-check: 4
+    max-fall-check: 64
