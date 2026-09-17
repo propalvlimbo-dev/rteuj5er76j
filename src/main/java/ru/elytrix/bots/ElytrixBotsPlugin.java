@@ -183,7 +183,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         final VirtualPlayer player; final World world; final Vec3d target; final double speed; List<Vec3d> route;
         final double moveFactor=.96+random.nextDouble()*.08,turnFactor=.90+random.nextDouble()*.20;
         final float learnedTurn=datasets.learnedTurnSpeed()*(float)turnFactor;
-        List<DatasetManager.MotionSample> sequence=Collections.emptyList();int frame,idleCooldown,routeIndex,jumpCooldown,stuckTicks,spawnDelay=40+random.nextInt(121);boolean arrived,airborneLastTick;double verticalVelocity,airborneStartY;float lookYaw,lookPitch;double currentPace=1,targetPace=1;int paceTicks;Vec3d lastProgressPos;
+        List<DatasetManager.MotionSample> sequence=Collections.emptyList();int frame,idleCooldown,routeIndex,jumpCooldown,stuckTicks,spawnDelay=40+random.nextInt(121);boolean arrived,airborneLastTick;double verticalVelocity,airborneStartY,velocityX,velocityZ;float lookYaw,lookPitch;double currentPace=1,targetPace=1;int paceTicks;Vec3d lastProgressPos;
         MovingBot(VirtualPlayer p,World w,Vec3d t,double s){player=p;world=w;target=t;speed=Math.max(.1,s);route=GridPathfinder.find(w,p.getPos(),t);lookYaw=p.getYaw();lookPitch=p.getPitch();lastProgressPos=p.getPos();}
         DatasetManager.MotionSample next(){if(sequence.isEmpty()){sequence=datasets.randomSequence(random);if(sequence.isEmpty())return null;frame=random.nextInt(sequence.size());}return sequence.get(frame++%sequence.size());}
         void move(double seconds){
@@ -212,7 +212,15 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             if(Math.abs(angleDifference(player.getYaw(),desired))>85F){player.setSprinting(false);applyPhysics(p,p.x,p.z,seconds);return;}
             if(paceTicks--<=0){targetPace=.82+random.nextDouble()*.34;paceTicks=40+random.nextInt(121);}
             currentPace+=Math.max(-.008,Math.min(.008,targetPace-currentPace));
-            double amount=Math.min(distance,speed*seconds*moveFactor*currentPace),nx=p.x+dx/distance*amount,nz=p.z+dz/distance*amount;
+            double amount=Math.min(distance,speed*seconds*moveFactor*currentPace);
+            double dirX=dx/distance,dirZ=dz/distance;
+            // Реальное A/D из dataset добавляется как небольшая боковая составляющая, а не зигзаг маршрута.
+            double strafe=Math.max(-.16,Math.min(.16,sample.strafe/Math.max(.01,sample.horizontal)));
+            double wishX=dirX+dirZ*strafe,wishZ=dirZ-dirX*strafe,norm=Math.hypot(wishX,wishZ);wishX=wishX/norm*amount;wishZ=wishZ/norm*amount;
+            // Плавное ускорение и торможение как у управляемого игрока.
+            double acceleration=Math.max(.008,amount*.14);
+            velocityX=approachDouble(velocityX,wishX,acceleration);velocityZ=approachDouble(velocityZ,wishZ,acceleration);
+            double nx=p.x+velocityX,nz=p.z+velocityZ;
             double currentGround=groundY(p.x,p.y,p.z),aheadGround=groundY(nx,p.y,nz);
             if(Double.isNaN(currentGround)){emergencyGround(p,seconds);return;}
             boolean grounded=p.y<=currentGround+.04&&verticalVelocity<=0;
@@ -220,8 +228,8 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             double probeX=p.x+dx/distance*.68,probeZ=p.z+dz/distance*.68,probeGround=groundY(probeX,p.y,probeZ);
             if(!Double.isNaN(probeGround)&&probeGround-currentGround>.60&&grounded&&jumpCooldown==0){verticalVelocity=Math.min(.48,Math.max(.44,datasets.learnedJumpVelocity(seconds)/20D));jumpCooldown=12;}
             boolean descending=!Double.isNaN(aheadGround)&&aheadGround<currentGround-.04;
-            if(Double.isNaN(aheadGround)||hazardAt(nx,aheadGround,nz)||(!descending&&!clearAt(nx,Math.max(p.y,aheadGround),nz))){nx=p.x;nz=p.z;aheadGround=currentGround;}
-            if(aheadGround-currentGround>.60&&p.y<aheadGround-.88){nx=p.x;nz=p.z;}
+            if(Double.isNaN(aheadGround)||hazardAt(nx,aheadGround,nz)||(!descending&&!clearAt(nx,Math.max(p.y,aheadGround),nz))){nx=p.x;nz=p.z;velocityX=velocityZ=0;aheadGround=currentGround;}
+            if(aheadGround-currentGround>.60&&p.y<aheadGround-.88){nx=p.x;nz=p.z;velocityX=velocityZ=0;}
             player.setShiftKeyDown(sample.sneak&&!player.isSprinting());player.setSprinting(!sample.sneak);
             applyPhysics(p,nx,nz,seconds);
             if(Math.hypot(p.x-lastProgressPos.x,p.z-lastProgressPos.z)>.20){lastProgressPos=p;stuckTicks=0;}
@@ -249,6 +257,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         }
         void idleBehavior(){smoothLook();if(idleCooldown-->0)return;DatasetManager.MotionSample sample=datasets.idleSample(random);player.setShiftKeyDown(sample.sneak);player.setSprinting(false);lookYaw=player.getYaw()+sample.yawDelta*(float)turnFactor;lookPitch=Math.max(-90,Math.min(90,player.getPitch()+sample.pitchDelta*(float)turnFactor));idleCooldown=100+random.nextInt(1501);}
         void smoothLook(){player.setYaw(approachAngle(player.getYaw(),lookYaw,Math.max(1.5F,learnedTurn*.5F)));player.setPitch(approach(player.getPitch(),lookPitch,2F));}
+        double approachDouble(double from,double to,double max){return from+Math.max(-max,Math.min(max,to-from));}
         float approach(float from,float to,float max){return from+Math.max(-max,Math.min(max,to-from));}
         float approachAngle(float from,float to,float max){float d=angleDifference(from,to);return from+Math.max(-max,Math.min(max,d));}
         float angleDifference(float from,float to){float d=to-from;while(d>180)d-=360;while(d<-180)d+=360;return d;}
