@@ -15,6 +15,8 @@ final class NmsFakePlayerRegistry {
     private final Set<UUID> uuids = new HashSet<>();
     private final Map<UUID,Object> byUuid = new HashMap<>();
     private List<Object> serverPlayers;
+    private final Map<UUID,List<Object>> indexedCollections=new HashMap<>();
+    private final Map<UUID,List<Map<Object,Object>>> indexedMaps=new HashMap<>();
 
     @SuppressWarnings("unchecked")
     void register(String name, UUID uuid, World world) {
@@ -40,8 +42,24 @@ final class NmsFakePlayerRegistry {
                 Field field=list.getClass().getSuperclass().getDeclaredField("players"); field.setAccessible(true);
                 serverPlayers=(List<Object>)field.get(list);
             }
-            serverPlayers.add(entity); entities.add(entity); uuids.add(uuid); byUuid.put(uuid,entity);
+            if(!serverPlayers.contains(entity))serverPlayers.add(entity);
+            indexPlayer(listObject(server),worldServer,entity,name,uuid);
+            entities.add(entity); uuids.add(uuid); byUuid.put(uuid,entity);
         } catch (ReflectiveOperationException ex) { throw new IllegalStateException("Paper 1.16.5 fake player registration failed",ex); }
+    }
+
+    private Object listObject(Object server)throws ReflectiveOperationException{return server.getClass().getMethod("getPlayerList").invoke(server);}
+
+    @SuppressWarnings("unchecked")
+    private void indexPlayer(Object playerList,Object worldServer,Object entity,String name,UUID uuid)throws IllegalAccessException{
+        List<Object> lists=new ArrayList<>();List<Map<Object,Object>> maps=new ArrayList<>();
+        // CraftBukkit lookup methods and World#getPlayers use additional UUID/name maps and the world's player list.
+        for(Object owner:List.of(playerList,worldServer))for(Class<?> type=owner.getClass();type!=null;type=type.getSuperclass())for(Field field:type.getDeclaredFields()){
+            String generic=field.getGenericType().getTypeName();if(!generic.contains("EntityPlayer")&&!generic.contains("EntityHuman"))continue;field.setAccessible(true);Object value=field.get(owner);
+            if(value instanceof List<?> raw){List<Object> list=(List<Object>)raw;if(!list.contains(entity))list.add(entity);lists.add(list);}
+            else if(value instanceof Map<?,?> raw){Map<Object,Object> map=(Map<Object,Object>)raw;Object key=generic.contains("java.lang.String")?name.toLowerCase(Locale.ROOT):uuid;map.put(key,entity);maps.add(map);}
+        }
+        indexedCollections.put(uuid,lists);indexedMaps.put(uuid,maps);
     }
 
     private void prepareNetwork(Object network) throws ReflectiveOperationException {
@@ -57,6 +75,6 @@ final class NmsFakePlayerRegistry {
     boolean isFake(UUID uuid){return uuids.contains(uuid);}
     org.bukkit.entity.Player player(UUID uuid){Object entity=byUuid.get(uuid);if(entity==null)return null;try{return (org.bukkit.entity.Player)entity.getClass().getMethod("getBukkitEntity").invoke(entity);}catch(Exception ignored){return null;}}
     int size(){return entities.size();}
-    void remove(UUID uuid){Object entity=byUuid.remove(uuid);if(entity!=null){if(serverPlayers!=null)serverPlayers.remove(entity);entities.remove(entity);uuids.remove(uuid);}}
-    void clear(){if(serverPlayers!=null)serverPlayers.removeAll(entities);entities.clear();uuids.clear();byUuid.clear();serverPlayers=null;}
+    void remove(UUID uuid){Object entity=byUuid.remove(uuid);if(entity!=null){if(serverPlayers!=null)serverPlayers.remove(entity);for(List<Object> list:indexedCollections.getOrDefault(uuid,List.of()))list.remove(entity);for(Map<Object,Object> map:indexedMaps.getOrDefault(uuid,List.of()))map.values().removeIf(v->v==entity);indexedCollections.remove(uuid);indexedMaps.remove(uuid);entities.remove(entity);uuids.remove(uuid);}}
+    void clear(){for(UUID uuid:new ArrayList<>(byUuid.keySet()))remove(uuid);entities.clear();uuids.clear();byUuid.clear();indexedCollections.clear();indexedMaps.clear();serverPlayers=null;}
 }
