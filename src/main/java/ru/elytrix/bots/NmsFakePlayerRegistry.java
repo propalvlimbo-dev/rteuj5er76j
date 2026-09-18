@@ -75,6 +75,6 @@ final class NmsFakePlayerRegistry {
     boolean isFake(UUID uuid){return uuids.contains(uuid);}
     org.bukkit.entity.Player player(UUID uuid){Object entity=byUuid.get(uuid);if(entity==null)return null;try{return (org.bukkit.entity.Player)entity.getClass().getMethod("getBukkitEntity").invoke(entity);}catch(Exception ignored){return null;}}
     int size(){return entities.size();}
-    void remove(UUID uuid){Object entity=byUuid.remove(uuid);if(entity!=null){if(serverPlayers!=null)serverPlayers.remove(entity);for(List<Object> list:indexedCollections.getOrDefault(uuid,List.of()))list.remove(entity);for(Map<Object,Object> map:indexedMaps.getOrDefault(uuid,List.of()))map.values().removeIf(v->v==entity);indexedCollections.remove(uuid);indexedMaps.remove(uuid);entities.remove(entity);uuids.remove(uuid);}}
+    void remove(UUID uuid){Object entity=byUuid.remove(uuid);if(entity!=null){if(serverPlayers!=null)serverPlayers.remove(entity);List<Object> lists=indexedCollections.remove(uuid);if(lists!=null)for(Object value:lists)((List<?>)value).remove(entity);List<Map<Object,Object>> maps=indexedMaps.remove(uuid);if(maps!=null)for(Map<Object,Object> map:maps)map.values().removeIf(v->v==entity);entities.remove(entity);uuids.remove(uuid);}}
     void clear(){for(UUID uuid:new ArrayList<>(byUuid.keySet()))remove(uuid);entities.clear();uuids.clear();byUuid.clear();indexedCollections.clear();indexedMaps.clear();serverPlayers=null;}
 }
