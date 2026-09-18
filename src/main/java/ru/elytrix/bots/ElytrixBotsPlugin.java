@@ -14,6 +14,7 @@ import org.bukkit.command.*;
 import org.bukkit.entity.Player;
 import org.bukkit.event.*;
 import org.bukkit.event.player.*;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.server.ServerListPingEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -44,6 +45,9 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private final Map<UUID,User> luckPermsUsers=new java.util.concurrent.ConcurrentHashMap<>();
     private final Set<String> pendingProfiles=java.util.concurrent.ConcurrentHashMap.newKeySet();
     private boolean firstPopulationChange=true;
+    private int styleRefreshTicks;
+    private final Map<String,HitSequence> hitSequences=new HashMap<>();
+    private final Map<UUID,Long> reactionCooldowns=new HashMap<>();
 
     @Override public void onEnable() {
         saveDefaultConfig(); saveResource("bots.yml", false);
@@ -74,6 +78,10 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         if(database!=null)database.close();
     }
 
+    // Зарезервированные профили никогда не разрешены для настоящего сетевого входа.
+    @EventHandler(priority=EventPriority.HIGHEST)
+    public void onPreLogin(AsyncPlayerPreLoginEvent event){for(BotProfile profile:profiles)if(profile.name.equalsIgnoreCase(event.getName())){event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER,"Этот профиль зарезервирован сервером.");return;}}
+
     @EventHandler public void onJoin(PlayerJoinEvent event) {
         if(!registry.isFake(event.getPlayer().getUniqueId()))Bukkit.getScheduler().runTaskLater(this, () -> sendTab(event.getPlayer()), 10L);
     }
@@ -85,9 +93,13 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     @EventHandler public void onRespawn(PlayerRespawnEvent event){
         if(!registry.isFake(event.getPlayer().getUniqueId()))Bukkit.getScheduler().runTaskLater(this,()->sendTab(event.getPlayer()),10L);
     }
-    // ElytrixCore /near измеряет расстояние между разными мирами и падает. Фильтруем мир до выполнения команды.
-    @EventHandler(priority=EventPriority.HIGHEST)
-    public void onNear(PlayerCommandPreprocessEvent event){if(!event.getMessage().equalsIgnoreCase("/near")||active.isEmpty())return;event.setCancelled(true);Player viewer=event.getPlayer();List<String> names=new ArrayList<>();for(Player player:Bukkit.getOnlinePlayers())if(player!=viewer&&player.getWorld().equals(viewer.getWorld())&&!registry.isFake(player.getUniqueId())&&player.getLocation().distanceSquared(viewer.getLocation())<=10000)names.add(player.getName());for(ActiveBot bot:active.values()){Player player=registry.player(bot.player.getUuid());if(player!=null&&player.getWorld().equals(viewer.getWorld())&&player.getLocation().distanceSquared(viewer.getLocation())<=10000)names.add(bot.profile.name);}viewer.sendMessage(elytrix("&#F8BEFBРядом: &f"+(names.isEmpty()?"&7—":String.join("&7, &f",names))));}
+    // Всегда отдаём /near владельцу ElytrixCore, независимо от порядка регистрации Essentials.
+    @EventHandler(priority=EventPriority.LOWEST)
+    public void onNear(PlayerCommandPreprocessEvent event){if(!event.getMessage().equalsIgnoreCase("/near"))return;if(Bukkit.getPluginManager().getPlugin("ElytrixCore")==null)return;event.setCancelled(true);if(!Bukkit.dispatchCommand(event.getPlayer(),"elytrixcore:near"))event.getPlayer().sendMessage(elytrix("&cОшибка: &fкоманда ElytrixCore /near не зарегистрирована."));}
+
+    @EventHandler(ignoreCancelled=true,priority=EventPriority.HIGHEST)
+    public void onBotHit(EntityDamageByEntityEvent event){if(!(event.getDamager() instanceof Player attacker))return;ActiveBot hit=null;for(ActiveBot bot:active.values()){Player entity=registry.player(bot.player.getUuid());if(entity!=null&&entity.getUniqueId().equals(event.getEntity().getUniqueId())){hit=bot;break;}}if(hit==null)return;event.setCancelled(true);long now=System.currentTimeMillis();if(reactionCooldowns.getOrDefault(hit.player.getUuid(),0L)>now)return;String key=attacker.getUniqueId()+":"+hit.profile.name;HitSequence sequence=hitSequences.get(key);if(sequence==null||now-sequence.last>1400)sequence=new HitSequence(now,now);else sequence.last=now;hitSequences.put(key,sequence);if(now-sequence.started<9000)return;hitSequences.remove(key);reactionCooldowns.put(hit.player.getUuid(),now+30000);String[] replies={"чё тебе","хватит","отстань","зачем бьёшь","эй, хорош","тебе заняться нечем?","ну всё, я ушёл","не бей","я афк вообще-то","что надо?"};if(random.nextInt(4)!=0)chat(hit,replies[random.nextInt(replies.length)]);if(hit.moving!=null&&random.nextInt(5)!=0){Point point=randomSafePoint(hit.moving.world);hit.moving.setTarget(point.vector());}}
+    private static final class HitSequence{final long started;long last;HitSequence(long started,long last){this.started=started;this.last=last;}}
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPing(ServerListPingEvent event) {
@@ -173,7 +185,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         String[] tails={""," ахах"," кстати"," реально"," пж","))","!","?"," уже давно"," сегодня"," отвечай"," го вместе"," кто тоже?"," лол"," наконец-то"};
         chat(list.get(random.nextInt(list.size())),starts[random.nextInt(starts.length)]+tails[random.nextInt(tails.length)]);
     }
-    private void chat(ActiveBot bot,String message){Player sender=registry.player(bot.player.getUuid());if(sender!=null)sender.chat(message);}
+    private void chat(ActiveBot bot,String message){Player sender=registry.player(bot.player.getUuid());if(sender!=null)sender.chat(message.startsWith("!")?message:"!"+message);}
 
     private boolean unsafeFloor(Block block){String m=block.getType().name();return m.contains("LEAVES")||m.contains("LOG")||m.contains("CARPET")||m.contains("WATER")||m.contains("LAVA")||m.contains("FENCE")||m.contains("WALL");}
     private long randomMinutes(String path,int fallbackMin,int fallbackMax){int min=getConfig().getInt(path+".min",fallbackMin),max=Math.max(min,getConfig().getInt(path+".max",fallbackMax));return min+random.nextInt(max-min+1);}
@@ -189,6 +201,8 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         return p;
     }
 
+    private void refreshStyles(){if(!Bukkit.getPluginManager().isPluginEnabled("LuckPerms"))return;for(ActiveBot bot:active.values()){User user=luckPermsUsers.get(bot.player.getUuid());if(user==null)continue;String group=user.getPrimaryGroup();teams.remove(bot.profile.name);BotTeamManager.Style style=teams.add(bot.profile.name,group,getConfig().getString("formatting.default-suffix"," &dБЕТА"));String label=style.prefix()+ChatColor.GRAY+bot.profile.name+style.suffix();bot.player.setDisplayName(LegacyComponentSerializer.legacySection().deserialize(label));for(Player viewer:realPlayers())bot.player.sendAddPlayerPacket(viewer);}}
+
     private List<Player> realPlayers() {
         List<Player> result = new ArrayList<>();
         for (Player player : Bukkit.getOnlinePlayers()) if (!registry.isFake(player.getUniqueId())) result.add(player);
@@ -196,7 +210,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     }
 
     private void tick(int ticks) {
-        datasets.tick(); populationTick();
+        datasets.tick(); populationTick();if(++styleRefreshTicks>=50){styleRefreshTicks=0;refreshStyles();}
         // Список зрителей строится один раз на мир, а не отдельно для каждого бота.
         Map<World,Set<Player>> viewersByWorld=new HashMap<>();
         for(Player player:realPlayers())viewersByWorld.computeIfAbsent(player.getWorld(),w->new HashSet<>()).add(player);
