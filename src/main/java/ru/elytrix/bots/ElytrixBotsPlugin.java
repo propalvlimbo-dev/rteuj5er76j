@@ -117,16 +117,17 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         long now=System.currentTimeMillis();
         if(rooyzeeMode&&now>=nextFanMessage&&!active.isEmpty()){sendFanMessage();nextFanMessage=now+(30+random.nextInt(91))*1000L;}
         List<ActiveBot> expired=new ArrayList<>();for(ActiveBot bot:active.values())if(bot.expiresAt<=now)expired.add(bot);for(ActiveBot bot:expired)deactivate(bot);
-        if(now<nextPopulationChange)return;int target=populationTarget();
-        if(firstPopulationChange){if(active.size()<target)activateOne();firstPopulationChange=false;}
-        else if(active.size()<target){activateOne();if(target-active.size()>1&&random.nextInt(4)==0)Bukkit.getScheduler().runTaskLater(this,this::activateOne,40+random.nextInt(161));}
-        else if(active.size()>target&&!active.isEmpty())deactivate(randomActive());
-        else if(!active.isEmpty()&&random.nextInt(7)==0){deactivate(randomActive());Bukkit.getScheduler().runTaskLater(this,this::activateOne,1200+random.nextInt(2401));}
+        if(now<nextPopulationChange)return;int target=populationTarget(),automatic=automaticCount();
+        if(firstPopulationChange){if(automatic<target)activateOne();firstPopulationChange=false;}
+        else if(automatic<target){activateOne();if(target-automatic>1&&random.nextInt(4)==0)Bukkit.getScheduler().runTaskLater(this,this::activateOne,40+random.nextInt(161));}
+        else if(automatic>target){ActiveBot bot=randomAutomatic();if(bot!=null)deactivate(bot);}
+        else if(automatic>0&&random.nextInt(7)==0){ActiveBot bot=randomAutomatic();if(bot!=null)deactivate(bot);Bukkit.getScheduler().runTaskLater(this,this::activateOne,1200+random.nextInt(2401));}
         reconcileVisible();
         // Неровные смешанные изменения онлайна раз в 2–18 минут.
         nextPopulationChange=now+(120+random.nextInt(961))*1000L;
     }
-    private ActiveBot randomActive(){List<ActiveBot> list=new ArrayList<>(active.values());return list.get(random.nextInt(list.size()));}
+    private int automaticCount(){int count=0;for(ActiveBot bot:active.values())if(!bot.manual)count++;return count;}
+    private ActiveBot randomAutomatic(){List<ActiveBot> list=new ArrayList<>();for(ActiveBot bot:active.values())if(!bot.manual)list.add(bot);return list.isEmpty()?null:list.get(random.nextInt(list.size()));}
     private int populationTarget(){
         int real=realPlayers().size();if(real==0)return 2+random.nextInt(3);
         java.time.ZonedDateTime time=java.time.ZonedDateTime.now(java.time.ZoneId.of("Europe/Moscow")).plusMinutes(dailyMinuteJitter);int hour=time.getHour();
@@ -134,12 +135,13 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         return Math.max(1,Math.min(16,(int)Math.round(real*(low+random.nextDouble()*(high-low)))));
     }
     private int visibleTarget(){int real=realPlayers().size();if(real<=3)return Math.min(1,active.size());if(real<=6)return Math.min(2,active.size());return Math.min(3+random.nextInt(2),active.size());}
-    private void reconcileVisible(){int wanted=visibleTarget();while(liveBots.size()>wanted){MovingBot moving=liveBots.remove(liveBots.size()-1);moving.player.tick(Collections.emptySet());for(ActiveBot bot:active.values())if(bot.moving==moving){bot.moving=null;break;}}if(liveBots.size()<wanted){for(ActiveBot bot:active.values())if(bot.moving==null){Player entity=registry.player(bot.player.getUuid());if(entity==null)continue;Point point=randomSafePoint(entity.getWorld());bot.moving=new MovingBot(bot.player,point.world(),point.vector(),3.4+random.nextDouble());liveBots.add(bot.moving);if(liveBots.size()>=wanted)break;}}}
-    private void activateOne(){
-        long now=System.currentTimeMillis();List<BotProfile> available=new ArrayList<>();for(BotProfile p:profiles)if(!active.containsKey(p.name)&&database.cooldown(p.name)<=now)available.add(p);if(available.isEmpty())return;
+    private void reconcileVisible(){int wanted=visibleTarget(),current=0;for(ActiveBot bot:active.values())if(!bot.manual&&bot.moving!=null)current++;while(current>wanted){for(ActiveBot bot:active.values())if(!bot.manual&&bot.moving!=null){liveBots.remove(bot.moving);bot.moving.player.tick(Collections.emptySet());bot.moving=null;current--;break;}}if(current<wanted){for(ActiveBot bot:active.values())if(!bot.manual&&bot.moving==null){Player entity=registry.player(bot.player.getUuid());if(entity==null)continue;Point point=randomSafePoint(entity.getWorld());bot.moving=new MovingBot(bot.player,point.world(),point.vector(),3.4+random.nextDouble());liveBots.add(bot.moving);if(++current>=wanted)break;}}}
+    private void activateOne(){activateOne(false,false);}
+    private boolean activateOne(boolean manual,boolean visible){
+        long now=System.currentTimeMillis();List<BotProfile> available=new ArrayList<>();for(BotProfile p:profiles)if(!active.containsKey(p.name)&&(manual||database.cooldown(p.name)<=now))available.add(p);if(available.isEmpty())return false;
         BotProfile profile=available.get(random.nextInt(available.size()));Location spawn=spawn(null);VirtualPlayer player=create(profile.name,profile.ping,profile.group,spawn.getWorld());player.setPos(vec(spawn));player.setYaw(spawn.getYaw());player.setPitch(spawn.getPitch());player.setOnGround(true);
-        tabBots.add(player);realPlayers().forEach(player::sendAddPlayerPacket);
-        long expires=now+randomMinutes("population.session-minutes",60,360)*60000L;active.put(profile.name,new ActiveBot(profile,player,null,expires));getLogger().info(profile.name+" joined ("+active.size()+" bots online)");
+        tabBots.add(player);realPlayers().forEach(player::sendAddPlayerPacket);MovingBot moving=null;if(visible){Point point=randomSafePoint(spawn.getWorld());moving=new MovingBot(player,spawn.getWorld(),point.vector(),3.4+random.nextDouble());liveBots.add(moving);}
+        long expires=manual?Long.MAX_VALUE:now+randomMinutes("population.session-minutes",60,360)*60000L;active.put(profile.name,new ActiveBot(profile,player,moving,expires,manual));getLogger().info(profile.name+" joined"+(manual?" manually":"")+" ("+active.size()+" bots online)");return true;
     }
     private void deactivate(ActiveBot bot){
         fireQuit(bot.player.getUuid());for(Player viewer:realPlayers()){bot.player.sendRemovePlayerPacket(viewer);}if(bot.moving!=null){bot.player.tick(Collections.emptySet());liveBots.remove(bot.moving);}tabBots.remove(bot.player);registry.remove(bot.player.getUuid());teams.remove(bot.profile.name);User lpUser=luckPermsUsers.remove(bot.player.getUuid());if(lpUser!=null)try{LuckPermsProvider.get().getUserManager().cleanupUser(lpUser);}catch(Exception ignored){}active.remove(bot.profile.name);database.quit(bot.profile.name,System.currentTimeMillis()+randomMinutes("population.profile-cooldown-minutes",120,360)*60000L);getLogger().info(bot.profile.name+" left ("+active.size()+" bots online)");
@@ -166,7 +168,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private boolean unsafeFloor(Block block){String m=block.getType().name();return m.contains("LEAVES")||m.contains("LOG")||m.contains("CARPET")||m.contains("WATER")||m.contains("LAVA")||m.contains("FENCE")||m.contains("WALL");}
     private long randomMinutes(String path,int fallbackMin,int fallbackMax){int min=getConfig().getInt(path+".min",fallbackMin),max=Math.max(min,getConfig().getInt(path+".max",fallbackMax));return min+random.nextInt(max-min+1);}
     private record BotProfile(String name,String group,int ping){}
-    private static final class ActiveBot{final BotProfile profile;final VirtualPlayer player;MovingBot moving;final long expiresAt;ActiveBot(BotProfile p,VirtualPlayer v,MovingBot m,long e){profile=p;player=v;moving=m;expiresAt=e;}}
+    private static final class ActiveBot{final BotProfile profile;final VirtualPlayer player;MovingBot moving;final long expiresAt;final boolean manual;ActiveBot(BotProfile p,VirtualPlayer v,MovingBot m,long e,boolean manual){profile=p;player=v;moving=m;expiresAt=e;this.manual=manual;}}
 
     private VirtualPlayer create(String name, int ping, String group, World registrationWorld) {
         if (name.isBlank() || name.length() > 16) throw new IllegalArgumentException("name must be 1-16 characters");
@@ -211,10 +213,12 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             player.sendMessage(color("&#F8BEFB&l┃ &f/elytrixbots online &7— онлайн"));
             player.sendMessage(color("&#F8BEFB&l┃ &f/elytrixbots rooyzee &7— режим фанатов"));
             player.sendMessage(color("&#F8BEFB&l┃ &f/elytrixbots kick <ник> &7— отключить бота"));
+            player.sendMessage(color("&#F8BEFB&l┃ &f/elytrixbots connect <tab|live> <кол-во> <секунды>"));
             player.sendMessage(color("&#F8BEFB&l┃ &f/elytrixbots dataset &7— запись движений"));return true;
         }
         if(args.length==1&&args[0].equalsIgnoreCase("online")){int real=realPlayers().size(),fake=active.size();player.sendMessage(elytrix("&#F8BEFBОнлайн"));player.sendMessage(color("&#F8BEFB&l┃ &fРеальных: &#F8BEFB"+real));player.sendMessage(color("&#F8BEFB&l┃ &fБотов: &#F8BEFB"+fake));player.sendMessage(color("&#F8BEFB&l┃ &fВсего: &#F8BEFB"+(real+fake)));return true;}
         if(args.length==2&&args[0].equalsIgnoreCase("kick")){ActiveBot found=null;for(ActiveBot bot:active.values())if(bot.profile.name.equalsIgnoreCase(args[1])){found=bot;break;}if(found==null){player.sendMessage(elytrix("&cОшибка: &fбот не найден."));return true;}String name=found.profile.name;deactivate(found);player.sendMessage(elytrix("&aБот отключён: &#F8BEFB"+name));return true;}
+        if(args.length==4&&args[0].equalsIgnoreCase("connect")){boolean live=args[1].equalsIgnoreCase("live");if(!live&&!args[1].equalsIgnoreCase("tab")){player.sendMessage(elytrix("&cОшибка: &fтип должен быть tab или live."));return true;}try{int amount=Integer.parseInt(args[2]);if(amount<1||amount>profiles.size())throw new NumberFormatException();String[] range=args[3].split("-",-1);int min=Integer.parseInt(range[0]),max=range.length==1?min:Integer.parseInt(range[1]);if(range.length>2||min<0||max<min)throw new NumberFormatException();for(int i=0;i<amount;i++){long delay=(min==max?min:min+random.nextInt(max-min+1))*20L;Bukkit.getScheduler().runTaskLater(this,()->activateOne(true,live),delay);}player.sendMessage(elytrix("&aЗапланировано: &#F8BEFB"+amount+" &fботов &7("+min+(min==max?"":"–"+max)+" сек.)"));}catch(NumberFormatException ex){player.sendMessage(elytrix("&cОшибка: &fпример: /elytrixbots connect live 5 10-2000"));}return true;}
         if(args.length==1&&args[0].equalsIgnoreCase("rooyzee")){rooyzeeMode=!rooyzeeMode;nextFanMessage=System.currentTimeMillis()+15000;if(rooyzeeMode)startFanConversation();player.sendMessage(elytrix(rooyzeeMode?"&aРежим фанатов rooyzee включён.":"&cРежим фанатов rooyzee выключен."));return true;}
         if (args.length >= 3 && args[0].equalsIgnoreCase("dataset") && args[1].equalsIgnoreCase("start")) {
             String name=args.length>=4?args[3]:String.valueOf(System.currentTimeMillis()/1000);
@@ -231,7 +235,10 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     }
 
     @Override public List<String> onTabComplete(CommandSender sender,Command command,String alias,String[] args){
-        if(args.length==1)return filter(List.of("online","rooyzee","kick","dataset"),args[0]);
+        if(args.length==1)return filter(List.of("online","rooyzee","connect","kick","dataset"),args[0]);
+        if(args.length==2&&args[0].equalsIgnoreCase("connect"))return filter(List.of("tab","live"),args[1]);
+        if(args.length==3&&args[0].equalsIgnoreCase("connect"))return filter(List.of("1","5","10"),args[2]);
+        if(args.length==4&&args[0].equalsIgnoreCase("connect"))return filter(List.of("0","10","10-2000"),args[3]);
         if(args.length==2&&args[0].equalsIgnoreCase("kick")){List<String> names=new ArrayList<>();for(ActiveBot bot:active.values())names.add(bot.profile.name);return filter(names,args[1]);}
         if(args.length==2&&args[0].equalsIgnoreCase("dataset"))return filter(List.of("start","stop"),args[1]);
         if(args.length==3&&args[0].equalsIgnoreCase("dataset")&&args[1].equalsIgnoreCase("start"))return filter(DatasetManager.TYPES,args[2]);
