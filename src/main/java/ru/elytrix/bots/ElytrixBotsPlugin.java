@@ -85,7 +85,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     @EventHandler public void onRespawn(PlayerRespawnEvent event){
         if(!registry.isFake(event.getPlayer().getUniqueId()))Bukkit.getScheduler().runTaskLater(this,()->sendTab(event.getPlayer()),10L);
     }
-    // NearManager 2.1 измеряет расстояние между разными мирами и падает. Фильтруем мир до выполнения команды.
+    // ElytrixCore /near измеряет расстояние между разными мирами и падает. Фильтруем мир до выполнения команды.
     @EventHandler(priority=EventPriority.HIGHEST)
     public void onNear(PlayerCommandPreprocessEvent event){if(!event.getMessage().equalsIgnoreCase("/near")||active.isEmpty())return;event.setCancelled(true);Player viewer=event.getPlayer();List<String> names=new ArrayList<>();for(Player player:Bukkit.getOnlinePlayers())if(player!=viewer&&player.getWorld().equals(viewer.getWorld())&&!registry.isFake(player.getUniqueId())&&player.getLocation().distanceSquared(viewer.getLocation())<=10000)names.add(player.getName());for(ActiveBot bot:active.values()){Player player=registry.player(bot.player.getUuid());if(player!=null&&player.getWorld().equals(viewer.getWorld())&&player.getLocation().distanceSquared(viewer.getLocation())<=10000)names.add(bot.profile.name);}viewer.sendMessage(elytrix("&#F8BEFBРядом: &f"+(names.isEmpty()?"&7—":String.join("&7, &f",names))));}
 
@@ -143,13 +143,15 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private boolean activateOne(boolean manual,boolean visible){
         long now=System.currentTimeMillis();List<BotProfile> available=new ArrayList<>();for(BotProfile p:profiles)if(!active.containsKey(p.name)&&!pendingProfiles.contains(p.name)&&(manual||database.cooldown(p.name)<=now))available.add(p);if(available.isEmpty())return false;
         BotProfile profile=available.get(random.nextInt(available.size()));pendingProfiles.add(profile.name);Location spawn=spawn(null);VirtualPlayer player=create(profile.name,profile.ping,profile.group,spawn.getWorld());
-        if(Bukkit.getPluginManager().isPluginEnabled("LuckPerms"))try{LuckPerms lp=LuckPermsProvider.get();lp.getUserManager().loadUser(UUID.nameUUIDFromBytes(("OfflinePlayer:"+profile.name).getBytes(java.nio.charset.StandardCharsets.UTF_8)),profile.name).thenAccept(user->{user.data().add(InheritanceNode.builder(profile.group).build());lp.getUserManager().saveUser(user);Bukkit.getScheduler().runTask(this,()->finishActivation(profile,manual,visible,user,player,spawn));}).exceptionally(error->{pendingProfiles.remove(profile.name);teams.remove(profile.name);getLogger().warning("LuckPerms profile failed: "+error.getMessage());return null;});return true;}catch(Exception ignored){}
+        if(Bukkit.getPluginManager().isPluginEnabled("LuckPerms"))try{LuckPerms lp=LuckPermsProvider.get();UUID uuid=UUID.nameUUIDFromBytes(("OfflinePlayer:"+profile.name).getBytes(java.nio.charset.StandardCharsets.UTF_8));lp.getUserManager().savePlayerData(uuid,profile.name).thenCompose(result->lp.getUserManager().loadUser(uuid,profile.name)).thenAccept(user->{user.data().add(InheritanceNode.builder(profile.group).build());lp.getUserManager().saveUser(user);Bukkit.getScheduler().runTask(this,()->finishActivation(profile,manual,visible,user,player,spawn));}).exceptionally(error->{pendingProfiles.remove(profile.name);teams.remove(profile.name);getLogger().warning("LuckPerms profile failed: "+error.getMessage());return null;});return true;}catch(Exception ignored){}
         finishActivation(profile,manual,visible,null,player,spawn);return true;
     }
     private void finishActivation(BotProfile profile,boolean manual,boolean visible,User preparedUser,VirtualPlayer player,Location spawn){
         pendingProfiles.remove(profile.name);if(active.containsKey(profile.name))return;long now=System.currentTimeMillis();player.setPos(vec(spawn));player.setYaw(spawn.getYaw());player.setPitch(spawn.getPitch());player.setOnGround(true);if(preparedUser!=null)luckPermsUsers.put(player.getUuid(),preparedUser);registry.register(profile.name,player.getUuid(),spawn.getWorld());
         registry.position(player.getUuid(),vec(spawn),spawn.getYaw(),spawn.getPitch());tabBots.add(player);realPlayers().forEach(player::sendAddPlayerPacket);MovingBot moving=null;if(visible){Point point=randomSafePoint(spawn.getWorld());moving=new MovingBot(player,spawn.getWorld(),point.vector(),3.4+random.nextDouble());liveBots.add(moving);}
-        long expires=manual?Long.MAX_VALUE:now+randomMinutes("population.session-minutes",60,360)*60000L;active.put(profile.name,new ActiveBot(profile,player,moving,expires,manual));getLogger().info(profile.name+" joined"+(manual?" manually":"")+" ("+active.size()+" bots online)");
+        long expires=manual?Long.MAX_VALUE:now+randomMinutes("population.session-minutes",60,360)*60000L;ActiveBot activated=new ActiveBot(profile,player,moving,expires,manual);active.put(profile.name,activated);getLogger().info(profile.name+" joined"+(manual?" manually":"")+" ("+active.size()+" bots online)");
+        // Временная проверка полного глобального чата после регистрации всех плагинов.
+        Bukkit.getScheduler().runTaskLater(this,()->{if(active.get(profile.name)==activated)chat(activated,"!1");},60L);
     }
     private void deactivate(ActiveBot bot){
         for(Player viewer:realPlayers()){bot.player.sendRemovePlayerPacket(viewer);}if(bot.moving!=null){bot.player.tick(Collections.emptySet());liveBots.remove(bot.moving);}tabBots.remove(bot.player);registry.remove(bot.player.getUuid());teams.remove(bot.profile.name);User lpUser=luckPermsUsers.remove(bot.player.getUuid());if(lpUser!=null)try{LuckPermsProvider.get().getUserManager().cleanupUser(lpUser);}catch(Exception ignored){}active.remove(bot.profile.name);database.quit(bot.profile.name,System.currentTimeMillis()+randomMinutes("population.profile-cooldown-minutes",120,360)*60000L);getLogger().info(bot.profile.name+" left ("+active.size()+" bots online)");
@@ -274,7 +276,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         final VirtualPlayer player; final World world; Vec3d target; final double speed; List<Vec3d> route;
         final double moveFactor=.96+random.nextDouble()*.08,turnFactor=.90+random.nextDouble()*.20;
         final float learnedTurn=datasets.learnedTurnSpeed()*(float)turnFactor;
-        List<DatasetManager.MotionSample> sequence=Collections.emptyList();int frame,idleCooldown,routeIndex,jumpCooldown,stuckTicks,ambientCooldown=100+random.nextInt(301),ambientTicks,spawnDelay=40+random.nextInt(121);boolean arrived,airborneLastTick,ambientJump;double verticalVelocity,airborneStartY,velocityX,velocityZ;float lookYaw,lookPitch,ambientYaw,ambientPitch;double currentPace=1,targetPace=1;int paceTicks;long afkUntil;Vec3d lastProgressPos;
+        List<DatasetManager.MotionSample> sequence=Collections.emptyList();int frame,idleCooldown,routeIndex,jumpCooldown,stuckTicks,ambientCooldown=100+random.nextInt(301),ambientTicks,spawnDelay=40+random.nextInt(121);boolean arrived,airborneLastTick,ambientJump;double verticalVelocity,airborneStartY,velocityX,velocityZ;float lookYaw,lookPitch,ambientYaw,ambientPitch,idleTurnSpeed=3;double currentPace=1,targetPace=1;int paceTicks;long afkUntil;Vec3d lastProgressPos;
         MovingBot(VirtualPlayer p,World w,Vec3d t,double s){player=p;world=w;target=t;speed=Math.max(.1,s);route=GridPathfinder.find(w,p.getPos(),t);lookYaw=p.getYaw();lookPitch=p.getPitch();lastProgressPos=p.getPos();}
         void setTarget(Vec3d next){target=next;route=GridPathfinder.find(world,player.getPos(),target);routeIndex=0;arrived=false;spawnDelay=20+random.nextInt(61);stuckTicks=0;lastProgressPos=player.getPos();}
         DatasetManager.MotionSample next(){if(sequence.isEmpty()){sequence=datasets.randomSequence(random);if(sequence.isEmpty())return null;frame=random.nextInt(sequence.size());}return sequence.get(frame++%sequence.size());}
@@ -331,7 +333,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
                 // Выход из углубления: перестраиваем путь и выполняем один обычный прыжок, если зажаты блоками.
                 route=GridPathfinder.find(world,player.getPos(),target);routeIndex=0;stuckTicks=0;lastProgressPos=player.getPos();
                 Vec3d now=player.getPos();double floor=groundY(now.x,now.y,now.z);
-                if(!Double.isNaN(floor)&&now.y<=floor+.04&&jumpCooldown==0&&realObstacleAhead(now)){verticalVelocity=.42;jumpCooldown=12;}
+                if(!Double.isNaN(floor)&&now.y<=floor+.04&&jumpCooldown==0){verticalVelocity=.42;jumpCooldown=12;}
             }
         }
         void applyPhysics(Vec3d p,double nx,double nz,double seconds){
@@ -349,8 +351,8 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             if(airborneLastTick&&onGround&&!arrived&&airborneStartY-ny>.75){route=GridPathfinder.find(world,new Vec3d(nx,ny,nz),target);routeIndex=0;stuckTicks=0;lastProgressPos=new Vec3d(nx,ny,nz);}
             airborneLastTick=!onGround;
         }
-        void idleBehavior(){smoothLook();if(idleCooldown-->0)return;DatasetManager.MotionSample sample=datasets.idleSample(random);player.setShiftKeyDown(sample.sneak&&random.nextInt(5)==0);player.setSprinting(false);float yaw=sample.yawDelta,pitch=sample.pitchDelta;if(Math.abs(yaw)<1)yaw=-35+random.nextFloat()*70;if(Math.abs(pitch)<1)pitch=-14+random.nextFloat()*28;lookYaw=player.getYaw()+yaw*(float)turnFactor;lookPitch=Math.max(-35,Math.min(35,player.getPitch()+pitch*(float)turnFactor));idleCooldown=30+random.nextInt(151);}
-        void smoothLook(){player.setYaw(approachAngle(player.getYaw(),lookYaw,Math.max(1.5F,learnedTurn*.5F)));player.setPitch(approach(player.getPitch(),lookPitch,2F));}
+        void idleBehavior(){smoothLook();if(idleCooldown-->0)return;DatasetManager.MotionSample sample=datasets.idleSample(random);player.setShiftKeyDown(sample.sneak&&random.nextInt(5)==0);player.setSprinting(false);float yaw=sample.yawDelta,pitch=sample.pitchDelta;if(Math.abs(yaw)<1)yaw=-35+random.nextFloat()*70;if(Math.abs(pitch)<1)pitch=-14+random.nextFloat()*28;lookYaw=player.getYaw()+yaw*(float)turnFactor;lookPitch=Math.max(-35,Math.min(35,player.getPitch()+pitch*(float)turnFactor));idleTurnSpeed=1.5F+random.nextFloat()*10F;idleCooldown=20+random.nextInt(121);}
+        void smoothLook(){float turn=arrived?idleTurnSpeed:Math.max(1.5F,learnedTurn*.5F);player.setYaw(approachAngle(player.getYaw(),lookYaw,turn));player.setPitch(approach(player.getPitch(),lookPitch,arrived?Math.max(1F,idleTurnSpeed*.55F):2F));}
         double approachDouble(double from,double to,double max){return from+Math.max(-max,Math.min(max,to-from));}
         float approach(float from,float to,float max){return from+Math.max(-max,Math.min(max,to-from));}
         float approachAngle(float from,float to,float max){float d=angleDifference(from,to);return from+Math.max(-max,Math.min(max,d));}
