@@ -75,7 +75,15 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     }
 
     @EventHandler public void onJoin(PlayerJoinEvent event) {
-        Bukkit.getScheduler().runTaskLater(this, () -> sendTab(event.getPlayer()), 10L);
+        if(!registry.isFake(event.getPlayer().getUniqueId()))Bukkit.getScheduler().runTaskLater(this, () -> sendTab(event.getPlayer()), 10L);
+    }
+
+    // Смена измерения очищает часть клиентского PlayerInfo. Возвращаем глобальный TAB после respawn-пакета.
+    @EventHandler public void onWorldChange(PlayerChangedWorldEvent event){
+        if(!registry.isFake(event.getPlayer().getUniqueId()))Bukkit.getScheduler().runTaskLater(this,()->sendTab(event.getPlayer()),10L);
+    }
+    @EventHandler public void onRespawn(PlayerRespawnEvent event){
+        if(!registry.isFake(event.getPlayer().getUniqueId()))Bukkit.getScheduler().runTaskLater(this,()->sendTab(event.getPlayer()),10L);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
