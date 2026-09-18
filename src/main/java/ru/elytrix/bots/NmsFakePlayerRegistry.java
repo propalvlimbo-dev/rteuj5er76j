@@ -33,18 +33,13 @@ final class NmsFakePlayerRegistry {
             Object clientbound=Arrays.stream(direction.getEnumConstants()).filter(v->v.toString().equals("CLIENTBOUND")).findFirst().orElseThrow();
             Object network=networkType.getConstructor(direction).newInstance(clientbound);
             prepareNetwork(network);
-            Class<?> connectionType=Class.forName(nms+"PlayerConnection");
-            Object connection=connectionType.getConstructor(mc,networkType,entityPlayer).newInstance(server,network,entity);
-            entityPlayer.getField("playerConnection").set(entity,connection);
-
-            if(serverPlayers==null){
-                Object list=mc.getMethod("getPlayerList").invoke(server);
-                Field field=list.getClass().getSuperclass().getDeclaredField("players"); field.setAccessible(true);
-                serverPlayers=(List<Object>)field.get(list);
-            }
-            if(!serverPlayers.contains(entity))serverPlayers.add(entity);
-            indexPlayer(listObject(server),worldServer,entity,name,uuid);
-            entities.add(entity); uuids.add(uuid); byUuid.put(uuid,entity);
+            // Скрытый NMS-двойник проходит штатную серверную процедуру входа; VirtualPlayer рисует тело.
+            entity.getClass().getMethod("setInvisible",boolean.class).invoke(entity,true);
+            Object list=listObject(server);entities.add(entity);uuids.add(uuid);byUuid.put(uuid,entity);
+            Method place=list.getClass().getMethod("a",networkType,entityPlayer);
+            place.invoke(list,network,entity);
+            if(serverPlayers==null){Field field=list.getClass().getSuperclass().getDeclaredField("players");field.setAccessible(true);serverPlayers=(List<Object>)field.get(list);}
+            indexPlayer(list,worldServer,entity,name,uuid);
         } catch (ReflectiveOperationException ex) { throw new IllegalStateException("Paper 1.16.5 fake player registration failed",ex); }
     }
 
@@ -72,9 +67,10 @@ final class NmsFakePlayerRegistry {
         }
     }
 
+    void position(UUID uuid,org.by1337.blib.geom.Vec3d pos,float yaw,float pitch){Object entity=byUuid.get(uuid);if(entity==null)return;try{entity.getClass().getMethod("setPositionRotation",double.class,double.class,double.class,float.class,float.class).invoke(entity,pos.x,pos.y,pos.z,yaw,pitch);}catch(Exception ignored){}}
     boolean isFake(UUID uuid){return uuids.contains(uuid);}
     org.bukkit.entity.Player player(UUID uuid){Object entity=byUuid.get(uuid);if(entity==null)return null;try{return (org.bukkit.entity.Player)entity.getClass().getMethod("getBukkitEntity").invoke(entity);}catch(Exception ignored){return null;}}
     int size(){return entities.size();}
-    void remove(UUID uuid){Object entity=byUuid.remove(uuid);if(entity!=null){if(serverPlayers!=null)serverPlayers.remove(entity);List<Object> lists=indexedCollections.remove(uuid);if(lists!=null)for(Object value:lists)((List<?>)value).remove(entity);List<Map<Object,Object>> maps=indexedMaps.remove(uuid);if(maps!=null)for(Map<Object,Object> map:maps)map.values().removeIf(v->v==entity);entities.remove(entity);uuids.remove(uuid);}}
+    void remove(UUID uuid){Object entity=byUuid.remove(uuid);if(entity!=null){try{entity.getClass().getMethod("die").invoke(entity);}catch(Exception ignored){}if(serverPlayers!=null)serverPlayers.remove(entity);List<Object> lists=indexedCollections.remove(uuid);if(lists!=null)for(Object value:lists)((List<?>)value).remove(entity);List<Map<Object,Object>> maps=indexedMaps.remove(uuid);if(maps!=null)for(Map<Object,Object> map:maps)map.values().removeIf(v->v==entity);entities.remove(entity);uuids.remove(uuid);}}
     void clear(){for(UUID uuid:new ArrayList<>(byUuid.keySet()))remove(uuid);entities.clear();uuids.clear();byUuid.clear();indexedCollections.clear();indexedMaps.clear();serverPlayers=null;}
 }

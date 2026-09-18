@@ -42,7 +42,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private boolean rooyzeeMode;
     private long nextFanMessage;
     private final Map<UUID,User> luckPermsUsers=new java.util.concurrent.ConcurrentHashMap<>();
-    private final Set<UUID> joinedEvents=java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final Set<String> pendingProfiles=java.util.concurrent.ConcurrentHashMap.newKeySet();
     private boolean firstPopulationChange=true;
 
     @Override public void onEnable() {
@@ -138,13 +138,18 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private void reconcileVisible(){int wanted=visibleTarget(),current=0;for(ActiveBot bot:active.values())if(!bot.manual&&bot.moving!=null)current++;while(current>wanted){for(ActiveBot bot:active.values())if(!bot.manual&&bot.moving!=null){liveBots.remove(bot.moving);bot.moving.player.tick(Collections.emptySet());bot.moving=null;current--;break;}}if(current<wanted){for(ActiveBot bot:active.values())if(!bot.manual&&bot.moving==null){Player entity=registry.player(bot.player.getUuid());if(entity==null)continue;Point point=randomSafePoint(entity.getWorld());bot.moving=new MovingBot(bot.player,point.world(),point.vector(),3.4+random.nextDouble());liveBots.add(bot.moving);if(++current>=wanted)break;}}}
     private void activateOne(){activateOne(false,false);}
     private boolean activateOne(boolean manual,boolean visible){
-        long now=System.currentTimeMillis();List<BotProfile> available=new ArrayList<>();for(BotProfile p:profiles)if(!active.containsKey(p.name)&&(manual||database.cooldown(p.name)<=now))available.add(p);if(available.isEmpty())return false;
-        BotProfile profile=available.get(random.nextInt(available.size()));Location spawn=spawn(null);VirtualPlayer player=create(profile.name,profile.ping,profile.group,spawn.getWorld());player.setPos(vec(spawn));player.setYaw(spawn.getYaw());player.setPitch(spawn.getPitch());player.setOnGround(true);
-        tabBots.add(player);realPlayers().forEach(player::sendAddPlayerPacket);MovingBot moving=null;if(visible){Point point=randomSafePoint(spawn.getWorld());moving=new MovingBot(player,spawn.getWorld(),point.vector(),3.4+random.nextDouble());liveBots.add(moving);}
-        long expires=manual?Long.MAX_VALUE:now+randomMinutes("population.session-minutes",60,360)*60000L;active.put(profile.name,new ActiveBot(profile,player,moving,expires,manual));getLogger().info(profile.name+" joined"+(manual?" manually":"")+" ("+active.size()+" bots online)");return true;
+        long now=System.currentTimeMillis();List<BotProfile> available=new ArrayList<>();for(BotProfile p:profiles)if(!active.containsKey(p.name)&&!pendingProfiles.contains(p.name)&&(manual||database.cooldown(p.name)<=now))available.add(p);if(available.isEmpty())return false;
+        BotProfile profile=available.get(random.nextInt(available.size()));pendingProfiles.add(profile.name);Location spawn=spawn(null);VirtualPlayer player=create(profile.name,profile.ping,profile.group,spawn.getWorld());
+        if(Bukkit.getPluginManager().isPluginEnabled("LuckPerms"))try{LuckPerms lp=LuckPermsProvider.get();lp.getUserManager().loadUser(player.getUuid(),profile.name).thenAccept(user->{user.data().add(InheritanceNode.builder(profile.group).build());lp.getUserManager().saveUser(user);Bukkit.getScheduler().runTask(this,()->finishActivation(profile,manual,visible,user,player,spawn));}).exceptionally(error->{pendingProfiles.remove(profile.name);teams.remove(profile.name);getLogger().warning("LuckPerms profile failed: "+error.getMessage());return null;});return true;}catch(Exception ignored){}
+        finishActivation(profile,manual,visible,null,player,spawn);return true;
+    }
+    private void finishActivation(BotProfile profile,boolean manual,boolean visible,User preparedUser,VirtualPlayer player,Location spawn){
+        pendingProfiles.remove(profile.name);if(active.containsKey(profile.name))return;long now=System.currentTimeMillis();player.setPos(vec(spawn));player.setYaw(spawn.getYaw());player.setPitch(spawn.getPitch());player.setOnGround(true);if(preparedUser!=null)luckPermsUsers.put(player.getUuid(),preparedUser);registry.register(profile.name,player.getUuid(),spawn.getWorld());
+        registry.position(player.getUuid(),vec(spawn),spawn.getYaw(),spawn.getPitch());tabBots.add(player);realPlayers().forEach(player::sendAddPlayerPacket);MovingBot moving=null;if(visible){Point point=randomSafePoint(spawn.getWorld());moving=new MovingBot(player,spawn.getWorld(),point.vector(),3.4+random.nextDouble());liveBots.add(moving);}
+        long expires=manual?Long.MAX_VALUE:now+randomMinutes("population.session-minutes",60,360)*60000L;active.put(profile.name,new ActiveBot(profile,player,moving,expires,manual));getLogger().info(profile.name+" joined"+(manual?" manually":"")+" ("+active.size()+" bots online)");
     }
     private void deactivate(ActiveBot bot){
-        fireQuit(bot.player.getUuid());for(Player viewer:realPlayers()){bot.player.sendRemovePlayerPacket(viewer);}if(bot.moving!=null){bot.player.tick(Collections.emptySet());liveBots.remove(bot.moving);}tabBots.remove(bot.player);registry.remove(bot.player.getUuid());teams.remove(bot.profile.name);User lpUser=luckPermsUsers.remove(bot.player.getUuid());if(lpUser!=null)try{LuckPermsProvider.get().getUserManager().cleanupUser(lpUser);}catch(Exception ignored){}active.remove(bot.profile.name);database.quit(bot.profile.name,System.currentTimeMillis()+randomMinutes("population.profile-cooldown-minutes",120,360)*60000L);getLogger().info(bot.profile.name+" left ("+active.size()+" bots online)");
+        for(Player viewer:realPlayers()){bot.player.sendRemovePlayerPacket(viewer);}if(bot.moving!=null){bot.player.tick(Collections.emptySet());liveBots.remove(bot.moving);}tabBots.remove(bot.player);registry.remove(bot.player.getUuid());teams.remove(bot.profile.name);User lpUser=luckPermsUsers.remove(bot.player.getUuid());if(lpUser!=null)try{LuckPermsProvider.get().getUserManager().cleanupUser(lpUser);}catch(Exception ignored){}active.remove(bot.profile.name);database.quit(bot.profile.name,System.currentTimeMillis()+randomMinutes("population.profile-cooldown-minutes",120,360)*60000L);getLogger().info(bot.profile.name+" left ("+active.size()+" bots online)");
     }
     private Point randomSafePoint(World world){
         for(int attempt=0;attempt<80;attempt++){double centerX=getConfig().getDouble("population.region.center-x",30),centerZ=getConfig().getDouble("population.region.center-z",9),radius=Math.min(30,getConfig().getDouble("population.region.radius",30));double x=centerX+(random.nextDouble()*2-1)*radius,z=centerZ+(random.nextDouble()*2-1)*radius;for(int y=Math.min(world.getMaxHeight()-2,world.getHighestBlockYAt((int)x,(int)z)+1);y>world.getMinHeight();y--){Block floor=world.getBlockAt((int)Math.floor(x),y-1,(int)Math.floor(z));if(!floor.isPassable()&&!unsafeFloor(floor)&&world.getBlockAt((int)x,y,(int)z).isPassable()&&world.getBlockAt((int)x,y+1,(int)z).isPassable())return new Point(world,x+.5,y,z+.5,0,0);}}
@@ -173,23 +178,11 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private VirtualPlayer create(String name, int ping, String group, World registrationWorld) {
         if (name.isBlank() || name.length() > 16) throw new IllegalArgumentException("name must be 1-16 characters");
         VirtualPlayer p = VirtualPlayer.create(); p.setName(name); p.setLatency(Math.max(0, ping)); p.setGameMode(GameMode.SURVIVAL);
-        boolean luckPerms=Bukkit.getPluginManager().isPluginEnabled("LuckPerms");
-        if(luckPerms){
-            try {
-                LuckPerms lp = LuckPermsProvider.get();
-                // Держим LuckPerms User загруженным всё время сессии: TAB, Essentials и ElytrixChat видят группу.
-                lp.getUserManager().loadUser(p.getUuid(),name).thenAccept(user->{user.data().add(InheritanceNode.builder(group).build());luckPermsUsers.put(p.getUuid(),user);lp.getUserManager().saveUser(user);Bukkit.getScheduler().runTask(this,()->fireJoin(p.getUuid()));});
-            } catch (Exception ex) { getLogger().warning("LuckPerms hook failed for " + name + ": " + ex.getMessage()); }
-        }
         BotTeamManager.Style style=teams.add(name, group, getConfig().getString("formatting.default-suffix", " &dБЕТА"));
         String label=style.prefix()+ChatColor.GRAY+name+style.suffix();
         p.setDisplayName(LegacyComponentSerializer.legacySection().deserialize(label));
-        registry.register(name, p.getUuid(), registrationWorld);
-        if(!luckPerms)Bukkit.getScheduler().runTask(this,()->fireJoin(p.getUuid()));
         return p;
     }
-    private void fireJoin(UUID uuid){Player player=registry.player(uuid);if(player==null||!joinedEvents.add(uuid))return;PlayerJoinEvent event=new PlayerJoinEvent(player,(String)null);Bukkit.getPluginManager().callEvent(event);}
-    private void fireQuit(UUID uuid){Player player=registry.player(uuid);if(player==null||!joinedEvents.remove(uuid))return;PlayerQuitEvent event=new PlayerQuitEvent(player,(String)null);Bukkit.getPluginManager().callEvent(event);}
 
     private List<Player> realPlayers() {
         List<Player> result = new ArrayList<>();
@@ -202,7 +195,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         // Список зрителей строится один раз на мир, а не отдельно для каждого бота.
         Map<World,Set<Player>> viewersByWorld=new HashMap<>();
         for(Player player:realPlayers())viewersByWorld.computeIfAbsent(player.getWorld(),w->new HashSet<>()).add(player);
-        for(MovingBot b:liveBots){b.move(ticks/20D);b.player.tick(viewersByWorld.getOrDefault(b.world,Collections.emptySet()));}
+        for(MovingBot b:liveBots){b.move(ticks/20D);registry.position(b.player.getUuid(),b.player.getPos(),b.player.getYaw(),b.player.getPitch());b.player.tick(viewersByWorld.getOrDefault(b.world,Collections.emptySet()));}
     }
 
     @Override public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
