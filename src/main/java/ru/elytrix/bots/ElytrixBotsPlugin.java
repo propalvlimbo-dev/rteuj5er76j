@@ -85,6 +85,9 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     @EventHandler public void onRespawn(PlayerRespawnEvent event){
         if(!registry.isFake(event.getPlayer().getUniqueId()))Bukkit.getScheduler().runTaskLater(this,()->sendTab(event.getPlayer()),10L);
     }
+    // NearManager 2.1 измеряет расстояние между разными мирами и падает. Фильтруем мир до выполнения команды.
+    @EventHandler(priority=EventPriority.HIGHEST)
+    public void onNear(PlayerCommandPreprocessEvent event){if(!event.getMessage().equalsIgnoreCase("/near")||active.isEmpty())return;event.setCancelled(true);Player viewer=event.getPlayer();List<String> names=new ArrayList<>();for(Player player:Bukkit.getOnlinePlayers())if(player!=viewer&&player.getWorld().equals(viewer.getWorld())&&!registry.isFake(player.getUniqueId())&&player.getLocation().distanceSquared(viewer.getLocation())<=10000)names.add(player.getName());for(ActiveBot bot:active.values()){Player player=registry.player(bot.player.getUuid());if(player!=null&&player.getWorld().equals(viewer.getWorld())&&player.getLocation().distanceSquared(viewer.getLocation())<=10000)names.add(bot.profile.name);}viewer.sendMessage(elytrix("&#F8BEFBРядом: &f"+(names.isEmpty()?"&7—":String.join("&7, &f",names))));}
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPing(ServerListPingEvent event) {
@@ -102,10 +105,10 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
 
     private void ensureProfiles() {
         ConfigurationSection section=bots.getConfigurationSection("profiles");
-        if(section==null||bots.getInt("profiles-version",0)<4){
-            bots.set("profiles",null);bots.set("profiles-version",4);
+        if(section==null||bots.getInt("profiles-version",0)<5){
+            bots.set("profiles",null);bots.set("profiles-version",5);
             String raw="kavol,Grom,Be1ka,peacherrka,Dimon4ik,Batmen,Arbuzer,Grizz1y,Kosmos,Legion,Rekrut,Shaman,SunnyOne,foxiee,northside,KotBegemot,JustMaks,tihohod,redstonekid,Keksik,oldminer,WaterLime,Neonix,Timoxa,Dan4ik,Kirito,GoodBoi,StalkerX,Angel05,Bober,Poisoned,Arbuzzz,FreshMan,Bratishka,WindyWay,Quasar,Lunatik,ZloyKot,Dobryak,KapitanX,Spartak,PixelMan,Monolit,Faraon,Bambuk,Severok,Reactor,Marmelad,KingSize,LuckyMan,Fastik,Medvedik,Omega7,SilentGuy,Geroy,Novichok,Knyaz,BlackFox,OrangeJuice,Kompotik,MrRobot,PlayerOne,Snowman,Raketa,Karasik,Som,Voron,Orlan,Sapsan,Baron77,Shustriy,Umnik,Molniya,Tornado,Sahara,Atlant,OrionSky,SaturnX,Marsik,KosmosKid,Avatar,Partizan,Majorik,MasterX,levsha,NoNameYet,Skif4ik,NorthWind,Kaktus,Pyatnica,Romashka,Fantik,ChillGuy,IceTea,Enotik,DarkSoul,Akula,Toporik,Samurai,Pechenka,Drakon,Cheburek,Viking,Almazik,Baton,Pluton,Marik,YaProstoYa,TurboMax,Milashka,Kriperok,EnderFox,MrSova,Lisiy,Maxwell,Deffo4ka,Volk13,AlexRus,Steve228,FoxyMine,NikitaGG,FridayMood,RedMoon,BlueBerry,GreenTea,SmallBee,BigBoss,notfound,whoami,maybealex,ordinaryguy,cloudnine,rainyday,afterdark,midnight,lowping,coffeepls,TeaMaster,one_more,zerohero,aspen,cedrik,juniper,riverstone,softwind,wildmint,graywolf,tinyfox,lostsignal,quietstep,randomguest,localman,faraway,woodenaxe,stonepick,diamondless,craftycat,sleepyowl,earlybird,lateplayer,moonwalker,sunflower,blackcoffee,mintcookie,hotpepper,coldwater,greenapple,redpanda,bluewhale,smallplanet,justhuman";
-            String[] names=raw.split(",");int id=0;for(String name:names){String key=String.format("bot%03d",++id);bots.set("profiles."+key+".name",name);bots.set("profiles."+key+".group","default");bots.set("profiles."+key+".ping",25+random.nextInt(100));}
+            String[] names=raw.split(",");int id=0;for(String name:names){id++;if(id%6==0&&!name.matches(".*\\d.*")&&name.length()<13)name+=10+random.nextInt(990);String key=String.format("bot%03d",id);bots.set("profiles."+key+".name",name);bots.set("profiles."+key+".group","default");bots.set("profiles."+key+".ping",25+random.nextInt(100));}
             try{bots.save(new File(getDataFolder(),"bots.yml"));}catch(Exception ex){getLogger().warning("Cannot save profiles: "+ex.getMessage());}
             section=bots.getConfigurationSection("profiles");
         }
@@ -140,7 +143,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private boolean activateOne(boolean manual,boolean visible){
         long now=System.currentTimeMillis();List<BotProfile> available=new ArrayList<>();for(BotProfile p:profiles)if(!active.containsKey(p.name)&&!pendingProfiles.contains(p.name)&&(manual||database.cooldown(p.name)<=now))available.add(p);if(available.isEmpty())return false;
         BotProfile profile=available.get(random.nextInt(available.size()));pendingProfiles.add(profile.name);Location spawn=spawn(null);VirtualPlayer player=create(profile.name,profile.ping,profile.group,spawn.getWorld());
-        if(Bukkit.getPluginManager().isPluginEnabled("LuckPerms"))try{LuckPerms lp=LuckPermsProvider.get();lp.getUserManager().loadUser(player.getUuid(),profile.name).thenAccept(user->{user.data().add(InheritanceNode.builder(profile.group).build());lp.getUserManager().saveUser(user);Bukkit.getScheduler().runTask(this,()->finishActivation(profile,manual,visible,user,player,spawn));}).exceptionally(error->{pendingProfiles.remove(profile.name);teams.remove(profile.name);getLogger().warning("LuckPerms profile failed: "+error.getMessage());return null;});return true;}catch(Exception ignored){}
+        if(Bukkit.getPluginManager().isPluginEnabled("LuckPerms"))try{LuckPerms lp=LuckPermsProvider.get();lp.getUserManager().loadUser(UUID.nameUUIDFromBytes(("OfflinePlayer:"+profile.name).getBytes(java.nio.charset.StandardCharsets.UTF_8)),profile.name).thenAccept(user->{user.data().add(InheritanceNode.builder(profile.group).build());lp.getUserManager().saveUser(user);Bukkit.getScheduler().runTask(this,()->finishActivation(profile,manual,visible,user,player,spawn));}).exceptionally(error->{pendingProfiles.remove(profile.name);teams.remove(profile.name);getLogger().warning("LuckPerms profile failed: "+error.getMessage());return null;});return true;}catch(Exception ignored){}
         finishActivation(profile,manual,visible,null,player,spawn);return true;
     }
     private void finishActivation(BotProfile profile,boolean manual,boolean visible,User preparedUser,VirtualPlayer player,Location spawn){
@@ -346,7 +349,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
             if(airborneLastTick&&onGround&&!arrived&&airborneStartY-ny>.75){route=GridPathfinder.find(world,new Vec3d(nx,ny,nz),target);routeIndex=0;stuckTicks=0;lastProgressPos=new Vec3d(nx,ny,nz);}
             airborneLastTick=!onGround;
         }
-        void idleBehavior(){smoothLook();if(idleCooldown-->0)return;DatasetManager.MotionSample sample=datasets.idleSample(random);player.setShiftKeyDown(sample.sneak&&random.nextInt(5)==0);player.setSprinting(false);float yaw=sample.yawDelta,pitch=sample.pitchDelta;if(Math.abs(yaw)<1)yaw=-35+random.nextFloat()*70;if(Math.abs(pitch)<1)pitch=-14+random.nextFloat()*28;lookYaw=player.getYaw()+yaw*(float)turnFactor;lookPitch=Math.max(-35,Math.min(35,player.getPitch()+pitch*(float)turnFactor));idleCooldown=100+random.nextInt(501);}
+        void idleBehavior(){smoothLook();if(idleCooldown-->0)return;DatasetManager.MotionSample sample=datasets.idleSample(random);player.setShiftKeyDown(sample.sneak&&random.nextInt(5)==0);player.setSprinting(false);float yaw=sample.yawDelta,pitch=sample.pitchDelta;if(Math.abs(yaw)<1)yaw=-35+random.nextFloat()*70;if(Math.abs(pitch)<1)pitch=-14+random.nextFloat()*28;lookYaw=player.getYaw()+yaw*(float)turnFactor;lookPitch=Math.max(-35,Math.min(35,player.getPitch()+pitch*(float)turnFactor));idleCooldown=30+random.nextInt(151);}
         void smoothLook(){player.setYaw(approachAngle(player.getYaw(),lookYaw,Math.max(1.5F,learnedTurn*.5F)));player.setPitch(approach(player.getPitch(),lookPitch,2F));}
         double approachDouble(double from,double to,double max){return from+Math.max(-max,Math.min(max,to-from));}
         float approach(float from,float to,float max){return from+Math.max(-max,Math.min(max,to-from));}

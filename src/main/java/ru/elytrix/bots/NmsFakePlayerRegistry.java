@@ -14,6 +14,7 @@ final class NmsFakePlayerRegistry {
     private final List<Object> entities = new ArrayList<>();
     private final Set<UUID> uuids = new HashSet<>();
     private final Map<UUID,Object> byUuid = new HashMap<>();
+    private final Map<UUID,UUID> serverUuids=new HashMap<>();
     private List<Object> serverPlayers;
     private final Map<UUID,List<Object>> indexedCollections=new HashMap<>();
     private final Map<UUID,List<Map<Object,Object>>> indexedMaps=new HashMap<>();
@@ -27,7 +28,8 @@ final class NmsFakePlayerRegistry {
             Class<?> mc = Class.forName(nms+"MinecraftServer"), ws=Class.forName(nms+"WorldServer");
             Class<?> interact=Class.forName(nms+"PlayerInteractManager"), entityPlayer=Class.forName(nms+"EntityPlayer");
             Object manager=interact.getConstructor(ws).newInstance(worldServer);
-            Object entity=entityPlayer.getConstructor(mc,ws,GameProfile.class,interact).newInstance(server,worldServer,new GameProfile(uuid,name),manager);
+            UUID serverUuid=UUID.nameUUIDFromBytes(("OfflinePlayer:"+name).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            Object entity=entityPlayer.getConstructor(mc,ws,GameProfile.class,interact).newInstance(server,worldServer,new GameProfile(serverUuid,name),manager);
 
             Class<?> direction=Class.forName(nms+"EnumProtocolDirection"), networkType=Class.forName(nms+"NetworkManager");
             Object clientbound=Arrays.stream(direction.getEnumConstants()).filter(v->v.toString().equals("CLIENTBOUND")).findFirst().orElseThrow();
@@ -35,11 +37,11 @@ final class NmsFakePlayerRegistry {
             prepareNetwork(network);
             // Скрытый NMS-двойник проходит штатную серверную процедуру входа; VirtualPlayer рисует тело.
             entity.getClass().getMethod("setInvisible",boolean.class).invoke(entity,true);
-            Object list=listObject(server);entities.add(entity);uuids.add(uuid);byUuid.put(uuid,entity);
+            Object list=listObject(server);entities.add(entity);uuids.add(uuid);uuids.add(serverUuid);byUuid.put(uuid,entity);serverUuids.put(uuid,serverUuid);
             Method place=list.getClass().getMethod("a",networkType,entityPlayer);
             place.invoke(list,network,entity);
             if(serverPlayers==null){Field field=list.getClass().getSuperclass().getDeclaredField("players");field.setAccessible(true);serverPlayers=(List<Object>)field.get(list);}
-            indexPlayer(list,worldServer,entity,name,uuid);
+            indexPlayer(list,worldServer,entity,name,serverUuid);indexedCollections.put(uuid,indexedCollections.remove(serverUuid));indexedMaps.put(uuid,indexedMaps.remove(serverUuid));
         } catch (ReflectiveOperationException ex) { throw new IllegalStateException("Paper 1.16.5 fake player registration failed",ex); }
     }
 
@@ -71,6 +73,6 @@ final class NmsFakePlayerRegistry {
     boolean isFake(UUID uuid){return uuids.contains(uuid);}
     org.bukkit.entity.Player player(UUID uuid){Object entity=byUuid.get(uuid);if(entity==null)return null;try{return (org.bukkit.entity.Player)entity.getClass().getMethod("getBukkitEntity").invoke(entity);}catch(Exception ignored){return null;}}
     int size(){return entities.size();}
-    void remove(UUID uuid){Object entity=byUuid.remove(uuid);if(entity!=null){try{entity.getClass().getMethod("die").invoke(entity);}catch(Exception ignored){}if(serverPlayers!=null)serverPlayers.remove(entity);List<Object> lists=indexedCollections.remove(uuid);if(lists!=null)for(Object value:lists)((List<?>)value).remove(entity);List<Map<Object,Object>> maps=indexedMaps.remove(uuid);if(maps!=null)for(Map<Object,Object> map:maps)map.values().removeIf(v->v==entity);entities.remove(entity);uuids.remove(uuid);}}
-    void clear(){for(UUID uuid:new ArrayList<>(byUuid.keySet()))remove(uuid);entities.clear();uuids.clear();byUuid.clear();indexedCollections.clear();indexedMaps.clear();serverPlayers=null;}
+    void remove(UUID uuid){Object entity=byUuid.remove(uuid);if(entity!=null){try{entity.getClass().getMethod("die").invoke(entity);}catch(Exception ignored){}if(serverPlayers!=null)serverPlayers.remove(entity);List<Object> lists=indexedCollections.remove(uuid);if(lists!=null)for(Object value:lists)((List<?>)value).remove(entity);List<Map<Object,Object>> maps=indexedMaps.remove(uuid);if(maps!=null)for(Map<Object,Object> map:maps)map.values().removeIf(v->v==entity);entities.remove(entity);uuids.remove(uuid);UUID serverUuid=serverUuids.remove(uuid);if(serverUuid!=null)uuids.remove(serverUuid);}}
+    void clear(){for(UUID uuid:new ArrayList<>(byUuid.keySet()))remove(uuid);entities.clear();uuids.clear();byUuid.clear();indexedCollections.clear();indexedMaps.clear();serverUuids.clear();serverPlayers=null;}
 }
