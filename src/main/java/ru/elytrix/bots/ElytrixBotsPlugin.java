@@ -22,7 +22,11 @@ import org.bukkit.util.BoundingBox;
 import org.by1337.blib.geom.Vec3d;
 
 import java.io.File;
+import java.lang.reflect.Field;
 import java.util.*;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelDuplexHandler;
+import io.netty.channel.ChannelHandlerContext;
 
 public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, CommandExecutor, TabCompleter {
     private final List<VirtualPlayer> tabBots = new ArrayList<>();
@@ -48,6 +52,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private int styleRefreshTicks;
     private final Map<String,HitSequence> hitSequences=new HashMap<>();
     private final Map<UUID,Long> reactionCooldowns=new HashMap<>();
+    private final Map<UUID,String> displayedGroups=new HashMap<>();
 
     @Override public void onEnable() {
         saveDefaultConfig(); saveResource("bots.yml", false);
@@ -83,8 +88,9 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     public void onPreLogin(AsyncPlayerPreLoginEvent event){for(BotProfile profile:profiles)if(profile.name.equalsIgnoreCase(event.getName())){event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER,"Этот профиль зарезервирован сервером.");return;}}
 
     @EventHandler public void onJoin(PlayerJoinEvent event) {
-        if(!registry.isFake(event.getPlayer().getUniqueId()))Bukkit.getScheduler().runTaskLater(this, () -> sendTab(event.getPlayer()), 10L);
+        if(!registry.isFake(event.getPlayer().getUniqueId()))Bukkit.getScheduler().runTaskLater(this, () -> {sendTab(event.getPlayer());installInteractionHook(event.getPlayer());},10L);
     }
+    @EventHandler public void onQuit(PlayerQuitEvent event){removeInteractionHook(event.getPlayer());}
 
     // Смена измерения очищает часть клиентского PlayerInfo. Возвращаем глобальный TAB после respawn-пакета.
     @EventHandler public void onWorldChange(PlayerChangedWorldEvent event){
@@ -93,13 +99,14 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     @EventHandler public void onRespawn(PlayerRespawnEvent event){
         if(!registry.isFake(event.getPlayer().getUniqueId()))Bukkit.getScheduler().runTaskLater(this,()->sendTab(event.getPlayer()),10L);
     }
-    // Всегда отдаём /near владельцу ElytrixCore, независимо от порядка регистрации Essentials.
-    @EventHandler(priority=EventPriority.LOWEST)
-    public void onNear(PlayerCommandPreprocessEvent event){if(!event.getMessage().equalsIgnoreCase("/near"))return;if(Bukkit.getPluginManager().getPlugin("ElytrixCore")==null)return;event.setCancelled(true);if(!Bukkit.dispatchCommand(event.getPlayer(),"elytrixcore:near"))event.getPlayer().sendMessage(elytrix("&cОшибка: &fкоманда ElytrixCore /near не зарегистрирована."));}
-
     @EventHandler(ignoreCancelled=true,priority=EventPriority.HIGHEST)
-    public void onBotHit(EntityDamageByEntityEvent event){if(!(event.getDamager() instanceof Player attacker))return;ActiveBot hit=null;for(ActiveBot bot:active.values()){Player entity=registry.player(bot.player.getUuid());if(entity!=null&&entity.getUniqueId().equals(event.getEntity().getUniqueId())){hit=bot;break;}}if(hit==null)return;event.setCancelled(true);long now=System.currentTimeMillis();if(reactionCooldowns.getOrDefault(hit.player.getUuid(),0L)>now)return;String key=attacker.getUniqueId()+":"+hit.profile.name;HitSequence sequence=hitSequences.get(key);if(sequence==null||now-sequence.last>1400)sequence=new HitSequence(now,now);else sequence.last=now;hitSequences.put(key,sequence);if(now-sequence.started<9000)return;hitSequences.remove(key);reactionCooldowns.put(hit.player.getUuid(),now+30000);String[] replies={"чё тебе","хватит","отстань","зачем бьёшь","эй, хорош","тебе заняться нечем?","ну всё, я ушёл","не бей","я афк вообще-то","что надо?"};if(random.nextInt(4)!=0)chat(hit,replies[random.nextInt(replies.length)]);if(hit.moving!=null&&random.nextInt(5)!=0){Point point=randomSafePoint(hit.moving.world);hit.moving.setTarget(point.vector());}}
+    public void onBotHit(EntityDamageByEntityEvent event){if(!(event.getDamager() instanceof Player attacker))return;for(ActiveBot bot:active.values()){Player entity=registry.player(bot.player.getUuid());if(entity!=null&&entity.getUniqueId().equals(event.getEntity().getUniqueId())){event.setCancelled(true);registerHit(attacker,bot);return;}}}
+    private void registerHit(Player attacker,ActiveBot hit){long now=System.currentTimeMillis();if(reactionCooldowns.getOrDefault(hit.player.getUuid(),0L)>now)return;String key=attacker.getUniqueId()+":"+hit.profile.name;HitSequence sequence=hitSequences.get(key);if(sequence==null||now-sequence.last>1400)sequence=new HitSequence(now,now);else sequence.last=now;hitSequences.put(key,sequence);if(now-sequence.started<9000)return;hitSequences.remove(key);reactionCooldowns.put(hit.player.getUuid(),now+30000);String[] replies={"чё тебе","хватит","отстань","зачем бьёшь","эй, хорош","тебе заняться нечем?","ну всё, я ушёл","не бей","я афк вообще-то","что надо?"};if(random.nextInt(4)!=0)chat(hit,replies[random.nextInt(replies.length)]);if(hit.moving!=null&&random.nextInt(5)!=0){Point point=randomSafePoint(hit.moving.world);hit.moving.setTarget(point.vector());}}
     private static final class HitSequence{final long started;long last;HitSequence(long started,long last){this.started=started;this.last=last;}}
+    private void installInteractionHook(Player player){try{Channel channel=playerChannel(player);if(channel==null)return;channel.eventLoop().execute(()->{if(channel.pipeline().get("elytrixbots_interact")!=null)return;channel.pipeline().addBefore("packet_handler","elytrixbots_interact",new ChannelDuplexHandler(){@Override public void channelRead(ChannelHandlerContext ctx,Object msg)throws Exception{if(msg.getClass().getSimpleName().equals("PacketPlayInUseEntity")){Integer id=packetEntityId(msg);if(id!=null)Bukkit.getScheduler().runTask(ElytrixBotsPlugin.this,()->{for(ActiveBot bot:active.values())if(bot.moving!=null&&bot.player.getId()==id){registerHit(player,bot);break;}});}super.channelRead(ctx,msg);}});});}catch(Exception ex){getLogger().warning("Cannot install interaction hook for "+player.getName()+": "+ex.getMessage());}}
+    private void removeInteractionHook(Player player){try{Channel channel=playerChannel(player);if(channel!=null)channel.eventLoop().execute(()->{if(channel.pipeline().get("elytrixbots_interact")!=null)channel.pipeline().remove("elytrixbots_interact");});}catch(Exception ignored){}}
+    private Channel playerChannel(Player player)throws Exception{List<Object> level=new ArrayList<>();level.add(player.getClass().getMethod("getHandle").invoke(player));for(int depth=0;depth<3;depth++){List<Object> next=new ArrayList<>();for(Object current:level)for(Class<?> type=current.getClass();type!=null;type=type.getSuperclass())for(Field field:type.getDeclaredFields()){field.setAccessible(true);Object value=field.get(current);if(value instanceof Channel)return(Channel)value;if(value!=null&&(field.getType().getSimpleName().contains("Connection")||field.getType().getSimpleName().contains("NetworkManager")))next.add(value);}level=next;}return null;}
+    private Integer packetEntityId(Object packet){try{for(Class<?> type=packet.getClass();type!=null;type=type.getSuperclass())for(Field field:type.getDeclaredFields())if(field.getType()==int.class){field.setAccessible(true);return field.getInt(packet);}}catch(Exception ignored){}return null;}
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPing(ServerListPingEvent event) {
@@ -130,7 +137,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
 
     private void populationTick(){
         long now=System.currentTimeMillis();
-        if(rooyzeeMode&&now>=nextFanMessage&&!active.isEmpty()){sendFanMessage();nextFanMessage=now+(30+random.nextInt(91))*1000L;}
+        if(rooyzeeMode&&now>=nextFanMessage&&!active.isEmpty()){sendFanMessage();nextFanMessage=now+(15+random.nextInt(41))*1000L;}
         List<ActiveBot> expired=new ArrayList<>();for(ActiveBot bot:active.values())if(bot.expiresAt<=now)expired.add(bot);for(ActiveBot bot:expired)deactivate(bot);
         if(now<nextPopulationChange)return;int target=populationTarget(),automatic=automaticCount();
         if(firstPopulationChange){if(automatic<target)activateOne();firstPopulationChange=false;}
@@ -159,14 +166,14 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         finishActivation(profile,manual,visible,null,player,spawn);return true;
     }
     private void finishActivation(BotProfile profile,boolean manual,boolean visible,User preparedUser,VirtualPlayer player,Location spawn){
-        pendingProfiles.remove(profile.name);if(active.containsKey(profile.name))return;long now=System.currentTimeMillis();player.setPos(vec(spawn));player.setYaw(spawn.getYaw());player.setPitch(spawn.getPitch());player.setOnGround(true);if(preparedUser!=null)luckPermsUsers.put(player.getUuid(),preparedUser);registry.register(profile.name,player.getUuid(),spawn.getWorld());
+        pendingProfiles.remove(profile.name);if(active.containsKey(profile.name))return;long now=System.currentTimeMillis();player.setPos(vec(spawn));player.setYaw(spawn.getYaw());player.setPitch(spawn.getPitch());player.setOnGround(true);if(preparedUser!=null){luckPermsUsers.put(player.getUuid(),preparedUser);displayedGroups.put(player.getUuid(),preparedUser.getPrimaryGroup());}registry.register(profile.name,player.getUuid(),spawn.getWorld());
         registry.position(player.getUuid(),vec(spawn),spawn.getYaw(),spawn.getPitch());tabBots.add(player);realPlayers().forEach(player::sendAddPlayerPacket);MovingBot moving=null;if(visible){Point point=randomSafePoint(spawn.getWorld());moving=new MovingBot(player,spawn.getWorld(),point.vector(),3.4+random.nextDouble());liveBots.add(moving);}
         long expires=manual?Long.MAX_VALUE:now+randomMinutes("population.session-minutes",60,360)*60000L;ActiveBot activated=new ActiveBot(profile,player,moving,expires,manual);active.put(profile.name,activated);getLogger().info(profile.name+" joined"+(manual?" manually":"")+" ("+active.size()+" bots online)");
         // Временная проверка полного глобального чата после регистрации всех плагинов.
         Bukkit.getScheduler().runTaskLater(this,()->{if(active.get(profile.name)==activated)chat(activated,"!1");},60L);
     }
     private void deactivate(ActiveBot bot){
-        for(Player viewer:realPlayers()){bot.player.sendRemovePlayerPacket(viewer);}if(bot.moving!=null){bot.player.tick(Collections.emptySet());liveBots.remove(bot.moving);}tabBots.remove(bot.player);registry.remove(bot.player.getUuid());teams.remove(bot.profile.name);User lpUser=luckPermsUsers.remove(bot.player.getUuid());if(lpUser!=null)try{LuckPermsProvider.get().getUserManager().cleanupUser(lpUser);}catch(Exception ignored){}active.remove(bot.profile.name);database.quit(bot.profile.name,System.currentTimeMillis()+randomMinutes("population.profile-cooldown-minutes",120,360)*60000L);getLogger().info(bot.profile.name+" left ("+active.size()+" bots online)");
+        for(Player viewer:realPlayers()){bot.player.sendRemovePlayerPacket(viewer);}if(bot.moving!=null){bot.player.tick(Collections.emptySet());liveBots.remove(bot.moving);}tabBots.remove(bot.player);registry.remove(bot.player.getUuid());teams.remove(bot.profile.name);displayedGroups.remove(bot.player.getUuid());User lpUser=luckPermsUsers.remove(bot.player.getUuid());if(lpUser!=null)try{LuckPermsProvider.get().getUserManager().cleanupUser(lpUser);}catch(Exception ignored){}active.remove(bot.profile.name);database.quit(bot.profile.name,System.currentTimeMillis()+randomMinutes("population.profile-cooldown-minutes",120,360)*60000L);getLogger().info(bot.profile.name+" left ("+active.size()+" bots online)");
     }
     private Point randomSafePoint(World world){
         for(int attempt=0;attempt<80;attempt++){double centerX=getConfig().getDouble("population.region.center-x",30),centerZ=getConfig().getDouble("population.region.center-z",9),radius=Math.min(30,getConfig().getDouble("population.region.radius",30));double x=centerX+(random.nextDouble()*2-1)*radius,z=centerZ+(random.nextDouble()*2-1)*radius;for(int y=Math.min(world.getMaxHeight()-2,world.getHighestBlockYAt((int)x,(int)z)+1);y>world.getMinHeight();y--){Block floor=world.getBlockAt((int)Math.floor(x),y-1,(int)Math.floor(z));if(!floor.isPassable()&&!unsafeFloor(floor)&&world.getBlockAt((int)x,y,(int)z).isPassable()&&world.getBlockAt((int)x,y+1,(int)z).isPassable())return new Point(world,x+.5,y,z+.5,0,0);}}
@@ -181,8 +188,8 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     }
     private void sendFanMessage(){
         List<ActiveBot> list=new ArrayList<>(active.values());if(list.isEmpty())return;
-        String[] starts={"я со стрима","я его фанат","роузи дай админку","розяка привет","я на стриме","когда видос","фу игноришь","кто с трансляции","давно смотрю","новый ролик топ","розю кто видел","на стриме веселее","привет всем фанатам","я только зашёл","это тот сервер?"};
-        String[] tails={""," ахах"," кстати"," реально"," пж","))","!","?"," уже давно"," сегодня"," отвечай"," го вместе"," кто тоже?"," лол"," наконец-то"};
+        String[] starts={"rooyzee ты тут","роузи ты здесь","розя го скрин","розяка привет","roze ответь","стрим идёт","когда видос","кто со стрима","я со стрима","я его фанат","роузи дай админку","розя заметишь","го скрин на спавне","какой донат купить","роузи какой донат брать","кто покупал донат","донат тут навсегда","хочу купить привилегию","роузи подари донат","го скинемся роузи на донат","у рози какой донат","кто знает цены на донат","донат норм работает","роузи чекни мой донат","может купить lite","хочу донат как у рози","когда раздача доната","розя купи мне донат","я ради рози донат возьму","где донат покупать","rooyzee го играть","розяка не игнорь","роузи когда стрим","тут есть фанаты рози","я только со стрима пришёл","видел новый ролик","роузи лучший","розя привет с трансляции"};
+        String[] tails={""," ахах"," кстати"," реально"," пж","))","!","?"," уже давно"," сегодня"," ответь"," го вместе"," кто тоже"," лол"," ну пожалуйста"," ауу"," слышишь"," брат"," щас"," потом"};
         chat(list.get(random.nextInt(list.size())),starts[random.nextInt(starts.length)]+tails[random.nextInt(tails.length)]);
     }
     private void chat(ActiveBot bot,String message){Player sender=registry.player(bot.player.getUuid());if(sender!=null)sender.chat(message.startsWith("!")?message:"!"+message);}
@@ -201,7 +208,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         return p;
     }
 
-    private void refreshStyles(){if(!Bukkit.getPluginManager().isPluginEnabled("LuckPerms"))return;for(ActiveBot bot:active.values()){User user=luckPermsUsers.get(bot.player.getUuid());if(user==null)continue;String group=user.getPrimaryGroup();teams.remove(bot.profile.name);BotTeamManager.Style style=teams.add(bot.profile.name,group,getConfig().getString("formatting.default-suffix"," &dБЕТА"));String label=style.prefix()+ChatColor.GRAY+bot.profile.name+style.suffix();bot.player.setDisplayName(LegacyComponentSerializer.legacySection().deserialize(label));for(Player viewer:realPlayers())bot.player.sendAddPlayerPacket(viewer);}}
+    private void refreshStyles(){if(!Bukkit.getPluginManager().isPluginEnabled("LuckPerms"))return;for(ActiveBot bot:active.values()){User user=luckPermsUsers.get(bot.player.getUuid());if(user==null)continue;String group=user.getPrimaryGroup();if(group.equalsIgnoreCase(displayedGroups.getOrDefault(bot.player.getUuid(),"")))continue;displayedGroups.put(bot.player.getUuid(),group);teams.remove(bot.profile.name);BotTeamManager.Style style=teams.add(bot.profile.name,group,getConfig().getString("formatting.default-suffix"," &dБЕТА"));String label=style.prefix()+ChatColor.GRAY+bot.profile.name+style.suffix();bot.player.setDisplayName(LegacyComponentSerializer.legacySection().deserialize(label));for(Player viewer:realPlayers())bot.player.sendAddPlayerPacket(viewer);}}
 
     private List<Player> realPlayers() {
         List<Player> result = new ArrayList<>();
@@ -290,7 +297,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         final VirtualPlayer player; final World world; Vec3d target; final double speed; List<Vec3d> route;
         final double moveFactor=.96+random.nextDouble()*.08,turnFactor=.90+random.nextDouble()*.20;
         final float learnedTurn=datasets.learnedTurnSpeed()*(float)turnFactor;
-        List<DatasetManager.MotionSample> sequence=Collections.emptyList();int frame,idleCooldown,routeIndex,jumpCooldown,stuckTicks,ambientCooldown=100+random.nextInt(301),ambientTicks,spawnDelay=40+random.nextInt(121);boolean arrived,airborneLastTick,ambientJump,afkPoseSet;double verticalVelocity,airborneStartY,velocityX,velocityZ;float lookYaw,lookPitch,ambientYaw,ambientPitch,idleTurnSpeed=3;double currentPace=1,targetPace=1;int paceTicks;long afkUntil;Vec3d lastProgressPos;
+        List<DatasetManager.MotionSample> sequence=Collections.emptyList();int frame,idleCooldown,routeIndex,jumpCooldown,stuckTicks,ambientCooldown=20+random.nextInt(81),ambientTicks,spawnDelay=40+random.nextInt(121);boolean arrived,airborneLastTick,ambientJump,afkPoseSet;double verticalVelocity,airborneStartY,velocityX,velocityZ;float lookYaw,lookPitch,ambientYaw,ambientPitch,idleTurnSpeed=3;double currentPace=1,targetPace=1;int paceTicks;long afkUntil;Vec3d lastProgressPos;
         MovingBot(VirtualPlayer p,World w,Vec3d t,double s){player=p;world=w;target=t;speed=Math.max(.1,s);route=GridPathfinder.find(w,p.getPos(),t);lookYaw=p.getYaw();lookPitch=p.getPitch();lastProgressPos=p.getPos();}
         void setTarget(Vec3d next){target=next;route=GridPathfinder.find(world,player.getPos(),target);routeIndex=0;arrived=false;afkPoseSet=false;spawnDelay=20+random.nextInt(61);stuckTicks=0;lastProgressPos=player.getPos();}
         DatasetManager.MotionSample next(){if(sequence.isEmpty()){sequence=datasets.randomSequence(random);if(sequence.isEmpty())return null;frame=random.nextInt(sequence.size());}return sequence.get(frame++%sequence.size());}
@@ -311,7 +318,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
                 if(Math.hypot(target.x-p.x,target.z-p.z)>.6){route=GridPathfinder.find(world,p,target);routeIndex=0;return;}
                 arrived=true;afkUntil=System.currentTimeMillis()+randomMinutes("population.afk-minutes",5,60)*60000L;player.setSprinting(false);idleBehavior();return;
             }
-            if(ambientTicks>0)ambientTicks--;else{ambientYaw=approach(ambientYaw,0,.35F);ambientPitch=approach(ambientPitch,0,.25F);if(--ambientCooldown<=0){ambientTicks=20+random.nextInt(41);ambientYaw=(random.nextBoolean()?1:-1)*(5+random.nextFloat()*13);ambientPitch=-5+random.nextFloat()*10;ambientJump=random.nextInt(4)==0;ambientCooldown=120+random.nextInt(481);}}
+            if(ambientTicks>0)ambientTicks--;else{ambientYaw=approach(ambientYaw,0,.35F);ambientPitch=approach(ambientPitch,0,.25F);if(--ambientCooldown<=0){ambientTicks=8+random.nextInt(23);ambientYaw=(random.nextBoolean()?1:-1)*(3+random.nextFloat()*19);ambientPitch=-9+random.nextFloat()*18;ambientJump=random.nextInt(7)==0;ambientCooldown=20+random.nextInt(81);}}
             float desired=(float)Math.toDegrees(Math.atan2(-dx,dz))+ambientYaw;
             float turnLimit=Math.max(1.2F,Math.min(learnedTurn,learnedTurn*(.65F+Math.min(.35F,Math.abs(sample.yawDelta)/20F))));
             player.setYaw(approachAngle(player.getYaw(),desired,turnLimit));
