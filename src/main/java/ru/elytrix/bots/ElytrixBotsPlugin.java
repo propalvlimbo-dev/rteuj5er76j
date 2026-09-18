@@ -76,6 +76,7 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
         if (proxySync != null) proxySync.stop();
         for (Player viewer : realPlayers()) {
             tabBots.forEach(bot -> bot.sendRemovePlayerPacket(viewer));
+            active.values().forEach(bot->registry.hideTab(bot.player.getUuid(),viewer));
             liveBots.forEach(bot -> { bot.player.tick(Collections.emptySet()); bot.player.sendRemovePlayerPacket(viewer); });
         }
         teams.clear(); registry.clear();
@@ -118,6 +119,8 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     private void sendTab(Player viewer) {
         if (!viewer.isOnline()) return;
         tabBots.forEach(bot -> bot.sendAddPlayerPacket(viewer));
+        // Полный NMS-профиль нужен плагинам, но клиенту показываем только оформленную VirtualPlayer-запись.
+        for(ActiveBot bot:active.values())registry.hideTab(bot.player.getUuid(),viewer);
     }
 
     private int fakeCount() { return active.size(); }
@@ -167,11 +170,11 @@ public final class ElytrixBotsPlugin extends JavaPlugin implements Listener, Com
     }
     private void finishActivation(BotProfile profile,boolean manual,boolean visible,User preparedUser,VirtualPlayer player,Location spawn){
         pendingProfiles.remove(profile.name);if(active.containsKey(profile.name))return;long now=System.currentTimeMillis();player.setPos(vec(spawn));player.setYaw(spawn.getYaw());player.setPitch(spawn.getPitch());player.setOnGround(true);if(preparedUser!=null){luckPermsUsers.put(player.getUuid(),preparedUser);displayedGroups.put(player.getUuid(),preparedUser.getPrimaryGroup());}registry.register(profile.name,player.getUuid(),spawn.getWorld());
-        registry.position(player.getUuid(),vec(spawn),spawn.getYaw(),spawn.getPitch());tabBots.add(player);realPlayers().forEach(player::sendAddPlayerPacket);MovingBot moving=null;if(visible){Point point=randomSafePoint(spawn.getWorld());moving=new MovingBot(player,spawn.getWorld(),point.vector(),3.4+random.nextDouble());liveBots.add(moving);}
+        registry.position(player.getUuid(),vec(spawn),spawn.getYaw(),spawn.getPitch());tabBots.add(player);for(Player viewer:realPlayers()){player.sendAddPlayerPacket(viewer);registry.hideTab(player.getUuid(),viewer);}MovingBot moving=null;if(visible){Point point=randomSafePoint(spawn.getWorld());moving=new MovingBot(player,spawn.getWorld(),point.vector(),3.4+random.nextDouble());liveBots.add(moving);}
         long expires=manual?Long.MAX_VALUE:now+randomMinutes("population.session-minutes",60,360)*60000L;ActiveBot activated=new ActiveBot(profile,player,moving,expires,manual);active.put(profile.name,activated);getLogger().info(profile.name+" joined"+(manual?" manually":"")+" ("+active.size()+" bots online)");
     }
     private void deactivate(ActiveBot bot){
-        for(Player viewer:realPlayers()){bot.player.sendRemovePlayerPacket(viewer);}if(bot.moving!=null){bot.player.tick(Collections.emptySet());liveBots.remove(bot.moving);}tabBots.remove(bot.player);registry.remove(bot.player.getUuid());teams.remove(bot.profile.name);displayedGroups.remove(bot.player.getUuid());User lpUser=luckPermsUsers.remove(bot.player.getUuid());if(lpUser!=null)try{LuckPermsProvider.get().getUserManager().cleanupUser(lpUser);}catch(Exception ignored){}active.remove(bot.profile.name);database.quit(bot.profile.name,System.currentTimeMillis()+randomMinutes("population.profile-cooldown-minutes",120,360)*60000L);getLogger().info(bot.profile.name+" left ("+active.size()+" bots online)");
+        for(Player viewer:realPlayers()){bot.player.sendRemovePlayerPacket(viewer);registry.hideTab(bot.player.getUuid(),viewer);}if(bot.moving!=null){bot.player.tick(Collections.emptySet());liveBots.remove(bot.moving);}tabBots.remove(bot.player);registry.remove(bot.player.getUuid());teams.remove(bot.profile.name);displayedGroups.remove(bot.player.getUuid());User lpUser=luckPermsUsers.remove(bot.player.getUuid());if(lpUser!=null)try{LuckPermsProvider.get().getUserManager().cleanupUser(lpUser);}catch(Exception ignored){}active.remove(bot.profile.name);database.quit(bot.profile.name,System.currentTimeMillis()+randomMinutes("population.profile-cooldown-minutes",120,360)*60000L);getLogger().info(bot.profile.name+" left ("+active.size()+" bots online)");
     }
     private Point randomSafePoint(World world){
         for(int attempt=0;attempt<80;attempt++){double centerX=getConfig().getDouble("population.region.center-x",30),centerZ=getConfig().getDouble("population.region.center-z",9),radius=Math.min(30,getConfig().getDouble("population.region.radius",30));double x=centerX+(random.nextDouble()*2-1)*radius,z=centerZ+(random.nextDouble()*2-1)*radius;for(int y=Math.min(world.getMaxHeight()-2,world.getHighestBlockYAt((int)x,(int)z)+1);y>world.getMinHeight();y--){Block floor=world.getBlockAt((int)Math.floor(x),y-1,(int)Math.floor(z));if(!floor.isPassable()&&!unsafeFloor(floor)&&world.getBlockAt((int)x,y,(int)z).isPassable()&&world.getBlockAt((int)x,y+1,(int)z).isPassable())return new Point(world,x+.5,y,z+.5,0,0);}}
