@@ -53,8 +53,8 @@ final class NmsFakePlayerRegistry {
         // CraftBukkit lookup methods and World#getPlayers use additional UUID/name maps and the world's player list.
         for(Object owner:List.of(playerList,worldServer))for(Class<?> type=owner.getClass();type!=null;type=type.getSuperclass())for(Field field:type.getDeclaredFields()){
             String generic=field.getGenericType().getTypeName();if(!generic.contains("EntityPlayer")&&!generic.contains("EntityHuman"))continue;field.setAccessible(true);Object value=field.get(owner);
-            if(value instanceof List<?> raw){List<Object> list=(List<Object>)raw;if(!list.contains(entity))list.add(entity);lists.add(list);}
-            else if(value instanceof Map<?,?> raw){Map<Object,Object> map=(Map<Object,Object>)raw;Object key=generic.contains("java.lang.String")?name.toLowerCase(Locale.ROOT):uuid;map.put(key,entity);maps.add(map);}
+            if(value instanceof List<?> raw){List<Object> list=(List<Object>)raw;if(list.contains(entity))lists.add(list);}
+            else if(value instanceof Map<?,?> raw){Map<Object,Object> map=(Map<Object,Object>)raw;if(map.containsValue(entity))maps.add(map);}
         }
         indexedCollections.put(uuid,lists);indexedMaps.put(uuid,maps);
     }
